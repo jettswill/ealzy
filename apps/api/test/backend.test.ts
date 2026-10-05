@@ -121,7 +121,7 @@ describe("webhook idempotency", () => {
     expect(first.status).toBe(200);
     expect(second.body.duplicate).toBe(true);
     expect(telegram.sent).toHaveLength(1);
-    expect(telegram.sent[0]!.text).toMatch(/личный помощник/);
+    expect(telegram.sent[0]!.text).toMatch(/Привет! Я Илзи/);
     expect(repository.messages).toHaveLength(2);
     expect(repository.messages.map((message) => message.role)).toEqual(["user", "assistant"]);
   });

@@ -86,6 +86,10 @@ describe("companion eval pipeline", () => {
   it("packs projects, spaces and overflow into the workspace", async () => {
     const repository = new InMemoryRepository();
     const user = await repository.upsertTelegramUser({ telegram_id: 90, name: "A" });
+    // Портрет собирается только из сказанного человеком (био, ценности, память)
+    // и из сильных сторон; у пустого аккаунта он честно пустой, а просрочка и
+    // бэклог идут отдельно в patterns.
+    await repository.updateProfile(user.id, { bio: "Продакт, двое детей" });
     const goal = await repository.createGoal(user.id, { title: "Запустить лендинг" });
     await repository.createProject(user.id, { name: "Редизайн", goal_id: goal.id });
     await repository.createSpace(user.id, { name: "Работа", type: "work" });
@@ -103,7 +107,7 @@ describe("companion eval pipeline", () => {
     expect(workspace.projects.some((item) => item.name === "Редизайн")).toBe(true);
     expect(workspace.spaces.some((item) => item.name === "Работа")).toBe(true);
     expect(workspace.overflow.extra_tasks).toBe(context.overflow.extra_tasks);
-    expect(workspace.self.portrait).toBeTruthy();
+    expect(workspace.self.portrait).toContain("Продакт");
     expect(workspace.self.patterns.some((item) => item.kind === "overdue_cluster")).toBe(true);
     expect(workspace.self.patterns.some((item) => item.kind === "undated_backlog")).toBe(true);
   });

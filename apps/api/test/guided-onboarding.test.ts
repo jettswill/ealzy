@@ -111,7 +111,8 @@ describe("guided onboarding webhook", () => {
         from: { id: 44, first_name: "Аня" },
       },
     });
-    expect(telegram.sent[0]?.text).toMatch(/личный помощник/);
+    // Первое сообщение — приветствие Илзи; формулировки «личный помощник» в продукте нет.
+    expect(telegram.sent[0]?.text).toMatch(/Привет! Я Илзи/);
 
     await webhook({
       update_id: 2,
