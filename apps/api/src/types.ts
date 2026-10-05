@@ -1,0 +1,555 @@
+export type MemoryCategory =
+  | "interest"
+  | "dislike"
+  | "favorite_place"
+  | "favorite_food"
+  | "gift"
+  | "size"
+  | "dream"
+  | "important_date"
+  | "story"
+  | "personality"
+  | "experience"
+  | "preference"
+  | "skill"
+  | "important_event"
+  | "important_fact"
+  | "other";
+export type TaskStatus = "todo" | "in_progress" | "done" | "cancelled";
+export type TaskAssignee = "user" | "ealzy";
+export type TaskKind = "task" | "meeting";
+export type TaskActivityType =
+  "development" | "routine" | "entertainment" | "household" | "degradation";
+export type TaskRecurrenceFrequency = "daily" | "weekly" | "monthly";
+export type AssistantIntent =
+  | "remember"
+  | "recommend"
+  | "create_task"
+  | "create_space"
+  | "create_goal"
+  | "create_project"
+  | "query_memory"
+  | "organize_event"
+  | "companion"
+  | "reflection"
+  | "experience"
+  | "other";
+export type SourceChannel = "telegram" | "mini_app" | "system";
+
+export interface User {
+  id: string;
+  telegram_id: number | null;
+  name: string;
+  username: string | null;
+  auth_user_id: string | null;
+  email: string | null;
+  is_guest?: boolean;
+  created_at: string;
+}
+export interface PersonLocation {
+  id: string;
+  person_id: string;
+  label: string | null;
+  city: string;
+  address: string | null;
+  is_primary: boolean;
+  created_at: string;
+  updated_at: string;
+}
+export type PersonDateKind = "birthday" | "met" | "wedding" | "anniversary" | "other";
+export interface PersonDate {
+  id: string;
+  person_id: string;
+  kind: PersonDateKind;
+  label: string | null;
+  month: number;
+  day: number;
+  year: number | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface Person {
+  id: string;
+  owner_id: string;
+  name: string;
+  relationship: string | null;
+  description: string | null;
+  aliases: string[];
+  is_self: boolean;
+  locations?: PersonLocation[];
+  dates?: PersonDate[];
+  created_at: string;
+  updated_at: string;
+}
+export interface Memory {
+  id: string;
+  person_id: string;
+  content: string;
+  category: MemoryCategory;
+  importance: number;
+  confidence: number;
+  source_message_id: string | null;
+  occurred_at: string | null;
+  metadata: Record<string, unknown>;
+  status: "active" | "archived";
+  created_at: string;
+  updated_at: string;
+}
+export interface Space {
+  id: string;
+  owner_id: string;
+  name: string;
+  type: string;
+  context: string | null;
+  person_ids: string[];
+  created_at: string;
+  updated_at: string;
+  people?: Person[];
+  tasks?: Task[];
+}
+export interface Task {
+  id: string;
+  owner_id: string;
+  space_id: string | null;
+  person_id: string | null;
+  goal_id: string | null;
+  project_id: string | null;
+  source_note_id?: string | null;
+  due_at: string | null;
+  estimate_minutes?: number | null;
+  completed_at: string | null;
+  sort_order?: number | null;
+  recurrence_frequency?: TaskRecurrenceFrequency | null;
+  recurrence_series_id?: string | null;
+  recurrence_anchor_at?: string | null;
+  recurrence_template?: Record<string, unknown> | null;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  kind?: TaskKind;
+  activity_type?: TaskActivityType | null;
+  value_score?: number | null;
+  importance?: number;
+  urgency?: number;
+  assignee?: TaskAssignee;
+  agent_locked_at?: string | null;
+  agent_attempts?: number;
+  agent_result?: string | null;
+  created_at: string;
+  updated_at: string;
+  person?: Pick<Person, "id" | "name"> | null;
+  space?: Pick<Space, "id" | "name"> | null;
+  goal?: Pick<Goal, "id" | "title"> | null;
+  project?: Pick<Project, "id" | "name"> | null;
+}
+export interface RecommendationProvenance {
+  type: "memory" | "experience" | "profile" | "generic";
+  id?: string;
+  label?: string;
+  detail?: string;
+}
+export interface RecommendationItem {
+  title: string;
+  rationale: string;
+  memory_ids?: string[];
+  experience_ids?: string[];
+  is_generic?: boolean;
+  provenance?: RecommendationProvenance[];
+}
+export interface Recommendation {
+  id: string;
+  owner_id: string;
+  person_id: string | null;
+  space_id: string | null;
+  task_id: string | null;
+  query: string;
+  items: RecommendationItem[];
+  memory_ids: string[];
+  experience_ids: string[];
+  created_at: string;
+  person?: Pick<Person, "id" | "name"> | null;
+  space?: Pick<Space, "id" | "name"> | null;
+  task?: Pick<Task, "id" | "title"> | null;
+}
+export interface RecommendationFeedback {
+  id: string;
+  recommendation_id: string;
+  owner_id: string;
+  item_index: number;
+  outcome: "liked" | "disliked" | "used";
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface Message {
+  id: string;
+  owner_id: string;
+  conversation_id: string;
+  telegram_chat_id: number | null;
+  telegram_message_id: number | null;
+  role: "user" | "assistant" | "system";
+  content: string;
+  intent: AssistantIntent | null;
+  source_channel: SourceChannel;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+export interface Conversation {
+  id: string;
+  owner_id: string;
+  kind: "companion" | "system";
+  mode: "command" | "companion";
+  title: string | null;
+  summary: string | null;
+  is_primary: boolean;
+  last_message_at: string;
+  created_at: string;
+  updated_at: string;
+}
+export type ScheduledNotificationKind = "morning_digest" | "weekly_digest" | "evening_sync";
+export interface UserProfile {
+  owner_id: string;
+  self_person_id: string;
+  bio: string | null;
+  values: string[];
+  communication_style: string | null;
+  timezone: string;
+  locale: string;
+  context_summary: string | null;
+  weekly_reflection_enabled: boolean;
+  morning_digest_enabled: boolean;
+  morning_digest_time: string;
+  weekly_digest_enabled: boolean;
+  weekly_digest_time: string;
+  evening_sync_enabled: boolean;
+  evening_sync_time: string;
+  last_morning_digest_on: string | null;
+  last_weekly_digest_on: string | null;
+  last_evening_sync_on: string | null;
+  last_goal_checkin_on: string | null;
+  onboarding_completed_at: string | null;
+  last_active_at: string | null;
+  last_reengagement_at: string | null;
+  reengagement_enabled: boolean;
+  updated_at: string;
+}
+export interface Me {
+  user: User;
+  profile: UserProfile;
+  self: PersonProfile;
+}
+export interface GoalStats {
+  task_count: number;
+  done_count: number;
+  open_count: number;
+  progress: number;
+  days_active: number;
+}
+export interface Goal {
+  id: string;
+  owner_id: string;
+  title: string;
+  description: string | null;
+  status: "active" | "completed" | "paused" | "cancelled";
+  horizon: "short" | "medium" | "long" | null;
+  priority: number;
+  target_date: string | null;
+  source_note_id?: string | null;
+  current_plan?: string | null;
+  plan_revised_at?: string | null;
+  created_at: string;
+  updated_at: string;
+  stats?: GoalStats;
+  tasks?: Task[];
+}
+export type SelfPromiseStatus = "active" | "paused" | "retired";
+export type SelfPromiseCheckinStatus = "keeping" | "struggling" | "broken";
+export interface SelfPromiseStats {
+  keeping_days: number;
+  keeping_count: number;
+  struggling_count: number;
+  broken_count: number;
+  last_checkin_at: string | null;
+  last_checkin_status: SelfPromiseCheckinStatus | null;
+  due_for_checkin: boolean;
+  praise_days: number | null;
+}
+export interface SelfPromiseCheckin {
+  id: string;
+  owner_id: string;
+  promise_id: string;
+  status: SelfPromiseCheckinStatus;
+  note: string | null;
+  created_at: string;
+}
+export interface SelfPromise {
+  id: string;
+  owner_id: string;
+  title: string;
+  description: string | null;
+  status: SelfPromiseStatus;
+  started_at: string;
+  created_at: string;
+  updated_at: string;
+  stats?: SelfPromiseStats;
+  recent_checkins?: SelfPromiseCheckin[];
+}
+export interface Project {
+  id: string;
+  owner_id: string;
+  goal_id: string | null;
+  space_id: string | null;
+  name: string;
+  description: string | null;
+  status: "active" | "completed" | "paused" | "cancelled";
+  created_at: string;
+  updated_at: string;
+  goal?: Pick<Goal, "id" | "title"> | null;
+  space?: Pick<Space, "id" | "name"> | null;
+}
+export interface Reflection {
+  id: string;
+  owner_id: string;
+  period_start: string;
+  period_end: string;
+  wins: string[];
+  improvements: string[];
+  next_steps: string[];
+  source_snapshot: Record<string, unknown>;
+  created_at: string;
+}
+export interface UsageCounter {
+  owner_id: string;
+  used_on: string;
+  metric: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  call_count: number;
+  updated_at: string;
+}
+export interface PendingAction {
+  id: string;
+  owner_id: string;
+  telegram_chat_id: number;
+  action: string;
+  payload: Record<string, unknown>;
+  expires_at: string;
+  created_at: string;
+}
+export type MailProvider = "gmail" | "yandex" | "mailru" | "outlook" | "custom";
+export type MailAccountStatus = "active" | "error" | "disabled";
+export type MailDraftStatus = "draft" | "sent" | "failed";
+export type MailPlaybookTrigger = "important" | "meeting" | "unread" | "custom";
+export type MailPlaybookAction = "summarize" | "create_task" | "draft_reply";
+
+export interface MailAccount {
+  id: string;
+  owner_id: string;
+  email: string;
+  provider: MailProvider;
+  username: string;
+  imap_host: string;
+  imap_port: number;
+  smtp_host: string;
+  smtp_port: number;
+  secret_cipher: string;
+  status: MailAccountStatus;
+  last_error: string | null;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type MailAccountPublic = Omit<MailAccount, "secret_cipher">;
+
+export interface MailMessage {
+  id: string;
+  owner_id: string;
+  account_id: string;
+  provider_uid: string;
+  from_address: string;
+  from_name: string | null;
+  to_address: string | null;
+  subject: string;
+  snippet: string;
+  received_at: string | null;
+  is_important: boolean;
+  is_meeting: boolean;
+  meeting_at: string | null;
+  has_calendar_invite: boolean;
+  handled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MailDraft {
+  id: string;
+  owner_id: string;
+  account_id: string;
+  message_id: string | null;
+  to_address: string;
+  subject: string;
+  body: string;
+  status: MailDraftStatus;
+  error: string | null;
+  sent_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MailPlaybook {
+  id: string;
+  owner_id: string;
+  account_id: string | null;
+  name: string;
+  trigger: MailPlaybookTrigger;
+  actions: MailPlaybookAction[];
+  prompt: string | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PersonalContext {
+  profile: Pick<
+    UserProfile,
+    | "bio"
+    | "values"
+    | "communication_style"
+    | "timezone"
+    | "locale"
+    | "last_goal_checkin_on"
+    | "context_summary"
+    | "weekly_reflection_enabled"
+    | "morning_digest_enabled"
+    | "morning_digest_time"
+    | "weekly_digest_enabled"
+    | "weekly_digest_time"
+    | "evening_sync_enabled"
+    | "evening_sync_time"
+    | "reengagement_enabled"
+  >;
+  telegram_linked: boolean;
+  known_patterns: { kind: string; detail: string }[];
+  self_memories: Memory[];
+  self_gender?: "female" | "male" | "unknown";
+  goals: Goal[];
+  promises: SelfPromise[];
+  projects: Project[];
+  tasks: Task[];
+  goal_history_tasks: Task[];
+  spaces: Space[];
+  recent_messages: Message[];
+  people_index: {
+    id: string;
+    name: string;
+    relationship: string | null;
+    city: string | null;
+    birthday: string | null;
+  }[];
+  relevant_people: PersonProfile[];
+  relevant_person: PersonProfile | null;
+  self_locations: PersonLocation[];
+  recommendation_feedback: RecommendationFeedback[];
+  experiences: Experience[];
+  mail_accounts: MailAccountPublic[];
+  mail_messages: MailMessage[];
+  mail_drafts: MailDraft[];
+  mail_playbooks: MailPlaybook[];
+  upcoming_dates: {
+    person: string | null;
+    person_id?: string | null;
+    relationship?: string | null;
+    gender?: "female" | "male" | "unknown";
+    label: string;
+    date: string;
+    days_until: number;
+    kind: "birthday" | "holiday" | "date";
+    gift_history?: string[];
+    tastes?: string[];
+  }[];
+  city: string;
+  overflow: {
+    extra_tasks: number;
+    extra_overdue: number;
+    extra_goals: number;
+    extra_projects: number;
+    extra_spaces: number;
+  };
+  discovery_results: {
+    kind: "product" | "place" | "shop" | "web";
+    title: string;
+    subtitle: string;
+    url: string;
+    price: string | null;
+    source: string;
+  }[];
+}
+export type ExperienceType =
+  "restaurant" | "theater" | "trip" | "event" | "gift" | "activity" | "other";
+export interface Experience {
+  id: string;
+  owner_id: string;
+  type: ExperienceType;
+  title: string;
+  place: string | null;
+  description: string | null;
+  occurred_at: string | null;
+  positive_signals: string[];
+  negative_signals: string[];
+  emotions: string[];
+  outcome: string | null;
+  source_message_id: string | null;
+  planned_task_id: string | null;
+  planned_space_id: string | null;
+  follow_up_at: string | null;
+  status: "planned" | "completed" | "follow_up_due";
+  participant_ids: string[];
+  participants?: Pick<Person, "id" | "name">[];
+  created_at: string;
+  updated_at: string;
+}
+export interface PersonProfile extends Person {
+  memories: Memory[];
+}
+export type PersonResolution =
+  | { status: "unique"; person: Person }
+  | { status: "ambiguous"; people: Person[] }
+  | { status: "not_found"; people: [] };
+
+export type ImportSource = "todoist" | "text";
+export type ImportStatus = "preview" | "confirmed" | "cancelled";
+export type ImportItemKind = "project" | "task";
+
+export interface ImportItem {
+  id: string;
+  kind: ImportItemKind;
+  title: string;
+  due_at: string | null;
+  importance: number | null;
+  project_title: string | null;
+  source_id: string | null;
+  duplicate: boolean;
+}
+
+export interface ImportSession {
+  id: string;
+  owner_id: string;
+  source: ImportSource;
+  status: ImportStatus;
+  items: ImportItem[];
+  access_token: string | null;
+  log: Record<string, unknown>;
+  created_at: string;
+  confirmed_at: string | null;
+}
+
+export type {
+  Note,
+  NoteActionPreview,
+  NoteActionProposal,
+  NoteContent,
+  NoteMutation,
+  NoteRevision,
+} from "@lifeos/contracts";

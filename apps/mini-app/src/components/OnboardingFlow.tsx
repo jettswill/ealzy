@@ -1,0 +1,168 @@
+import { useState, type FormEvent } from "react";
+import { useAuth } from "../auth";
+import { useI18n } from "../i18n";
+import { COMMON_TIMEZONES, detectTimeZone } from "../i18n/locale";
+import { trackEvent } from "../analytics";
+import { Button, Field } from "./ui";
+import { EalzyMark } from "./EalzyLogo";
+
+const STEPS = ["timezone", "work", "goal"] as const;
+
+export function OnboardingFlow({
+  onComplete,
+  onSkip,
+}: {
+  onComplete: () => void;
+  onSkip: () => void;
+}) {
+  const { api } = useAuth();
+  const { t } = useI18n();
+  const [showIntro, setShowIntro] = useState(true);
+  const [step, setStep] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const detected = detectTimeZone();
+
+  const stepLabels = [t("profile.timezone"), t("profile.stepWork"), t("profile.stepGoal")];
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setSaving(true);
+    setError("");
+    try {
+      const current = STEPS[step];
+      if (current === "timezone") {
+        const tz = String(form.get("timezone")).trim();
+        await api.updateMe({ timezone: tz });
+      } else if (current === "work") {
+        const text = String(form.get("work")).trim();
+        if (text) {
+          await api.updateMe({ bio: text });
+          await api.createSelfMemory({
+            content: text,
+            category: "important_fact",
+            importance: 4,
+            confidence: 1,
+          });
+        }
+      } else if (current === "goal") {
+        const title = String(form.get("goal")).trim();
+        if (title) {
+          await api.createGoal({ title, priority: 4 });
+        }
+      }
+      trackEvent(`onboarding_step_${step + 1}`, { step: STEPS[step] });
+      if (step < STEPS.length - 1) {
+        setStep(step + 1);
+        setSaving(false);
+      } else {
+        await api.updateMe({
+          onboarding_completed_at: new Date().toISOString(),
+        });
+        trackEvent("onboarding_complete", { skipped: false });
+        onComplete();
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : t("common.saveFailed"));
+      setSaving(false);
+    }
+  };
+
+  // Skipping (from the intro or from any step) never tells the server onboarding
+  // finished — it just stops blocking this session, so the empty tasks page can
+  // still offer to pick it back up later (see reopenOnboarding).
+  const skip = (fromStep: "intro" | (typeof STEPS)[number]) => {
+    trackEvent("onboarding_skipped", { step: fromStep });
+    onSkip();
+  };
+
+  if (showIntro) {
+    return (
+      <main className="onboarding-flow">
+        <div className="onboarding-container">
+          <EalzyMark className="onboarding-logo" />
+          <h1 className="onboarding-title">{t("onboarding.introTitle")}</h1>
+          <p className="onboarding-lead">{t("onboarding.introPitch")}</p>
+          <div className="onboarding-actions">
+            <Button className="w-full" type="button" onClick={() => setShowIntro(false)}>
+              {t("onboarding.introStart")}
+            </Button>
+            <button type="button" className="onboarding-skip" onClick={() => skip("intro")}>
+              {t("onboarding.introSkip")}
+            </button>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="onboarding-flow">
+      <div className="onboarding-container">
+        <EalzyMark className="onboarding-logo" />
+        <h1 className="onboarding-title">
+          {t("onboarding.title", { step: step + 1, total: STEPS.length })}
+        </h1>
+        <p className="onboarding-lead">{t("onboarding.lead")}</p>
+
+        <div className="chip-row onboarding-steps">
+          {stepLabels.map((label, index) => (
+            <span
+              key={label}
+              className={`chip ${index === step ? "chip-active" : index < step ? "chip-done" : ""}`}
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+
+        <form className="onboarding-form" onSubmit={submit}>
+          {STEPS[step] === "timezone" && (
+            <Field label={t("profile.timezone")} hint={t("profile.timezoneHint")}>
+              <select className="input" name="timezone" defaultValue={detected}>
+                {Array.from(new Set([detected, ...COMMON_TIMEZONES])).map((zone) => (
+                  <option key={zone} value={zone}>
+                    {zone.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+
+          {STEPS[step] === "work" && (
+            <Field label={t("profile.oneWork")}>
+              <textarea className="input min-h-24" name="work" required autoFocus />
+            </Field>
+          )}
+
+          {STEPS[step] === "goal" && (
+            <Field label={t("profile.oneGoal")}>
+              <input className="input" name="goal" required autoFocus />
+            </Field>
+          )}
+
+          {error && <p className="error-text">{error}</p>}
+
+          <div className="onboarding-actions">
+            <Button className="w-full" type="submit" disabled={saving}>
+              {saving
+                ? t("common.saving")
+                : step === STEPS.length - 1
+                  ? t("profile.finishOnboarding")
+                  : t("profile.continue")}
+            </Button>
+            <button
+              type="button"
+              className="onboarding-skip"
+              onClick={() => skip(STEPS[step])}
+              disabled={saving}
+            >
+              {t("onboarding.skip")}
+            </button>
+          </div>
+        </form>
+      </div>
+    </main>
+  );
+}

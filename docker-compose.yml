@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ealzy
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ealzy
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ealzy -d ealzy"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  postgrest:
+    image: postgrest/postgrest:v12.2.3
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${PGRST_AUTHENTICATOR_PASSWORD}@postgres:5432/ealzy
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${PGRST_JWT_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    image: ealzy-api:${RELEASE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: runtime
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      SUPABASE_URL: http://postgrest:3000
+    ports:
+      - "127.0.0.1:3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgrest:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3001/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+  web:
+    image: ealzy-web:${RELEASE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/mini-app/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
+        VITE_TELEGRAM_BOT_USERNAME: ${VITE_TELEGRAM_BOT_USERNAME}
+        VITE_TELEGRAM_BOT_ID: ${VITE_TELEGRAM_BOT_ID:-}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+    restart: unless-stopped
+
+  migrate:
+    image: ealzy-migrate:${RELEASE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migration
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://ealzy:${POSTGRES_PASSWORD}@postgres:5432/ealzy
+      PGRST_AUTHENTICATOR_PASSWORD: ${PGRST_AUTHENTICATOR_PASSWORD}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    profiles: ["tools"]
+    restart: "no"
+
+volumes:
+  pgdata:

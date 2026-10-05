@@ -1,0 +1,16 @@
+[Interface]
+PrivateKey = REPLACE_WITH_CLIENT_PRIVATE_KEY
+Address = 10.9.0.8/32
+MTU = 1380
+PostUp = sysctl -q net.ipv4.ip_forward=1
+PostUp = /etc/wireguard/policy-routes.sh up %i
+PostUp = resolvectl dns %i 10.9.0.1; resolvectl domain %i ~telegram.org ~telegram.me ~t.me ~tdesktop.com ~telegra.ph ~gmail.com ~googlemail.com ~google.com ~outlook.office365.com ~office365.com ~outlook.com
+PostUp = /etc/wireguard/mail-routes.sh %i || true
+PostDown = /etc/wireguard/policy-routes.sh down %i
+PostDown = resolvectl revert %i || true
+
+[Peer]
+PublicKey = REPLACE_WITH_SERVER_PUBLIC_KEY
+Endpoint = REPLACE_WITH_VPN_ENDPOINT:51820
+AllowedIPs = 10.9.0.1/32, 91.108.4.0/22, 91.108.8.0/22, 91.108.12.0/22, 91.108.16.0/22, 91.108.20.0/22, 91.108.56.0/22, 91.105.192.0/23, 149.154.160.0/20, 185.76.151.0/24, 64.233.160.0/19, 66.102.0.0/20, 66.249.64.0/19, 72.14.192.0/18, 74.125.0.0/16, 108.177.0.0/17, 142.250.0.0/15, 172.217.0.0/16, 172.253.0.0/16, 173.194.0.0/16, 209.85.128.0/17, 216.58.192.0/19, 216.239.32.0/19
+PersistentKeepalive = 25

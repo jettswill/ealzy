@@ -1,0 +1,37 @@
+{
+  "name": "@lifeos/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js",
+    "test": "vitest run",
+    "eval:companion": "vitest run test/companion-eval.test.ts",
+    "eval:companion:live": "tsx scripts/eval-companion-live.mts"
+  },
+  "dependencies": {
+    "@lifeos/contracts": "workspace:*",
+    "@supabase/supabase-js": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "express-rate-limit": "latest",
+    "imapflow": "^1.7.6",
+    "jose": "latest",
+    "nodemailer": "^9.0.5",
+    "openai": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/express": "latest",
+    "@types/node": "latest",
+    "@types/nodemailer": "^8.0.1",
+    "@types/supertest": "latest",
+    "pg": "^8.22.0",
+    "supertest": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}

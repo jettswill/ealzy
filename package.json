@@ -1,0 +1,45 @@
+{
+  "name": "lifeos-ai",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "corepack pnpm -r --parallel dev",
+    "dev:api": "corepack pnpm --filter @lifeos/api dev",
+    "dev:mini-app": "corepack pnpm --filter @lifeos/mini-app dev",
+    "build": "corepack pnpm -r build",
+    "clean": "corepack pnpm -r clean",
+    "lint": "eslint .",
+    "typecheck": "corepack pnpm -r typecheck",
+    "test": "corepack pnpm -r test",
+    "eval:companion": "corepack pnpm --filter @lifeos/api exec vitest run test/companion-eval.test.ts",
+    "eval:companion:live": "corepack pnpm --filter @lifeos/api exec tsx scripts/eval-companion-live.mts",
+    "test:watch": "corepack pnpm --filter @lifeos/api test -- --watch",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "corepack pnpm lint && corepack pnpm typecheck && corepack pnpm test && corepack pnpm format:check",
+    "db:migrate": "tsx scripts/apply-migrations.mts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.1",
+    "@types/node": "^24.0.10",
+    "@types/pg": "^8.20.0",
+    "dotenv": "^17.4.2",
+    "eslint": "^9.30.1",
+    "eslint-config-prettier": "^10.1.5",
+    "pg": "^8.22.0",
+    "prettier": "^3.6.2",
+    "tsx": "^4.23.0",
+    "typescript": "^5.8.3",
+    "typescript-eslint": "^8.36.0",
+    "vitest": "^3.2.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "valibot": "1.4.2"
+    }
+  }
+}

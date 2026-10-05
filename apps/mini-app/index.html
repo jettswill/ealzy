@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <meta name="theme-color" content="#212121" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Ealzy" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="Ealzy — ненавязчивый друг, помощник и психолог. Помогает беречь ресурсы, держаться планов и идти к большим целям." />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180x180.png?v=ilzi3" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=ilzi3" />
+    <link rel="apple-touch-icon-precomposed" sizes="180x180" href="/apple-touch-icon-180x180-precomposed.png?v=ilzi3" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/icon-192.png?v=ilzi3" type="image/png" sizes="192x192" />
+    <link rel="modulepreload" href="/src/main.tsx" />
+    <title>Ealzy</title>
+    <script>
+      (function () {
+        try {
+          var standalone = window.navigator.standalone === true ||
+            (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+          if (standalone) document.documentElement.classList.add("is-standalone");
+        } catch (e) {}
+        try {
+          var from = String(location.hash || "") + String(location.search || "");
+          if (from.indexOf("tgAuthResult=") !== -1 && location.pathname !== "/auth/telegram") {
+            location.replace("/auth/telegram" + location.search + location.hash);
+            return;
+          }
+        } catch (e) {}
+        try {
+          var from = String(location.hash || "") + String(location.search || "");
+          var telegram = !!window.TelegramWebviewProxy ||
+            from.indexOf("tgWebAppData") !== -1 ||
+            !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData);
+          if (!telegram) return;
+          if ("serviceWorker" in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function (regs) {
+              regs.forEach(function (reg) { reg.unregister(); });
+            });
+          }
+          if (window.caches) {
+            caches.keys().then(function (keys) {
+              keys.forEach(function (key) {
+                if (String(key).indexOf("ealzy-shell") === 0) caches.delete(key);
+              });
+            });
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      html, body { margin: 0; min-height: 100%; background: #212121; color: #ececec; }
+      html.is-standalone, html.is-standalone body { min-height: 100dvh; background: #212121; }
+      html:not(.is-booted),
+      html:not(.is-booted) body {
+        background: #212121 !important;
+        color: #ececec !important;
+        color-scheme: dark !important;
+      }
+      #ealzy-boot {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483646;
+        display: grid;
+        place-items: center;
+        padding: calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
+        text-align: center;
+        font: 15px/1.4 ui-sans-serif, system-ui, sans-serif;
+        background: #212121 !important;
+        color: #ececec !important;
+      }
+      #ealzy-boot.is-done { display: none !important; }
+      .boot-mark {
+        display: block;
+        width: 2.75rem;
+        height: 2.75rem;
+        margin: 0 auto;
+        transform-origin: center;
+        animation: boot-pulse 1.8s ease-in-out infinite;
+      }
+      .boot-copy, .boot-stuck {
+        margin: 1rem 0 0;
+        max-width: 22rem;
+        font-size: 0.875rem;
+        color: #ececec;
+        opacity: 0.72;
+      }
+      .boot-stuck, .boot-retry { display: none; }
+      #ealzy-boot.is-stuck .boot-mark { animation: none; }
+      #ealzy-boot.is-stuck .boot-copy { display: none; }
+      #ealzy-boot.is-stuck .boot-stuck,
+      #ealzy-boot.is-stuck .boot-retry { display: block; }
+      .boot-retry {
+        margin: 1.1rem auto 0;
+        padding: 0.7rem 1.15rem;
+        border: 0;
+        border-radius: 999px;
+        background: #ececec;
+        color: #212121;
+        font: 600 0.9rem/1.2 ui-sans-serif, system-ui, sans-serif;
+      }
+      @keyframes boot-pulse {
+        0%, 100% { opacity: 0.38; transform: scale(0.92); }
+        50% { opacity: 1; transform: scale(1); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-mark { animation: none; }
+      }
+    </style>
+    <script>
+      (function () {
+        var tries = 0;
+        function tellTelegramReady() {
+          try {
+            var webApp = window.Telegram && window.Telegram.WebApp;
+            if (!webApp) return;
+            if (typeof webApp.setHeaderColor === "function") webApp.setHeaderColor("#212121");
+            if (typeof webApp.setBackgroundColor === "function") webApp.setBackgroundColor("#212121");
+            if (typeof webApp.ready === "function") webApp.ready();
+            if (typeof webApp.expand === "function") webApp.expand();
+          } catch (e) {}
+        }
+        function tick() {
+          tellTelegramReady();
+          tries += 1;
+          if (tries < 25) setTimeout(tick, 80);
+        }
+        tick();
+      })();
+    </script>
+    <script>
+      (function () {
+        var RETRY_KEY = "ealzy.boot.reload";
+        function reopen() {
+          try { sessionStorage.removeItem("ealzy.boot.try"); } catch (e) {}
+          location.replace("/?r=" + Date.now());
+        }
+        function markStuck() {
+          var boot = document.getElementById("ealzy-boot");
+          if (boot && !boot.classList.contains("is-done")) boot.classList.add("is-stuck");
+        }
+        function reloadOnce() {
+          if (document.documentElement.classList.contains("is-booted")) return;
+          try {
+            var n = Number(sessionStorage.getItem(RETRY_KEY) || "0");
+            if (n >= 1) {
+              markStuck();
+              return;
+            }
+            sessionStorage.setItem(RETRY_KEY, String(n + 1));
+          } catch (e) {
+            markStuck();
+            return;
+          }
+          location.replace("/?r=" + Date.now());
+        }
+        window.addEventListener("error", function (event) {
+          var el = event.target;
+          if (!el || el.tagName !== "SCRIPT") return;
+          var src = el.src || "";
+          if (src.indexOf("/assets/") === -1) return;
+          reloadOnce();
+        }, true);
+        document.addEventListener("click", function (event) {
+          var target = event.target;
+          if (target && target.closest && target.closest("#ealzy-boot-retry")) reopen();
+        });
+        setTimeout(function () {
+          if (document.documentElement.classList.contains("is-booted")) return;
+          if (document.readyState !== "complete") {
+            window.addEventListener("load", function () {
+              setTimeout(function () {
+                if (!document.documentElement.classList.contains("is-booted")) markStuck();
+              }, 8000);
+            }, { once: true });
+            setTimeout(function () {
+              if (!document.documentElement.classList.contains("is-booted")) markStuck();
+            }, 20000);
+            return;
+          }
+          markStuck();
+        }, 25000);
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="ealzy-boot" class="boot-loader" role="status" aria-live="polite">
+      <div>
+        <svg class="boot-mark" viewBox="0 0 72 72" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <path fill-rule="evenodd" d="M36 0C55.8823 0 72 16.1177 72 36C72 55.8823 55.8823 72 36 72C16.1177 72 0 55.8823 0 36C0 16.1177 16.1177 0 36 0ZM46 7C33.8497 7 24 19.9837 24 36C24 52.0163 33.8497 65 46 65C58.1503 65 68 52.0163 68 36C68 19.9837 58.1503 7 46 7ZM59.7891 44.668C57.4951 52.5081 52.1856 58 46 58C39.8143 58 34.5039 52.5083 32.21 44.668C35.288 46.9081 39.8385 49 46 49C52.1611 49 56.7111 46.9079 59.7891 44.668ZM41 22C45.9706 22 50 26.0294 50 31C50 35.9706 45.9706 40 41 40C36.0294 40 32 35.9706 32 31C32 26.0294 36.0294 22 41 22Z" fill="currentColor"/>
+        </svg>
+        <p class="boot-copy">Открываю Ealzy…</p>
+        <p class="boot-stuck">Не удалось открыть Ealzy. Проверьте сеть и нажмите ещё раз.</p>
+        <button type="button" class="boot-retry" id="ealzy-boot-retry">Открыть снова</button>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

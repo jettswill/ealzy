@@ -1,0 +1,33 @@
+{
+  "id": "/",
+  "name": "Ealzy",
+  "short_name": "Ealzy",
+  "description": "Ealzy — ненавязчивый друг, помощник и психолог. Помогает беречь ресурсы, держаться планов и идти к большим целям.",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "background_color": "#212121",
+  "theme_color": "#212121",
+  "icons": [
+    {
+      "src": "/apple-touch-icon-180x180.png?v=ilzi3",
+      "sizes": "180x180",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png?v=ilzi3",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png?v=ilzi3",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}
