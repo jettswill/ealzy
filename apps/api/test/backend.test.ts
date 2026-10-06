@@ -574,6 +574,19 @@ describe("profile payload", () => {
   });
 });
 
+describe("ai diagnostics", () => {
+  it("reports the companion model counters to a signed-in user only", async () => {
+    const { app, repository } = setup();
+    const user = await repository.upsertTelegramUser({ telegram_id: 16, name: "A" });
+    expect((await request(app).get("/api/diagnostics/ai")).status).toBe(401);
+    const response = await request(app).get("/api/diagnostics/ai").set(await auth(user.id));
+    expect(response.status).toBe(200);
+    expect(response.body.data).toEqual(
+      expect.objectContaining({ calls: expect.any(Number), fallbacks: expect.any(Number) }),
+    );
+  });
+});
+
 describe("person dates", () => {
   it("stores birthday and shared dates for self and people", async () => {
     const { app, repository } = setup();

@@ -141,9 +141,32 @@ async function main() {
     const client = new pg.Client({ connectionString: databaseUrl });
     await client.connect();
     try {
+      // Each migration runs once. Before this ledger existed every deploy re-ran
+      // all files, so an old migration could undo a newer one (009 re-adding a
+      // check that 034 had relaxed) and take production down mid-deploy.
+      await client.query("create schema if not exists ealzy_internal");
+      await client.query(
+        "create table if not exists ealzy_internal.schema_migrations (name text primary key, applied_at timestamptz not null default now())",
+      );
+      const applied = new Set(
+        (await client.query("select name from ealzy_internal.schema_migrations")).rows.map(
+          (row: { name: string }) => row.name,
+        ),
+      );
+      let skipped = 0;
       for (const file of files) {
-        await applySql(client, await readFile(file, "utf8"), path.basename(file));
+        const label = path.basename(file);
+        if (applied.has(label)) {
+          skipped += 1;
+          continue;
+        }
+        await applySql(client, await readFile(file, "utf8"), label);
+        await client.query(
+          "insert into ealzy_internal.schema_migrations(name) values ($1) on conflict do nothing",
+          [label],
+        );
       }
+      if (skipped) console.log(`${skipped} migrations already recorded as applied`);
       await provisionRoles(client);
     } finally {
       await client.end();

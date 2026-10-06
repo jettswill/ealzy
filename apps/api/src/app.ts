@@ -60,6 +60,7 @@ import {
   TelegramUpdateHandler,
   type TelegramGateway,
 } from "./infrastructure/telegram.js";
+import { companionModelStats } from "./infrastructure/openai.js";
 import type { AiProvider } from "./modules/assistant/index.js";
 import type { DiscoveryClient } from "./modules/assistant/discovery.js";
 import { MailService } from "./modules/mail/service.js";
@@ -982,6 +983,10 @@ export function createApp(deps: AppDependencies): Express {
       res.json({ data: await mePayload(repository, owner(req)) });
     }),
   );
+  // Какая модель отвечает в чате и срабатывала ли запасная — без доступа к логам.
+  api.get("/diagnostics/ai", (_req, res) => {
+    res.json({ data: companionModelStats });
+  });
   api.patch(
     "/me",
     asyncHandler(async (req, res) => {

@@ -137,7 +137,13 @@ docker compose up -d postgres
 echo "Pausing app containers so role grants are not racing PostgREST..."
 docker compose stop postgrest api web || true
 echo "Applying migrations..."
-docker compose --profile tools run --rm --no-TTY --interactive=false migrate </dev/null
+if ! docker compose --profile tools run --rm --no-TTY --interactive=false migrate </dev/null; then
+  # The app is paused at this point. A failed migration must not leave the site
+  # down: bring the previous containers back (they still run the old images).
+  echo "::error::Migrations failed - restarting the previous version."
+  docker compose start postgrest api web || true
+  exit 1
+fi
 echo "Starting application..."
 docker compose up -d --force-recreate --remove-orphans
 
