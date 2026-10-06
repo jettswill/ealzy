@@ -2065,7 +2065,15 @@ export class CompanionService {
           )
         : [];
       // О подарке: ссылки на то, что Илзи предложила, вместо поиска по самому вопросу.
-      const ideaHits = explicitDiscovery
+      // Только когда о человеке известны вкусы: без них Илзи честно предлагает
+      // общее («впечатление вместе»), и ссылка на такой поиск ничего не даёт.
+      const tastesKnown = (focus?.memories ?? []).some(
+        (memory) =>
+          memory.category === "interest" ||
+          memory.category === "gift" ||
+          memory.category === "favorite_food",
+      );
+      const ideaHits = explicitDiscovery && tastesKnown
         ? giftIdeaHits(text, response.answer, context.profile.locale)
         : [];
       const searchResults = dedupeHits([
