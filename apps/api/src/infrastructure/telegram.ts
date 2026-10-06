@@ -38,6 +38,9 @@ import { compressVideoNoteAudio } from "./audio.js";
 import {
   GUIDED_ONBOARDING_ACTION,
   ONBOARDING_MORE_CALLBACK,
+  onboardingAddressMarkup,
+  parseOnboardingAddress,
+  saveAddressForm,
   startGuidedOnboarding,
   startOnboardingMore,
   handleOnboardingReply,
@@ -644,7 +647,12 @@ export class TelegramUpdateHandler {
           message.chat.id,
           profile?.locale,
         );
-        await this.telegram.sendMessage(message.chat.id, question);
+        const addressMarkup = onboardingAddressMarkup(profile?.locale);
+        await this.telegram.sendMessage(
+          message.chat.id,
+          question,
+          addressMarkup ? { reply_markup: addressMarkup } : {},
+        );
         await this.repository.createMessage(user.id, {
           conversation_id: conversation.id,
           telegram_chat_id: null,
@@ -933,6 +941,20 @@ export class TelegramUpdateHandler {
     const callback = update.callback_query!;
     if (callback.data === ONBOARDING_MORE_CALLBACK) {
       return this.handleOnboardingMore(callback);
+    }
+    const addressChoice = parseOnboardingAddress(callback.data);
+    if (addressChoice) {
+      const chooser = await this.repository.upsertTelegramUser({
+        telegram_id: callback.from.id,
+        name: [callback.from.first_name, callback.from.last_name].filter(Boolean).join(" "),
+        username: callback.from.username ?? null,
+      });
+      await saveAddressForm(this.repository, chooser.id, addressChoice);
+      await this.telegram.answerCallbackQuery(
+        callback.id,
+        addressChoice === "ты" ? "Хорошо, на «ты»" : "Хорошо, на «вы»",
+      );
+      return { duplicate: false };
     }
     const dayClose = callback.data ? parseDayCloseCallback(callback.data) : null;
     const goalCheck = !dayClose && callback.data ? parseGoalCheckInCallback(callback.data) : null;

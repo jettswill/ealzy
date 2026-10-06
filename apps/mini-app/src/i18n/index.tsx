@@ -30,7 +30,7 @@ import {
   type Language,
   pluralWord,
 } from "./locale";
-import { messages } from "./messages";
+import { messages, ruInformal } from "./messages";
 
 type Vars = Record<string, string | number>;
 
@@ -51,14 +51,37 @@ function lookup(language: Language, path: string): string {
   return typeof current === "string" ? current : path;
 }
 
+export type AddressForm = "ты" | "вы";
+const ADDRESS_KEY = "ealzy.address";
+
+/** «на ты» / «на вы» из стиля общения в профиле; null — человек ещё не выбирал. */
+export function addressFormOf(style: string | null | undefined): AddressForm | null {
+  const match = String(style ?? "").match(/(?:^|[;,.\s])на\s+[«"„']?(ты|вы)[»"“']?(?![\p{L}])/iu);
+  return match ? (match[1]!.toLocaleLowerCase() as AddressForm) : null;
+}
+
+function readStoredAddress(): AddressForm | null {
+  try {
+    const stored = localStorage.getItem(ADDRESS_KEY);
+    return stored === "ты" || stored === "вы" ? stored : null;
+  } catch {
+    return null;
+  }
+}
+
 interface LocaleContextValue {
   language: Language;
+  /** Как человек просил к нему обращаться; подписи на «ты» только при «ты». */
+  address: AddressForm | null;
+  setAddress: (address: AddressForm) => void;
   locale: string;
   timezone: string;
   t: (key: string, vars?: Vars) => string;
   setLanguage: (language: Language) => Promise<void>;
   setTimezone: (timezone: string) => Promise<void>;
-  applyProfile: (profile: Pick<SelfProfile, "locale" | "timezone">) => void;
+  applyProfile: (
+    profile: Pick<SelfProfile, "locale" | "timezone"> & { communication_style?: string | null },
+  ) => void;
   formatDate: (value?: string | Date | null) => string;
   formatTime: (value: string | Date) => string;
   formatDayLabel: (value?: Date) => string;
@@ -77,7 +100,22 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const [timezone, setTimezoneState] = useState(() => detectTimeZone());
   const [locale, setLocale] = useState(() => localeTag(readStoredLanguage() ?? "ru", detectTimeZone()));
 
-  const applyProfile = useCallback((profile: Pick<SelfProfile, "locale" | "timezone">) => {
+  const [address, setAddressState] = useState<AddressForm | null>(() => readStoredAddress());
+  const setAddress = useCallback((next: AddressForm) => {
+    setAddressState(next);
+    try {
+      localStorage.setItem(ADDRESS_KEY, next);
+    } catch {
+      // Приватный режим: выбор живёт до перезагрузки, потом придёт из профиля.
+    }
+  }, []);
+
+  const applyProfile = useCallback(
+    (
+      profile: Pick<SelfProfile, "locale" | "timezone"> & { communication_style?: string | null },
+    ) => {
+    const chosen = addressFormOf(profile.communication_style);
+    if (chosen) setAddress(chosen);
     const nextLanguage = languageOf(profile.locale);
     const nextZone = isValidTimeZone(profile.timezone) ? profile.timezone : detectTimeZone();
     setLanguageState(nextLanguage);
@@ -85,7 +123,9 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
     setLocale(bcp47(profile.locale, nextZone));
     persistLanguage(nextLanguage);
     applyDocumentLocale(nextLanguage);
-  }, []);
+    },
+    [setAddress],
+  );
 
   useEffect(() => {
     applyDocumentLocale(language);
@@ -136,8 +176,14 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   }, [api, applyProfile, status]);
 
   const t = useCallback(
-    (key: string, vars?: Vars) => interpolate(lookup(language, key), vars),
-    [language],
+    (key: string, vars?: Vars) =>
+      interpolate(
+        language === "ru" && address === "ты" && ruInformal[key]
+          ? ruInformal[key]
+          : lookup(language, key),
+        vars,
+      ),
+    [address, language],
   );
 
   const persist = useCallback(
@@ -179,6 +225,8 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const value = useMemo<LocaleContextValue>(
     () => ({
       language,
+      address,
+      setAddress,
       locale,
       timezone,
       t,
@@ -194,7 +242,7 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
       formatMoney: (value) => formatMoney(value, locale),
       formatNumber: (value, options) => formatNumber(value, locale, options),
     }),
-    [applyProfile, language, locale, setLanguage, setTimezone, t, timezone],
+    [address, applyProfile, language, locale, setAddress, setLanguage, setTimezone, t, timezone],
   );
 
   return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;

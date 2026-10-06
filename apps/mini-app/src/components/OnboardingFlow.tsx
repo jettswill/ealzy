@@ -18,7 +18,7 @@ export function OnboardingFlow({
   onSkip: () => void;
 }) {
   const { api } = useAuth();
-  const { t, locale } = useI18n();
+  const { t, locale, setAddress } = useI18n();
   const [showIntro, setShowIntro] = useState(true);
   // «Ты» или «вы» человек выбирает сам на первом экране; от выбора зависят
   // вопросы знакомства и то, как Илзи обращается дальше. В английском выбора нет.
@@ -27,6 +27,7 @@ export function OnboardingFlow({
   const start = (address?: "ты" | "вы") => {
     if (address) {
       setFormal(address === "вы");
+      setAddress(address);
       void api.updateMe({ communication_style: `на ${address}` }).catch(() => {
         // Не сохранилось — Илзи спросит об этом в разговоре.
       });

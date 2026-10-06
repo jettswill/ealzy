@@ -2,6 +2,12 @@ import type { AppRepository } from "../../repository.js";
 import type { MemoryCategory, PendingAction } from "../../types.js";
 import { languageOf } from "../../locale.js";
 import { MEMORY_CATEGORIES } from "./people.js";
+import {
+  addressFormOf,
+  inferAddressForm,
+  withAddressForm,
+  type AddressForm,
+} from "./personal-model.js";
 import { trackFunnelEvent } from "../engagement/events.js";
 import {
   applyOnboardingSignals,
@@ -20,9 +26,20 @@ interface OnboardingPayload {
   phase?: "core" | "more";
 }
 
+// Приветствие не обращается ни на «ты», ни на «вы»: человек выбирает форму
+// кнопками под ним, а следующие вопросы идут уже в выбранной. Пока выбора нет —
+// на «вы», как и сама Илзи в разговоре.
+const GREETING_RU =
+  "Привет! Я Илзи.\n\nПомогаю меньше переживать и больше жить: напоминаю и веду дела, помогаю их обсудить, разобрать переживания и помню важное о близких. Задам пару вопросов, чтобы понять контекст — это приватно и конфиденциально. Не хочется сейчас — /skip, вернёмся к этому позже.\n\nКак удобнее общаться — на «ты» или на «вы»? Кнопки под сообщением.\n\nИ сразу первый вопрос, в паре предложений: работа или главное дело сейчас — и что сейчас важнее всего?";
+
 const QUESTIONS_RU = [
-  "Привет! Я Илзи.\n\nБуду помогать тебе меньше переживать и больше жить: могу напоминать и вести дела, обсуждать их с тобой, разбирать вместе переживания и помнить важное о близких. Задам пару вопросов, чтобы узнать твой контекст — это приватно и конфиденциально. Не хочется сейчас — напиши /skip, вернёмся к этому позже.\n\nРасскажи в паре предложений: чем ты занимаешься и что сейчас для тебя важно?",
+  GREETING_RU,
   "Отлично. Какая одна цель на ближайшие недели для тебя главная — к чему идёшь?",
+];
+
+const QUESTIONS_RU_FORMAL = [
+  GREETING_RU,
+  "Отлично. Какая одна цель на ближайшие недели для вас главная — к чему идёте?",
 ];
 
 const QUESTIONS_EN = [
@@ -32,8 +49,14 @@ const QUESTIONS_EN = [
 
 const EXTRA_QUESTIONS_RU = [
   "Какой у тебя ритм: жаворонок или сова? Когда лучше думается, а когда уже не стоит браться за сложное?",
-  "Что обычно срывает день: хвосты, чужие встречи, или ты сам не выбираешь первое дело?",
-  "Как тебе удобнее, чтобы я говорил: коротко и по делу, или с разбором мотивов?",
+  "Что обычно срывает день: хвосты, чужие встречи, или первое дело так и остаётся невыбранным?",
+  "Как тебе удобнее, чтобы я говорила: коротко и по делу, или с разбором мотивов?",
+];
+
+const EXTRA_QUESTIONS_RU_FORMAL = [
+  "Какой у вас ритм: жаворонок или сова? Когда лучше думается, а когда уже не стоит браться за сложное?",
+  "Что обычно срывает день: хвосты, чужие встречи, или первое дело так и остаётся невыбранным?",
+  "Как вам удобнее, чтобы я говорила: коротко и по делу, или с разбором мотивов?",
 ];
 
 const EXTRA_QUESTIONS_EN = [
@@ -52,10 +75,57 @@ function payloadOf(raw: unknown): OnboardingPayload {
   return { step, facts, phase };
 }
 
-function questionsFor(phase: "core" | "more", locale: string | null | undefined) {
+function questionsFor(
+  phase: "core" | "more",
+  locale: string | null | undefined,
+  informal = false,
+) {
   const en = languageOf(locale) === "en";
-  if (phase === "more") return en ? EXTRA_QUESTIONS_EN : EXTRA_QUESTIONS_RU;
-  return en ? QUESTIONS_EN : QUESTIONS_RU;
+  if (phase === "more") {
+    if (en) return EXTRA_QUESTIONS_EN;
+    return informal ? EXTRA_QUESTIONS_RU : EXTRA_QUESTIONS_RU_FORMAL;
+  }
+  if (en) return QUESTIONS_EN;
+  return informal ? QUESTIONS_RU : QUESTIONS_RU_FORMAL;
+}
+
+async function prefersInformal(repository: AppRepository, ownerId: string) {
+  const profile = await repository.getProfile(ownerId);
+  return addressFormOf(profile?.communication_style) === "ты";
+}
+
+export const ONBOARDING_ADDRESS_CALLBACK = "onboarding_address:";
+
+/** Кнопки «на ты / на вы» под приветствием. В английском выбора нет. */
+export function onboardingAddressMarkup(locale: string | null | undefined) {
+  if (languageOf(locale) === "en") return null;
+  return {
+    inline_keyboard: [
+      [
+        { text: "На «ты»", callback_data: `${ONBOARDING_ADDRESS_CALLBACK}ты` },
+        { text: "На «вы»", callback_data: `${ONBOARDING_ADDRESS_CALLBACK}вы` },
+      ],
+    ],
+  };
+}
+
+export function parseOnboardingAddress(data: string | null | undefined): AddressForm | null {
+  if (!data?.startsWith(ONBOARDING_ADDRESS_CALLBACK)) return null;
+  const form = data.slice(ONBOARDING_ADDRESS_CALLBACK.length);
+  return form === "ты" || form === "вы" ? form : null;
+}
+
+/** Сохраняет выбранное обращение, не трогая остальной стиль общения. */
+export async function saveAddressForm(
+  repository: AppRepository,
+  ownerId: string,
+  form: AddressForm,
+) {
+  const profile = await repository.getProfile(ownerId);
+  if (addressFormOf(profile?.communication_style) === form) return;
+  await repository.updateProfile(ownerId, {
+    communication_style: withAddressForm(profile?.communication_style, form),
+  });
 }
 
 function firstQuestion(locale: string | null | undefined): string {
@@ -124,7 +194,11 @@ export async function startGuidedOnboarding(
   );
   if (existing) {
     const payload = payloadOf(existing.payload);
-    return questionsFor(payload.phase ?? "core", locale)[payload.step] ?? firstQuestion(locale);
+    const informal = await prefersInformal(repository, ownerId);
+    return (
+      questionsFor(payload.phase ?? "core", locale, informal)[payload.step] ??
+      firstQuestion(locale)
+    );
   }
 
   await repository.createPendingAction(ownerId, {
@@ -150,7 +224,11 @@ export async function startOnboardingMore(
   );
   if (existing) {
     const payload = payloadOf(existing.payload);
-    const qs = questionsFor(payload.phase ?? "core", locale);
+    const qs = questionsFor(
+      payload.phase ?? "core",
+      locale,
+      await prefersInformal(repository, ownerId),
+    );
     return qs[payload.step] ?? qs[0] ?? firstQuestion(locale);
   }
 
@@ -163,7 +241,10 @@ export async function startOnboardingMore(
     expires_at: new Date(Date.now() + EXPIRY_HOURS * 3600_000).toISOString(),
   });
 
-  return questionsFor("more", locale)[0] ?? EXTRA_QUESTIONS_RU[0]!;
+  return (
+    questionsFor("more", locale, await prefersInformal(repository, ownerId))[0] ??
+    EXTRA_QUESTIONS_RU_FORMAL[0]!
+  );
 }
 
 /**
@@ -198,9 +279,19 @@ export async function handleOnboardingReply(
 ): Promise<OnboardingStepResult> {
   const payload = payloadOf(pending.payload);
   const phase = payload.phase ?? "core";
-  const qs = questionsFor(phase, locale);
   const step = payload.step;
   const ru = languageOf(locale) !== "en";
+  // «…и давай на ты» прямо в ответе на вопрос — тоже выбор обращения.
+  const saidForm = ru ? inferAddressForm(userText) : null;
+  if (saidForm) {
+    try {
+      await saveAddressForm(repository, ownerId, saidForm);
+    } catch {
+      // Обращение не сохранилось — знакомство от этого не останавливается.
+    }
+  }
+  const informal = await prefersInformal(repository, ownerId);
+  const qs = questionsFor(phase, locale, informal);
 
   let extracted: ExtractedFacts;
   try {
@@ -271,7 +362,7 @@ export async function handleOnboardingReply(
       expires_at: new Date(Date.now() + EXPIRY_HOURS * 3600_000).toISOString(),
     });
     const ack = ru
-      ? `Запомнил! (${allFacts.length} ${factWord(allFacts.length, true)} о тебе)\n\n`
+      ? `Запомнила! (${allFacts.length} ${factWord(allFacts.length, true)} о ${informal ? "тебе" : "вас"})\n\n`
       : `Got it! (${allFacts.length} ${factWord(allFacts.length, false)} about you)\n\n`;
     return { reply: ack + qs[nextStep], done: false };
   }
