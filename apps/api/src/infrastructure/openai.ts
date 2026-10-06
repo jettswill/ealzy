@@ -324,6 +324,17 @@ export function chatCompletionControls(
 const COMPANION_JSON_HINT =
   'Reply with compact JSON only. Put "answer" first. Required: "answer" — a complete useful reply in workspace.now.locale, with \\n\\n between paragraphs, \\n between list items, and **bold** short headings. Do not shrink the answer to a one-liner. Put offers only when they match this turn and Ilzi can execute them well; omit generic web search when a specific helper exists (rates, pharmacies, tickets, weather, repair). Optional when needed: context_used, task_actions, goal_actions, self_facts, person_facts, offers, search_actions, mail_actions, settings, follow_up, goal_plan. One message may contain several independent requests — emit a task_actions item per errand, up to 8. To edit notes on an existing task, use op=update with task_id and description; never create a task whose title is the description request. If workspace.replied_to is set, the user is replying to that message — bind writes to it. Omit empty arrays. Never invent facts.';
 
+// Счётчики модели чата с момента запуска процесса. Логи сервера не всегда под
+// рукой, а знать, отвечает ли Илзи на своей модели или на запасной, нужно.
+export const companionModelStats = {
+  model: null as string | null,
+  fallbackModel: null as string | null,
+  calls: 0,
+  fallbacks: 0,
+  lastFallbackAt: null as string | null,
+  lastFallbackError: null as string | null,
+};
+
 export class OpenAiProvider implements AiProvider {
   private readonly client: OpenAI;
   private onUsage?: (usage: AiTokenUsage) => void;
@@ -338,6 +349,8 @@ export class OpenAiProvider implements AiProvider {
     private readonly companionModel: string = model,
   ) {
     this.client = new OpenAI({ apiKey, baseURL, timeout: FAST_AI_TIMEOUT_MS, maxRetries: 1 });
+    companionModelStats.model = companionModel;
+    companionModelStats.fallbackModel = companionModel === model ? null : model;
   }
   bindUsage(sink: (usage: AiTokenUsage) => void) {
     this.onUsage = sink;
@@ -417,6 +430,7 @@ export class OpenAiProvider implements AiProvider {
     return this.companionStream(query, context);
   }
   async companionStream(query: string, context: unknown, onAnswerDelta?: (answer: string) => void) {
+    companionModelStats.calls += 1;
     if (this.companionModel === this.model) {
       return this.companionWith(this.model, query, context, onAnswerDelta);
     }
@@ -431,6 +445,11 @@ export class OpenAiProvider implements AiProvider {
       if (started) throw error;
       // Модель чата недоступна или не приняла запрос: Илзи не должна замолчать,
       // отвечаем основной моделью и оставляем след в логах.
+      companionModelStats.fallbacks += 1;
+      companionModelStats.lastFallbackAt = new Date().toISOString();
+      companionModelStats.lastFallbackError = (
+        error instanceof Error ? error.message : String(error)
+      ).slice(0, 300);
       console.error(
         JSON.stringify({
           event: "companion_model_fallback",
