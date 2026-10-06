@@ -525,10 +525,18 @@ input[type="datetime-local"] {
   margin: 0;
   color: var(--color-text);
 }
-.guest-banner .telegram-login-button {
+.guest-banner .telegram-login-button,
+.guest-banner .button {
   padding: 0.4rem 0.85rem;
   font-size: 0.82rem;
   white-space: nowrap;
+}
+.guest-banner-actions,
+.guest-banner-oauth {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 .composer-alert {
   display: flex;

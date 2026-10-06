@@ -100,7 +100,7 @@ describe("personal companion features", () => {
     renderAt("/companion");
 
     expect(await screen.findByText("How can I help?")).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText("Сообщение Ealzy"), "I need advice");
+    await userEvent.type(screen.getByLabelText("Сообщение Илзи"), "I need advice");
     await userEvent.click(screen.getByRole("button", { name: "Отправить" }));
 
     expect(send).toHaveBeenCalledWith("I need advice", expect.any(Function));
@@ -138,7 +138,7 @@ describe("personal companion features", () => {
     renderAt("/companion");
 
     expect(await screen.findByText("How can I help?")).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText("Сообщение Ealzy"), "I need advice");
+    await userEvent.type(screen.getByLabelText("Сообщение Илзи"), "I need advice");
     await userEvent.click(screen.getByRole("button", { name: "Отправить" }));
 
     expect(await screen.findByText("Let’s break")).toBeInTheDocument();
@@ -201,7 +201,7 @@ describe("personal companion features", () => {
     expect(screen.getByText(/шаг 1 из 2/)).toBeInTheDocument();
     expect(intro).toHaveBeenCalledWith();
 
-    await userEvent.type(screen.getByLabelText("Сообщение Ealzy"), "Я дизайнер");
+    await userEvent.type(screen.getByLabelText("Сообщение Илзи"), "Я дизайнер");
     await userEvent.click(screen.getByRole("button", { name: "Отправить" }));
     expect(intro).toHaveBeenLastCalledWith("Я дизайнер");
     expect(await screen.findByText(/одна цель на ближайшие недели/)).toBeInTheDocument();
@@ -235,12 +235,12 @@ describe("personal companion features", () => {
     renderAt("/companion");
 
     expect(await screen.findByText("How can I help?")).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText("Сообщение Ealzy"), "I need advice");
+    await userEvent.type(screen.getByLabelText("Сообщение Илзи"), "I need advice");
     await userEvent.click(screen.getByRole("button", { name: "Отправить" }));
 
     expect(await screen.findByText("Let’s break it down.")).toBeInTheDocument();
     expect(screen.queryByText(/Нет связи с Ealzy/)).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Сообщение Ealzy")).toHaveValue("");
+    expect(screen.getByLabelText("Сообщение Илзи")).toHaveValue("");
   });
 
   it("shows a reply from history if the send request hangs", async () => {
@@ -268,7 +268,7 @@ describe("personal companion features", () => {
     renderAt("/companion");
 
     expect(await screen.findByText("How can I help?")).toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText("Сообщение Ealzy"), "I need advice");
+    await userEvent.type(screen.getByLabelText("Сообщение Илзи"), "I need advice");
     await userEvent.click(screen.getByRole("button", { name: "Отправить" }));
 
     expect(await screen.findByText("Let’s break it down.")).toBeInTheDocument();
@@ -287,7 +287,7 @@ describe("personal companion features", () => {
     vi.spyOn(api, "dueExperienceFollowUps").mockResolvedValue([]);
     renderAt("/companion");
 
-    expect(await screen.findByLabelText("Сообщение Ealzy")).toBeInTheDocument();
+    expect(await screen.findByLabelText("Сообщение Илзи")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Голосовой ввод" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "← Дела" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Помощник" })).not.toBeInTheDocument();
@@ -316,7 +316,7 @@ describe("personal companion features", () => {
       "composer-input",
     );
     expect(screen.getByText("Загрузка разговора…")).toBeInTheDocument();
-    expect(screen.getByRole("textbox", { name: "Сообщение Ealzy" }).closest("form")).toHaveClass(
+    expect(screen.getByRole("textbox", { name: "Сообщение Илзи" }).closest("form")).toHaveClass(
       "composer-dock",
     );
     await act(async () => release([]));
@@ -338,7 +338,7 @@ describe("personal companion features", () => {
     vi.spyOn(api, "spaces").mockResolvedValue([]);
     renderAt("/companion");
 
-    const composer = await screen.findByLabelText("Сообщение Ealzy");
+    const composer = await screen.findByLabelText("Сообщение Илзи");
     await waitFor(() => expect(composer).toBeEnabled());
     await userEvent.click(composer);
     expect(composer).toHaveFocus();
@@ -361,7 +361,7 @@ describe("personal companion features", () => {
     renderAt("/companion");
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Сообщение Ealzy")).toBeEnabled();
+      expect(screen.getByLabelText("Сообщение Илзи")).toBeEnabled();
     });
     await userEvent.click(screen.getByRole("button", { name: "Голосовой ввод" }));
     expect(recognition.latest?.start).toHaveBeenCalled();
@@ -373,7 +373,7 @@ describe("personal companion features", () => {
       recognition.latest?.emit("напомни купить хлеб", true);
     });
 
-    expect(screen.getByLabelText("Сообщение Ealzy")).toHaveValue("напомни купить хлеб");
+    expect(screen.getByLabelText("Сообщение Илзи")).toHaveValue("напомни купить хлеб");
     expect(send).not.toHaveBeenCalled();
   });
 
@@ -515,8 +515,8 @@ describe("personal companion features", () => {
     renderAt("/companion");
 
     expect(await screen.findByText("How can I help?")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText("Сообщение Ealzy")).toBeEnabled());
-    await userEvent.type(screen.getByLabelText("Сообщение Ealzy"), "какие дела на сегодня?");
+    await waitFor(() => expect(screen.getByLabelText("Сообщение Илзи")).toBeEnabled());
+    await userEvent.type(screen.getByLabelText("Сообщение Илзи"), "какие дела на сегодня?");
     await userEvent.click(screen.getByRole("button", { name: "Отправить" }));
     expect(await screen.findByText("Сессия истекла — обновите страницу.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Повторить запрос" }));

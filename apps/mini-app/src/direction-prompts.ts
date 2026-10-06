@@ -82,8 +82,8 @@ export function taskDiscussPrompt(task: Task, language: Language) {
   const owner =
     task.assignee === "ealzy"
       ? language === "en"
-        ? "Assigned to Ealzy."
-        : "Поручено Ealzy."
+        ? "Assigned to Ilzi."
+        : "Поручено Илзи."
       : "";
   const meta = [
     status,

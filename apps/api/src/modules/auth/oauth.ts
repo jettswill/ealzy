@@ -242,8 +242,25 @@ export async function completeOAuth(
   const authUserId = oauthIdentityId(input.provider, identity.subject);
   if (state.intent === "link") {
     if (!state.ownerId) throw new HttpError(401, "AUTH_REQUIRED", "Authentication required");
+    const owner = await repository.getUser(state.ownerId);
     const result = await repository.linkAuthUser(state.ownerId, authUserId, identity.email ?? null);
     if (result.status === "not_found") throw new HttpError(404, "USER_NOT_FOUND", "User not found");
+    // Гость, который нажал «Продолжить с Google» в баннере. Если вход свободен —
+    // гость становится обычным аккаунтом и сохраняет всё, что успел завести.
+    // Если этим входом уже пользуется другой аккаунт — человек вернулся на новом
+    // устройстве: пускаем его в свой аккаунт, а не показываем ошибку привязки.
+    // В обоих случаях нужен новый токен: в старом зашита пометка гостя.
+    if (owner?.is_guest === true && (result.status === "linked" || result.status === "auth_conflict")) {
+      const user = await repository.upsertOAuthUser({
+        auth_user_id: authUserId,
+        email: identity.email ?? null,
+        name: identity.name,
+      });
+      return {
+        kind: "session" as const,
+        token: await createSession(user.id, env.SESSION_SECRET, env.SESSION_TTL_SECONDS),
+      };
+    }
     if (result.status !== "linked") {
       throw new HttpError(
         409,

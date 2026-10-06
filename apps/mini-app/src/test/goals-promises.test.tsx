@@ -81,7 +81,7 @@ describe("goals and promises", () => {
     expect(screen.getByText("Outline")).toBeInTheDocument();
     expect(screen.getByText("План действий")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Разложить на план" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Обсудить с Ealzy" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Обсудить с Илзи" }).length).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole("button", { name: "Как дела?" }));
     await screen.findByText("Начни с оглавления.");
     expect(send).toHaveBeenCalled();
@@ -159,9 +159,9 @@ describe("goals and promises", () => {
 
     expect(await screen.findByRole("heading", { name: "Сравнить рейсы" })).toBeInTheDocument();
     expect(screen.getByText("ИИ")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /^Ealzy$/ }));
+    await userEvent.click(screen.getByRole("button", { name: /^Илзи$/ }));
     expect(screen.getByRole("heading", { name: "Сравнить рейсы" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Обсудить с Ealzy" }));
+    await userEvent.click(screen.getByRole("button", { name: "Обсудить с Илзи" }));
     expect(await screen.findByText("Сначала сверю прямые рейсы.")).toBeInTheDocument();
     expect(String(send.mock.calls[0][0])).toContain("Сравнить рейсы");
     expect(String(send.mock.calls[0][0])).toContain("assignee ealzy");

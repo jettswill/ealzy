@@ -6,6 +6,7 @@ import { useI18n } from "../i18n";
 import { useDesktopNav } from "../media";
 import { LoadingState } from "./ui";
 import { EalzyWordmark } from "./EalzyLogo";
+import { OAuthButtons, useOAuthProviders } from "./OAuthButtons";
 import { TelegramLoginButton } from "./TelegramLogin";
 
 const TaskFormModal = lazy(async () => {
@@ -53,6 +54,7 @@ export function Layout() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const { isGuest } = useAuth();
+  const oauthProviders = useOAuthProviders(isGuest);
   const desktop = useDesktopNav();
   const [adding, setAdding] = useState(false);
 
@@ -214,8 +216,13 @@ export function Layout() {
       >
         {isGuest && (
           <div className="guest-banner" role="note">
-            <p>{t("auth.guestBannerText")}</p>
-            <TelegramLoginButton label={t("auth.guestLinkCta")} compact />
+            <p>{t(oauthProviders.length ? "auth.guestBannerTextAny" : "auth.guestBannerText")}</p>
+            <div className="guest-banner-actions">
+              {/* Окно входа Telegram в России без VPN не открывается, поэтому
+                  способы, которым VPN не нужен, стоят первыми. */}
+              <OAuthButtons providers={oauthProviders} keepSession className="guest-banner-oauth" />
+              <TelegramLoginButton label={t("auth.guestLinkCta")} compact />
+            </div>
           </div>
         )}
         <Suspense fallback={<LoadingState />}>

@@ -196,12 +196,12 @@ describe("authenticated home", () => {
 
     await userEvent.click(screen.getByRole("tab", { name: "Запланировано" }));
     expect(screen.getByRole("button", { name: "Добавить на сегодня" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Открыть чат с Ealzy" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Открыть чат с Илзи" })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Позвонить в банк" }));
     const card = await screen.findByRole("dialog", { name: "Изменить дело" });
     expect(within(card).getByDisplayValue("Уточнить лимит")).toBeInTheDocument();
-    expect(within(card).getByRole("button", { name: "Обсудить с Ealzy" })).toBeInTheDocument();
+    expect(within(card).getByRole("button", { name: "Обсудить с Илзи" })).toBeInTheDocument();
     expect(within(card).getByRole("button", { name: "Сохранить" })).toBeInTheDocument();
     await userEvent.click(within(card).getByRole("button", { name: "Закрыть" }));
 
@@ -800,7 +800,7 @@ describe("authenticated home", () => {
     const tomorrowPlan = screen.getByRole("region", { name: "План на завтра" });
     expect(within(tomorrowPlan).getByRole("button", { name: "Запланировать" })).toBeInTheDocument();
 
-    await userEvent.click(within(tomorrowPlan).getByRole("button", { name: "Обсудить с Ealzy" }));
+    await userEvent.click(within(tomorrowPlan).getByRole("button", { name: "Обсудить с Илзи" }));
     await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
     expect(send.mock.calls[0][0]).toContain("Pack bag");
     expect(send.mock.calls[0][0]).toContain("приоритизировать");
