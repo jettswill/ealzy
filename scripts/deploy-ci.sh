@@ -94,7 +94,22 @@ if ! command -v nginx >/dev/null; then
 fi
 
 echo "Bringing up WireGuard split-tunnel for Telegram..."
-bash "$DEST_DIR/deploy/wireguard/setup.sh" /tmp/ealzy-wg0.conf
+# Туннель нужен боту Telegram и почте, но не сайту. Если узел VPN не отвечает,
+# выкладку не останавливаем: веб-пользователи не должны ждать починки VPN.
+VPN_OK=1
+if ! bash "$DEST_DIR/deploy/wireguard/setup.sh" /tmp/ealzy-wg0.conf; then
+  VPN_OK=0
+  sleep 20
+  handshake="$(wg show wg0 latest-handshakes 2>/dev/null | awk 'NF{print $2; exit}')"
+  if [[ -n "${handshake:-}" && "$handshake" != "0" ]]; then
+    echo "::warning::WireGuard connected late; Telegram check failed once, continuing."
+  else
+    # Мёртвый туннель хуже выключенного: через него уходят и адреса Google,
+    # то есть вход через Google и почта. Выключаем до следующей выкладки.
+    echo "::warning::WireGuard has no handshake - VPN node is not answering. Stopping wg0; Telegram bot and mail sync stay down until the VPN is fixed and the deploy is re-run."
+    systemctl stop wg-quick@wg0 || true
+  fi
+fi
 rm -f /tmp/ealzy-wg0.conf
 
 if [[ ! -f /swapfile ]]; then
@@ -145,6 +160,8 @@ else
   status=$?
   if [[ "$status" -eq 8 ]]; then
     echo "Telegram API reachable from api container (HTTP error is expected without a bot method)."
+  elif [[ "$VPN_OK" == "0" ]]; then
+    echo "::warning::Telegram API unreachable from api container (wget exit $status) - expected while the VPN is down."
   else
     echo "Telegram API still unreachable from api container (wget exit $status)." >&2
     exit 1
