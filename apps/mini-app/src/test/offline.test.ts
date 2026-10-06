@@ -100,7 +100,9 @@ describe("iPhone home screen app", () => {
     expect(html).toContain("Открываю Ealzy");
     expect(html).toContain("Открыть снова");
     expect(html).toContain("boot-pulse");
-    expect(html).toContain('rel="modulepreload"');
+    // modulepreload на /src/main.tsx сборка превращала в data:-ссылку с исходником
+    // и ошибку MIME в консоли; точку входа и так грузит <script type="module">.
+    expect(html).not.toContain('rel="modulepreload"');
     expect(html).toContain("25000");
     expect(readFileSync(join(root, "src/main.tsx"), "utf8")).toContain("inTelegramWebView()");
     expect(readFileSync(join(root, "src/telegram-login.ts"), "utf8")).not.toContain(
