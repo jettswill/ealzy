@@ -270,14 +270,36 @@ async function promisesPayload(repository: AppRepository, ownerId: string) {
   ]);
   return promises.map((item) => withPromiseStats(item, checkins));
 }
+// «Сколько людей держат этот знак» считается по всем аккаунтам и всем делам со
+// сроком. /api/me зовётся на каждом переходе по приложению, поэтому без кэша
+// каждый переход читал всю таблицу дел целиком. Цифра сообщества не обязана
+// быть свежей до секунды — держим её десять минут на процесс.
+const COMMUNITY_TTL_MS = 10 * 60 * 1000;
+const communityCache = new WeakMap<
+  AppRepository,
+  { at: number; value: Promise<ReturnType<typeof summarizeAchievementHolders>> }
+>();
+
+function achievementCommunity(repository: AppRepository, now = Date.now()) {
+  const cached = communityCache.get(repository);
+  if (cached && now - cached.at < COMMUNITY_TTL_MS) return cached.value;
+  const value = repository.listReliabilityCohort().then((cohort) => summarizeAchievementHolders(cohort));
+  communityCache.set(repository, { at: now, value });
+  // Сбой чтения не должен застрять в кэше на десять минут.
+  value.catch(() => {
+    if (communityCache.get(repository)?.value === value) communityCache.delete(repository);
+  });
+  return value;
+}
+
 async function mePayload(repository: AppRepository, ownerId: string) {
-  const [user, profile, self, conversation, tasks, cohort] = await Promise.all([
+  const [user, profile, self, conversation, tasks, community] = await Promise.all([
     repository.getUser(ownerId),
     repository.getProfile(ownerId),
     repository.getSelfPerson(ownerId),
     repository.getPrimaryConversation(ownerId),
     repository.listTasks(ownerId),
-    repository.listReliabilityCohort(),
+    achievementCommunity(repository),
   ]);
   const validUser = found(user);
   const validProfile = found(profile);
@@ -289,7 +311,7 @@ async function mePayload(repository: AppRepository, ownerId: string) {
   const memories = visibleSelfMemories(storedMemories);
   const reliability = {
     ...computeReliability(tasks, validProfile.timezone || "UTC"),
-    community: summarizeAchievementHolders(cohort),
+    community,
   };
   const portrait = composePortrait({
     bio: validProfile.bio,

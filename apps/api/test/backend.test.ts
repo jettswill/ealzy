@@ -554,6 +554,26 @@ describe("person locations", () => {
   });
 });
 
+describe("profile payload", () => {
+  it("reads the whole-community achievement cohort once, not on every /api/me", async () => {
+    const { app, repository } = setup();
+    const user = await repository.upsertTelegramUser({ telegram_id: 15, name: "A" });
+    const headers = await auth(user.id);
+    let scans = 0;
+    const original = repository.listReliabilityCohort.bind(repository);
+    repository.listReliabilityCohort = async () => {
+      scans += 1;
+      return original();
+    };
+    const first = await request(app).get("/api/me").set(headers);
+    const second = await request(app).get("/api/me").set(headers);
+    expect(first.status).toBe(200);
+    expect(second.body.data.reliability.community).toEqual(first.body.data.reliability.community);
+    expect(first.body.data.reliability.community.users).toBe(1);
+    expect(scans).toBe(1);
+  });
+});
+
 describe("person dates", () => {
   it("stores birthday and shared dates for self and people", async () => {
     const { app, repository } = setup();
