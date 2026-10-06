@@ -877,7 +877,16 @@ export function giftIdeaHits(
   if (ideas.length < 2) return [];
   return ideas
     .slice(0, 3)
-    .map((idea) => marketplaceHits(idea, null, locale)[0])
+    .map((idea) => {
+      // «Йога» сама по себе — не запрос о подарке; «Йога в подарок» — уже да.
+      const en = languageOf(locale) === "en";
+      const query = /подар|gift|сертификат/iu.test(idea)
+        ? idea
+        : en
+          ? `${idea} gift`
+          : `${idea} в подарок`;
+      return marketplaceHits(query, null, locale)[0];
+    })
     .filter((hit): hit is DiscoveryHit => Boolean(hit));
 }
 
