@@ -6,7 +6,8 @@ import type { Message, PersonalContext, Reflection, SourceChannel, Task } from "
 import { withGoalStats, withPromiseStats } from "../../direction.js";
 import type { AiProvider } from "./index.js";
 import {
-  giftIdeaHits,
+  giftActionHits,
+  isGiftAdviceQuestion,
   attachSearchAnswer,
   cityForTimezone,
   collectUpcomingDates,
@@ -42,11 +43,14 @@ import {
 } from "./self-context.js";
 import {
   composePortrait,
+  addressFormOf,
+  inferAddressForm,
   inferBehaviorPatterns,
   inferCommunicationStyle,
   inferImplicitSelfFacts,
   mergeSelfFacts,
   refreshPortrait,
+  withAddressForm,
 } from "./personal-model.js";
 import { applyGoalActions, applyGoalPlan, continuedGoalWriteIntent, explicitGoalWriteIntent, focusedGoalFromConversation, focusedGoalFromText, goalCheckInIntent, goalDiscussIntent, goalRefineIntent, goalSyncDueOn, isGoalSyncTurn, titleNumbersConflict } from "./goal-plan.js";
 import {
@@ -2004,7 +2008,9 @@ export class CompanionService {
         cityForTimezone(context.profile.timezone, context.profile.locale);
       const searchText = focusedSearchQuery(text, focus);
       const explicitDiscovery = isExplicitDiscoveryRequest(text);
-      const searchPromise = explicitDiscovery && inferDiscoveryIntent(text, city)
+      // Совет о подарке не ищем по тексту вопроса: карточки даёт только модель.
+      const giftAdvice = isGiftAdviceQuestion(text);
+      const searchPromise = explicitDiscovery && !giftAdvice && inferDiscoveryIntent(text, city)
         ? this.collectSearchHits(searchText, city, [], true, context.profile.locale)
         : Promise.resolve([] as DiscoveryHit[]);
       let usedAi = false;
@@ -2052,35 +2058,21 @@ export class CompanionService {
         }
       }
       const hits = await searchPromise;
-      const extraHits = explicitDiscovery && response.search_actions.length
-        ? await this.collectSearchHits(
-            searchText,
-            city,
-            response.search_actions.map((action) => ({
-              ...action,
-              query: focusedSearchQuery(action.query || text, focus),
-            })),
-            false,
-            context.profile.locale,
-          )
-        : [];
-      // О подарке: ссылки на то, что Илзи предложила, вместо поиска по самому вопросу.
-      // Только когда о человеке известны вкусы: без них Илзи честно предлагает
-      // общее («впечатление вместе»), и ссылка на такой поиск ничего не даёт.
-      const tastesKnown = (focus?.memories ?? []).some(
-        (memory) =>
-          memory.category === "interest" ||
-          memory.category === "gift" ||
-          memory.category === "favorite_food",
-      );
-      const ideaHits = explicitDiscovery && tastesKnown
-        ? giftIdeaHits(text, response.answer, context.profile.locale)
-        : [];
-      const searchResults = dedupeHits([
-        ...ideaHits,
-        ...(ideaHits.length ? hits.filter((hit) => hit.kind !== "shop") : hits),
-        ...extraHits,
-      ]);
+      const extraHits = giftAdvice
+        ? giftActionHits(response.search_actions, city, context.profile.locale)
+        : explicitDiscovery && response.search_actions.length
+          ? await this.collectSearchHits(
+              searchText,
+              city,
+              response.search_actions.map((action) => ({
+                ...action,
+                query: focusedSearchQuery(action.query || text, focus),
+              })),
+              false,
+              context.profile.locale,
+            )
+          : [];
+      const searchResults = dedupeHits([...hits, ...extraHits]);
       response.search_results = searchResults;
       if (searchResults.length) {
         response.answer = attachSearchAnswer(
@@ -2392,8 +2384,13 @@ export class CompanionService {
           }),
         );
       }
-      if (!context.profile.communication_style && !settingsPatch?.communication_style) {
-        const style = inferCommunicationStyle(text);
+      const knownForm = addressFormOf(context.profile.communication_style);
+      const styleBeyondForm = knownForm
+        ? withAddressForm(context.profile.communication_style, knownForm) !== `на ${knownForm}`
+        : Boolean(context.profile.communication_style);
+      if (!styleBeyondForm && !settingsPatch?.communication_style) {
+        const inferred = inferCommunicationStyle(text);
+        const style = inferred && knownForm ? withAddressForm(inferred, knownForm) : inferred;
         if (style) {
           try {
             await this.repository.updateProfile(ownerId, { communication_style: style });
@@ -2406,6 +2403,22 @@ export class CompanionService {
               }),
             );
           }
+        }
+      }
+      // «Давай на ты» / «лучше на вы» — запоминаем обращение, не трогая остальной стиль.
+      const addressForm = inferAddressForm(text);
+      if (addressForm && addressFormOf(context.profile.communication_style) !== addressForm) {
+        try {
+          const style = withAddressForm(context.profile.communication_style, addressForm);
+          await this.repository.updateProfile(ownerId, { communication_style: style });
+          context.profile.communication_style = style;
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              event: "companion_address_form_failed",
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
         }
       }
       let settingsRecap = "";

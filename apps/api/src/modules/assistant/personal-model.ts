@@ -228,6 +228,40 @@ export function inferImplicitSelfFacts(text: string): CompanionSelfFact[] {
   return unique.slice(0, 4);
 }
 
+export type AddressForm = "ты" | "вы";
+
+const ADDRESS_TOKEN = /(?:^|[;,.\s])на\s+[«"„']?(ты|вы)[»"“']?(?![\p{L}])/iu;
+
+/** «на ты» / «на вы» из сохранённого стиля общения, если человек уже выбрал. */
+export function addressFormOf(style: string | null | undefined): AddressForm | null {
+  const match = String(style ?? "").match(ADDRESS_TOKEN);
+  return match ? (match[1]!.toLocaleLowerCase() as AddressForm) : null;
+}
+
+/**
+ * Человек сам сказал, как к нему обращаться: «давай на ты», «лучше на вы» или
+ * просто «на ты» в ответ на вопрос Илзи.
+ */
+export function inferAddressForm(text: string): AddressForm | null {
+  const t = text.trim();
+  if (!t || t.length > 200) return null;
+  const bare = t.match(/^(?:можно\s+|давай(?:те)?\s+|лучше\s+)?(?:на\s+)?[«"„']?(ты|вы)[»"“']?[\s.!)]*$/iu);
+  if (bare) return bare[1]!.toLocaleLowerCase() as AddressForm;
+  const said = t.match(
+    /(?:давай(?:те)?|можно|можешь|можете|лучше|удобнее|предпочитаю|общаться|обращайся|обращайтесь|перейд[её]м|говори(?:те)?)[^.?!\n]{0,30}?\sна\s+[«"„']?(ты|вы)[»"“']?(?![\p{L}])/iu,
+  );
+  return said ? (said[1]!.toLocaleLowerCase() as AddressForm) : null;
+}
+
+/** Стиль общения с выбранным обращением; остальное в стиле сохраняется. */
+export function withAddressForm(style: string | null | undefined, form: AddressForm): string {
+  const rest = String(style ?? "")
+    .replace(/(^|[;,.\s])на\s+[«"„']?(?:ты|вы)[»"“']?(?![\p{L}])/giu, "$1")
+    .replace(/^[;,.\s]+|[;,.\s]+$/gu, "")
+    .trim();
+  return rest ? `на ${form}; ${rest}` : `на ${form}`;
+}
+
 export function inferCommunicationStyle(text: string): string | null {
   if (
     /(?:говори|пиши|отвечай|давай)\s+(?:короче|по делу|без воды|кратко)/iu.test(text) ||

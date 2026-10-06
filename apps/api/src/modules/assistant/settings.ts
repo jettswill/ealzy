@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AppRepository, ProfileInput } from "../../repository.js";
 import type { UserProfile } from "../../types.js";
 import { languageOf } from "../../locale.js";
+import { addressFormOf, withAddressForm } from "./personal-model.js";
 
 const emptyToNull = (value: unknown) => (value === "" || value === undefined ? null : value);
 const TIME_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
@@ -336,8 +337,13 @@ export function settingsToProfilePatch(
   if (zone) next.timezone = zone;
   const locale = normalizeLocale(patch.locale ?? null, zone || current.timezone);
   if (locale) next.locale = locale;
-  if (typeof patch.communication_style === "string")
-    next.communication_style = patch.communication_style.slice(0, 1000);
+  if (typeof patch.communication_style === "string") {
+    // «Пиши короче» не должно стирать выбранное раньше «на ты» / «на вы».
+    const wanted = patch.communication_style.slice(0, 1000);
+    const kept = addressFormOf(current.communication_style);
+    next.communication_style =
+      kept && !addressFormOf(wanted) ? withAddressForm(wanted, kept).slice(0, 1000) : wanted;
+  }
   if (typeof patch.bio === "string") next.bio = patch.bio.slice(0, 4000);
   if (Array.isArray(patch.values)) next.values = patch.values.slice(0, 50);
   return next;

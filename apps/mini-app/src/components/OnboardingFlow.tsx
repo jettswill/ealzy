@@ -18,8 +18,22 @@ export function OnboardingFlow({
   onSkip: () => void;
 }) {
   const { api } = useAuth();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [showIntro, setShowIntro] = useState(true);
+  // «Ты» или «вы» человек выбирает сам на первом экране; от выбора зависят
+  // вопросы знакомства и то, как Илзи обращается дальше. В английском выбора нет.
+  const russian = locale.toLowerCase().startsWith("ru");
+  const [formal, setFormal] = useState(false);
+  const start = (address?: "ты" | "вы") => {
+    if (address) {
+      setFormal(address === "вы");
+      void api.updateMe({ communication_style: `на ${address}` }).catch(() => {
+        // Не сохранилось — Илзи спросит об этом в разговоре.
+      });
+      trackEvent("onboarding_address", { address });
+    }
+    setShowIntro(false);
+  };
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -83,10 +97,27 @@ export function OnboardingFlow({
           <EalzyMark className="onboarding-logo" />
           <h1 className="onboarding-title">{t("onboarding.introTitle")}</h1>
           <p className="onboarding-lead">{t("onboarding.introPitch")}</p>
+          {russian && <p className="onboarding-lead">{t("onboarding.introAddress")}</p>}
           <div className="onboarding-actions">
-            <Button className="w-full" type="button" onClick={() => setShowIntro(false)}>
-              {t("onboarding.introStart")}
-            </Button>
+            {russian ? (
+              <>
+                <Button className="w-full" type="button" onClick={() => start("ты")}>
+                  {t("onboarding.introInformal")}
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="secondary"
+                  type="button"
+                  onClick={() => start("вы")}
+                >
+                  {t("onboarding.introFormal")}
+                </Button>
+              </>
+            ) : (
+              <Button className="w-full" type="button" onClick={() => start()}>
+                {t("onboarding.introStart")}
+              </Button>
+            )}
             <button type="button" className="onboarding-skip" onClick={() => skip("intro")}>
               {t("onboarding.introSkip")}
             </button>
@@ -103,7 +134,7 @@ export function OnboardingFlow({
         <h1 className="onboarding-title">
           {t("onboarding.title", { step: step + 1, total: STEPS.length })}
         </h1>
-        <p className="onboarding-lead">{t("onboarding.lead")}</p>
+        <p className="onboarding-lead">{t(formal ? "onboarding.leadFormal" : "onboarding.lead")}</p>
 
         <div className="chip-row onboarding-steps">
           {stepLabels.map((label, index) => (
@@ -118,13 +149,13 @@ export function OnboardingFlow({
 
         <form className="onboarding-form" onSubmit={submit}>
           {STEPS[step] === "work" && (
-            <Field label={t("profile.oneWork")}>
+            <Field label={t(formal ? "profile.oneWorkFormal" : "profile.oneWork")}>
               <textarea className="input min-h-24" name="work" required autoFocus />
             </Field>
           )}
 
           {STEPS[step] === "goal" && (
-            <Field label={t("profile.oneGoal")}>
+            <Field label={t(formal ? "profile.oneGoal" : "profile.oneGoalInformal")}>
               <input className="input" name="goal" required autoFocus />
             </Field>
           )}

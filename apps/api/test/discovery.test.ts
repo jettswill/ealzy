@@ -9,7 +9,8 @@ import {
   reminderTasksFromDates,
   runDiscovery,
   catalogTopicsFor,
-  giftIdeaHits,
+  giftActionHits,
+  isGiftAdviceQuestion,
   shoppingQuery,
   searchProducts,
   upcomingDateDigestLines,
@@ -667,24 +668,23 @@ describe("companion discovery", () => {
     expect(shoppingQuery("наушники sony")).toBe("наушники sony");
   });
 
-  it("links gift cards to the options named in the answer, not to the question", () => {
-    const answer = [
-      "Мой выбор — **сертификат в магазин растений**: попадёшь в её интерес.",
-      "",
-      "• **Сертификат на растения** — можно добавить кашпо.",
-      "• **Подарок для йоги** — сертификат в её студию.",
-      "• **Суши** — она их обожает.",
-      "",
-      "**Что дальше**",
-      "День рождения 2 февраля.",
-    ].join("\n");
-    const hits = giftIdeaHits("Что подарить Ире на день рождения?", answer, "ru");
+  it("turns the model's gift decisions into the right kind of card", () => {
+    expect(isGiftAdviceQuestion("Что подарить Ире на день рождения?")).toBe(true);
+    expect(isGiftAdviceQuestion("найди ему подарок")).toBe(false);
+    expect(isGiftAdviceQuestion("какие дела на сегодня?")).toBe(false);
+    const hits = giftActionHits(
+      [
+        { type: "places", query: "суши ресторан", city: null },
+        { type: "products", query: "коврик для йоги 6 мм", city: null },
+      ],
+      "Казань",
+      "ru",
+    );
     expect(hits.map((hit) => hit.title)).toEqual([
-      "Яндекс Маркет: Сертификат на растения",
-      "Яндекс Маркет: Подарок для йоги",
-      "Яндекс Маркет: Суши в подарок",
+      "Яндекс Карты: суши ресторан Казань",
+      "2ГИС: суши ресторан Казань",
+      "Яндекс Маркет: коврик для йоги 6 мм",
     ]);
-    expect(giftIdeaHits("Какие дела на сегодня?", answer, "ru")).toEqual([]);
-    expect(giftIdeaHits("Что подарить Ире?", "Подари книгу.", "ru")).toEqual([]);
+    expect(giftActionHits([], "Казань", "ru")).toEqual([]);
   });
 });

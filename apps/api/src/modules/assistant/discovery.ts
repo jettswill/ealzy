@@ -855,39 +855,43 @@ export function shoppingQuery(query: string) {
 }
 
 /**
- * Карточки магазинов под ответом о подарке. Вопрос «что подарить Ире» в поиске
- * маркетплейса бесполезен; полезен поиск по тем вариантам, которые Илзи сама
- * назвала в ответе («**Сертификат на растения** — …»). По одной ссылке на вариант.
+ * «Что подарить Ире?» — вопрос-совет, а не просьба найти товар. Поиск по самому
+ * вопросу («подарок Ире на день рождения» на маркетплейсе) ничего не даёт, поэтому
+ * здесь карточки появляются только из search_actions: Илзи сама решает, что стоит
+ * за идеей — место, вещь или сертификат. «Найди ему подарок» сюда не относится.
  */
-export function giftIdeaHits(
-  question: string,
-  answer: string,
+export function isGiftAdviceQuestion(text: string): boolean {
+  const { giftTalk, searchVerb } = talkSignals(text);
+  return giftTalk && !searchVerb;
+}
+
+/**
+ * Карточки под ответом о подарке по решению модели: место → карты (рестораны,
+ * студии — там, где человек живёт), вещь → маркетплейс по названию вещи.
+ * Ссылки-поиски, без сетевых запросов: ответ не ждёт каталогов.
+ */
+export function giftActionHits(
+  actions: { type: DiscoveryKind; query: string; city?: string | null; max_price?: number | null }[],
+  defaultCity: string | null,
   locale?: string | null,
 ): DiscoveryHit[] {
-  if (!/подар|gift/iu.test(question)) return [];
-  const ideas: string[] = [];
-  for (const match of answer.matchAll(
-    /^[ \t]*(?:[-•*]|\d+[.)])?[ \t]*\*\*([^*\n]{3,60})\*\*[ \t]*[—–-]/gmu,
-  )) {
-    const idea = match[1]!.replace(/[:.,;]+$/u, "").trim();
-    if (idea && !ideas.some((known) => known.toLocaleLowerCase() === idea.toLocaleLowerCase())) {
-      ideas.push(idea);
+  const hits: DiscoveryHit[] = [];
+  for (const action of actions.slice(0, 2)) {
+    const query = action.query.trim();
+    if (!query) continue;
+    if (action.type === "places") {
+      const city = action.city?.trim() || defaultCity || "";
+      const where =
+        city && !query.toLocaleLowerCase().includes(city.toLocaleLowerCase())
+          ? `${query} ${city}`
+          : query;
+      hits.push(...mapsHits(where, locale));
+    } else if (action.type === "products" || action.type === "gifts") {
+      const shop = marketplaceHits(shoppingQuery(query), action.max_price ?? null, locale)[0];
+      if (shop) hits.push(shop);
     }
   }
-  if (ideas.length < 2) return [];
-  return ideas
-    .slice(0, 3)
-    .map((idea) => {
-      // «Йога» сама по себе — не запрос о подарке; «Йога в подарок» — уже да.
-      const en = languageOf(locale) === "en";
-      const query = /подар|gift|сертификат/iu.test(idea)
-        ? idea
-        : en
-          ? `${idea} gift`
-          : `${idea} в подарок`;
-      return marketplaceHits(query, null, locale)[0];
-    })
-    .filter((hit): hit is DiscoveryHit => Boolean(hit));
+  return hits;
 }
 
 function placeQuery(intent: DiscoveryIntent) {

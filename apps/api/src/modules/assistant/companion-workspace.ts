@@ -124,21 +124,6 @@ export function focusedSearchQuery(
   if (!person) return text;
   const named = personMentionedIn(text, { name: person.name, aliases: [], is_self: false });
   const unnamedGift = /подарк/iu.test(text) && !named;
-  // «Что подарить Оле на день рождения?» — в магазине бессмысленно искать
-  // «подарок Оле». Если о человеке известны вкусы, ищем по ним.
-  if (named && /подар/iu.test(text)) {
-    const topics = (person.memories ?? [])
-      .filter((memory) => memory.category === "interest" || memory.category === "gift")
-      .map((memory) =>
-        memory.content
-          .replace(/^(?:очень\s+)?(?:любит|обожает|увлекается|нравится|нравятся|фанат\p{L}*)\s+/iu, "")
-          .replace(/[.!]+$/u, "")
-          .trim(),
-      )
-      .filter(Boolean)
-      .slice(0, 2);
-    if (topics.length) return `подарок ${topics.join(" ")}`;
-  }
   if (!refersToFocusedPerson(text) && !unnamedGift) return text;
   const interests = (person.memories ?? [])
     .filter(

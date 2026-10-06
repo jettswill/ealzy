@@ -140,4 +140,20 @@ describe("personal model", () => {
     const memories = await repository.listMemories(owner, self.id);
     expect(memories.some((memory) => memory.metadata?.source === "behavior_inference")).toBe(false);
   });
+
+  it("remembers whether the person wants «ты» or «вы» without losing the rest of the style", async () => {
+    const { addressFormOf, inferAddressForm, withAddressForm } = await import(
+      "../src/modules/assistant/personal-model.js"
+    );
+    expect(inferAddressForm("давай на ты")).toBe("ты");
+    expect(inferAddressForm("лучше на «вы», пожалуйста")).toBe("вы");
+    expect(inferAddressForm("ты")).toBe("ты");
+    expect(inferAddressForm("что ты думаешь?")).toBeNull();
+    expect(inferAddressForm("ответь на вопрос")).toBeNull();
+    expect(withAddressForm("коротко и по делу", "ты")).toBe("на ты; коротко и по делу");
+    expect(withAddressForm("на вы; коротко и по делу", "ты")).toBe("на ты; коротко и по делу");
+    expect(withAddressForm(null, "вы")).toBe("на вы");
+    expect(addressFormOf("на ты; коротко")).toBe("ты");
+    expect(addressFormOf("коротко и по делу")).toBeNull();
+  });
 });
