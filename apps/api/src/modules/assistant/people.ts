@@ -24,7 +24,32 @@ export const MEMORY_CATEGORIES = [
   "other",
 ] as const;
 
-export const CompanionPersonFactSchema = z.object({
+// Модель не всегда попадает в имена полей: вместо person_name приходит name
+// или person, вместо content — fact или text. Раньше такой ответ молча терялся
+// (person_name пустой → персона не создаётся), а Илзи при этом писала «запомнила».
+const PERSON_FACT_ALIASES: Record<string, readonly string[]> = {
+  person_name: ["name", "person", "who"],
+  relationship: ["relation", "role"],
+  content: ["fact", "text", "note", "memory"],
+  occurred_at: ["date", "birthday", "when"],
+  date_kind: ["kind", "date_type"],
+  date_year: ["year"],
+};
+
+function withPersonFactAliases(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const row = { ...(value as Record<string, unknown>) };
+  for (const [field, aliases] of Object.entries(PERSON_FACT_ALIASES)) {
+    if (row[field] != null && row[field] !== "") continue;
+    const alias = aliases.find((key) => row[key] != null && row[key] !== "");
+    if (alias) row[field] = row[alias];
+  }
+  // {"name": "Оля", "birthday": "14.11"} — дата без вида, но вид понятен из имени поля.
+  if ((row.date_kind == null || row.date_kind === "") && row.birthday) row.date_kind = "birthday";
+  return row;
+}
+
+const CompanionPersonFactShape = z.object({
   person_name: z.preprocess(emptyToNull, z.string().trim().max(80).nullable()).transform((value) => value ?? ""),
   relationship: z.preprocess(emptyToNull, z.string().trim().max(80).nullable()),
   content: z.preprocess(emptyToNull, z.string().trim().max(400).nullable()),
@@ -42,7 +67,31 @@ export const CompanionPersonFactSchema = z.object({
     z.coerce.number().int().min(1800).max(2100).nullable().catch(null),
   ),
 });
-export type CompanionPersonFact = z.infer<typeof CompanionPersonFactSchema>;
+export const CompanionPersonFactSchema = z.preprocess(
+  withPersonFactAliases,
+  CompanionPersonFactShape,
+);
+export type CompanionPersonFact = z.infer<typeof CompanionPersonFactShape>;
+
+/**
+ * Факт о другом человеке не должен дублироваться в «Важных фактах» о самом
+ * пользователе: «У сестры Оли день рождения 14 ноября» — это карточка Оли.
+ */
+export function selfFactIsAboutSavedPerson(
+  content: string | null | undefined,
+  facts: Pick<CompanionPersonFact, "person_name" | "relationship">[],
+): boolean {
+  const text = String(content ?? "");
+  if (!text.trim()) return false;
+  const words = text.split(/[^\p{L}-]+/u).filter(Boolean);
+  return facts.some((fact) => {
+    const name = fact.person_name?.trim();
+    if (!name) return false;
+    if (personMentionedIn(text, { name, aliases: [], is_self: false })) return true;
+    const relationship = relationshipFromWord(fact.relationship) ?? relationshipFromWord(name);
+    return Boolean(relationship && words.some((word) => relationshipFromWord(word) === relationship));
+  });
+}
 export type PersonEntity = { type: "person"; id: string; label: string };
 
 const RELATIONSHIPS = [

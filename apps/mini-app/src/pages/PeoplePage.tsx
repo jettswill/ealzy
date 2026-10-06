@@ -28,8 +28,11 @@ export function PeoplePage() {
   useOpenOnCreateIntent(setCreating);
   const people = useMemo(() => {
     const term = query.trim().toLocaleLowerCase();
-    if (!term) return data ?? [];
-    return (data ?? []).filter((person) =>
+    // Сам пользователь — не «человек, который вам важен»: его карточка с
+    // родством «self» в этом списке выглядела как мусор.
+    const others = (data ?? []).filter((person) => !person.is_self);
+    if (!term) return others;
+    return others.filter((person) =>
       [
         person.name,
         person.relationship,

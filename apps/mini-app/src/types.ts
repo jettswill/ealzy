@@ -103,6 +103,8 @@ export interface Person {
   name: string;
   relationship: string | null;
   description: string | null;
+  /** Карточка самого пользователя: сервер хранит её среди людей. */
+  is_self?: boolean;
   aliases?: string[];
   locations?: PersonLocation[];
   dates?: PersonDate[];

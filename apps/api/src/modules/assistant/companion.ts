@@ -26,6 +26,7 @@ import {
 import {
   applyCompanionPersonFacts,
   CompanionPersonFactSchema,
+  selfFactIsAboutSavedPerson,
   formatPersonSaveAnswer,
   inferCompanionPersonFacts,
   personMentionedIn,
@@ -1759,9 +1760,12 @@ export class PersonalContextBuilder {
       ...rankedTasks.filter((task) => !pinnedIds.has(task.id)),
     ].slice(0, PersonalContextBuilder.limits.tasks);
     const selectedSpaces = spaces.slice(0, PersonalContextBuilder.limits.spaces);
+    // Только просрочка, не попавшая в показанный модели список: иначе Илзи
+    // сообщает «ещё 5 просроченных за пределами списка» про дела, которые видит.
+    const selectedTaskIds = new Set(selectedTasks.map((task) => task.id));
     const overdueCount = openTasks.filter((task) => {
       const due = task.due_at;
-      if (!due) return false;
+      if (!due || selectedTaskIds.has(task.id)) return false;
       return companionClock(timezone, new Date(due)).date < clock.date;
     }).length;
     const knownPatterns = inferBehaviorPatterns({
@@ -2275,7 +2279,9 @@ export class CompanionService {
       const personFacts = response.person_facts.some((fact) => fact.person_name.trim())
         ? response.person_facts
         : inferCompanionPersonFacts(text);
-      const extractedSelf = response.self_facts.filter((fact) => fact.content?.trim());
+      const extractedSelf = response.self_facts.filter(
+        (fact) => fact.content?.trim() && !selfFactIsAboutSavedPerson(fact.content, personFacts),
+      );
       const selfFacts = mergeSelfFacts(
         extractedSelf.length ? extractedSelf : inferCompanionSelfFacts(text),
         inferImplicitSelfFacts(text),

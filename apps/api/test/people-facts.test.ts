@@ -2,13 +2,44 @@ import { describe, expect, it } from "vitest";
 import { InMemoryRepository } from "../src/repository.js";
 import {
   applyCompanionPersonFacts,
+  CompanionPersonFactSchema,
   inferCompanionPersonFacts,
+  selfFactIsAboutSavedPerson,
   parseFactDate,
   relationshipFromWord,
 } from "../src/modules/assistant/people.js";
 import { savePeopleFromBio } from "../src/modules/assistant/first-session.js";
 
 describe("companion person facts", () => {
+  it("accepts the field names the chat model tends to use instead of the schema ones", async () => {
+    const fact = CompanionPersonFactSchema.parse({
+      name: "Оля",
+      relation: "сестра",
+      birthday: "14.11",
+    });
+    expect(fact).toMatchObject({
+      person_name: "Оля",
+      relationship: "сестра",
+      occurred_at: "14.11",
+      date_kind: "birthday",
+    });
+    const repository = new InMemoryRepository();
+    const user = await repository.upsertTelegramUser({ telegram_id: 501, name: "A" });
+    const entities = await applyCompanionPersonFacts(repository, user.id, [fact]);
+    expect(entities.map((entity) => entity.label)).toEqual(["Оля"]);
+    const people = await repository.listPeople(user.id);
+    const olya = people.find((person) => person.name === "Оля");
+    expect(olya?.relationship).toBe("сестра");
+  });
+
+  it("keeps a fact about a saved person out of the user's own facts", () => {
+    const facts = [{ person_name: "Оля", relationship: "сестра" }];
+    expect(selfFactIsAboutSavedPerson("У сестры Оли день рождения 14 ноября", facts)).toBe(true);
+    expect(selfFactIsAboutSavedPerson("Сестра любит горький шоколад", facts)).toBe(true);
+    expect(selfFactIsAboutSavedPerson("Руковожу отделом маркетинга", facts)).toBe(false);
+    expect(selfFactIsAboutSavedPerson("Люблю бегать по утрам", [])).toBe(false);
+  });
+
   it("parses a friend, birthday and interests from natural phrases", () => {
     const intro = inferCompanionPersonFacts(
       "у меня есть друг дима, день рождения 29.03.1994",

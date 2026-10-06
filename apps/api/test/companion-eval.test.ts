@@ -83,6 +83,21 @@ describe("companion eval pipeline", () => {
     expect(result.failed, result.failed.map((item) => item.id).join(", ")).toEqual([]);
   });
 
+  it("does not report overdue tasks the model already sees as overflow", async () => {
+    const repository = new InMemoryRepository();
+    const user = await repository.upsertTelegramUser({ telegram_id: 91, name: "B" });
+    for (let i = 0; i < 5; i++) {
+      await repository.createTask(user.id, {
+        title: `Overdue ${i}`,
+        due_at: "2020-01-01T12:00:00.000Z",
+      });
+    }
+    const context = await new PersonalContextBuilder(repository).build(user.id, "что подарить сестре");
+    expect(context.tasks.length).toBe(5);
+    expect(context.overflow.extra_tasks).toBe(0);
+    expect(context.overflow.extra_overdue).toBe(0);
+  });
+
   it("packs projects, spaces and overflow into the workspace", async () => {
     const repository = new InMemoryRepository();
     const user = await repository.upsertTelegramUser({ telegram_id: 90, name: "A" });
@@ -93,10 +108,12 @@ describe("companion eval pipeline", () => {
     const goal = await repository.createGoal(user.id, { title: "Запустить лендинг" });
     await repository.createProject(user.id, { name: "Редизайн", goal_id: goal.id });
     await repository.createSpace(user.id, { name: "Работа", type: "work" });
-    for (let i = 0; i < 25; i++) {
+    // Просроченных больше, чем помещается в список для модели: extra_overdue
+    // считает только те, что в список не попали.
+    for (let i = 0; i < 45; i++) {
       await repository.createTask(user.id, {
         title: `Task ${i}`,
-        due_at: i < 4 ? "2020-01-01T12:00:00.000Z" : null,
+        due_at: i < 24 ? "2020-01-01T12:00:00.000Z" : null,
       });
     }
     const context = await new PersonalContextBuilder(repository).build(user.id, "редизайн работа");

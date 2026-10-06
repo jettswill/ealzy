@@ -275,7 +275,7 @@ function overflowHint(workspace: unknown): string | null {
   const extraTasks = Number((overflow as { extra_tasks?: unknown }).extra_tasks ?? 0);
   const extraOverdue = Number((overflow as { extra_overdue?: unknown }).extra_overdue ?? 0);
   if (extraTasks <= 0 && extraOverdue <= 0) return null;
-  return `The visible task list is truncated. You MUST mention leftover volume from workspace.overflow: ${extraTasks} extra open tasks and ${extraOverdue} extra overdue. Do not treat the listed tasks as the complete load.`;
+  return `The visible task list is truncated: ${extraTasks} more open tasks and ${extraOverdue} more overdue are not listed (workspace.overflow). If this turn is about tasks, load, plan, agenda or priorities, you MUST mention that leftover volume and not treat the listed tasks as the complete load. If the turn is about something else, do not mention tasks or overdue work at all.`;
 }
 
 export const FAST_AI_TIMEOUT_MS = 12_000;
