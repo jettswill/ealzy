@@ -1021,7 +1021,7 @@ const ru = {
   },
   onboarding: {
     title: "Знакомство — шаг {step} из {total}",
-    lead: "Часовой пояс, чем занимаешься, цель — и Илзи попросит дела на сегодня. Можно пропустить: цель и список всё равно появятся.",
+    lead: "Чем занимаешься и одна цель — и Илзи попросит дела на сегодня. Можно пропустить: цель и список всё равно появятся.",
     skip: "Пропустить и начать",
     introTitle: "Давай знакомиться",
     introPitch:
@@ -2055,7 +2055,7 @@ const en: typeof ru = {
   },
   onboarding: {
     title: "Welcome — step {step} of {total}",
-    lead: "Timezone, what you do, a goal — then Ilzi asks for today's list. Skip if you want: a goal and the dump still appear.",
+    lead: "What you do and one goal — then Ilzi asks for today's list. Skip if you want: a goal and the dump still appear.",
     skip: "Skip and start",
     introTitle: "Let's get acquainted",
     introPitch:

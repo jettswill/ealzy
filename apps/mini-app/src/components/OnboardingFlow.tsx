@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
-import { COMMON_TIMEZONES, detectTimeZone } from "../i18n/locale";
+import { detectTimeZone } from "../i18n/locale";
 import { trackEvent } from "../analytics";
 import { Button, Field } from "./ui";
 import { EalzyMark } from "./EalzyLogo";
 
-const STEPS = ["timezone", "work", "goal"] as const;
+// Часовой пояс больше не спрашиваем отдельным шагом: он определяется по
+// браузеру и сохраняется вместе с первым ответом, а поменять его можно в профиле.
+const STEPS = ["work", "goal"] as const;
 
 export function OnboardingFlow({
   onComplete,
@@ -23,7 +25,7 @@ export function OnboardingFlow({
   const [error, setError] = useState("");
   const detected = detectTimeZone();
 
-  const stepLabels = [t("profile.timezone"), t("profile.stepWork"), t("profile.stepGoal")];
+  const stepLabels = [t("profile.stepWork"), t("profile.stepGoal")];
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -32,13 +34,10 @@ export function OnboardingFlow({
     setError("");
     try {
       const current = STEPS[step];
-      if (current === "timezone") {
-        const tz = String(form.get("timezone")).trim();
-        await api.updateMe({ timezone: tz });
-      } else if (current === "work") {
+      if (current === "work") {
         const text = String(form.get("work")).trim();
         if (text) {
-          await api.updateMe({ bio: text });
+          await api.updateMe({ bio: text, timezone: detected });
           await api.createSelfMemory({
             content: text,
             category: "important_fact",
@@ -118,18 +117,6 @@ export function OnboardingFlow({
         </div>
 
         <form className="onboarding-form" onSubmit={submit}>
-          {STEPS[step] === "timezone" && (
-            <Field label={t("profile.timezone")} hint={t("profile.timezoneHint")}>
-              <select className="input" name="timezone" defaultValue={detected}>
-                {Array.from(new Set([detected, ...COMMON_TIMEZONES])).map((zone) => (
-                  <option key={zone} value={zone}>
-                    {zone.replace(/_/g, " ")}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )}
-
           {STEPS[step] === "work" && (
             <Field label={t("profile.oneWork")}>
               <textarea className="input min-h-24" name="work" required autoFocus />

@@ -83,6 +83,16 @@ function visibleContent(content: string, hits: SearchHit[]) {
 
 const autoSendLock = { draft: "" };
 
+const DRAFT_KEY = "ealzy.companion.draft";
+
+function readStoredDraft(): string {
+  try {
+    return window.sessionStorage.getItem(DRAFT_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 function offersOf(message?: ConversationMessage): CompanionOffer[] {
   const raw = message?.metadata?.offers;
   if (!Array.isArray(raw)) return [];
@@ -118,7 +128,17 @@ export function CompanionPage() {
     live: true,
   });
   const incoming = location.state as { draft?: string; autoSend?: boolean; guidedIntro?: boolean } | null;
-  const [draft, setDraft] = useState(() => incoming?.draft ?? "");
+  const [draft, setDraft] = useState(() => incoming?.draft ?? readStoredDraft());
+  // Набранный, но не отправленный текст переживает перезагрузку страницы:
+  // после обновления приложения оно перезагружается само, и раньше текст пропадал.
+  useEffect(() => {
+    try {
+      if (draft) window.sessionStorage.setItem(DRAFT_KEY, draft);
+      else window.sessionStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // Хранилище недоступно (приватный режим) — черновик живёт только в памяти.
+    }
+  }, [draft]);
   const [sending, setSending] = useState(false);
   const [streamingAnswer, setStreamingAnswer] = useState("");
   const [sendError, setSendError] = useState("");

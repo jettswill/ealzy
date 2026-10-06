@@ -1824,6 +1824,19 @@ describe("shared companion ledger and context", () => {
         memories: [{ content: "любит машины", category: "interest" }],
       }),
     ).toMatch(/Дима.*машин/i);
+    // Человек назван по имени: в магазине ищем по его вкусам, а не «подарок Оле».
+    expect(
+      focusedSearchQuery("Что подарить Оле на день рождения?", {
+        name: "Оля",
+        memories: [
+          { content: "Любит настольные игры", category: "interest" },
+          { content: "День рождения 14 ноября", category: "important_date" },
+        ],
+      }),
+    ).toBe("подарок настольные игры");
+    expect(
+      focusedSearchQuery("Что подарить Оле на день рождения?", { name: "Оля", memories: [] }),
+    ).toBe("Что подарить Оле на день рождения?");
   });
 
   it("searches real products from a companion request", async () => {
