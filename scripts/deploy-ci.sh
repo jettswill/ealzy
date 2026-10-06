@@ -160,7 +160,11 @@ curl -fsS http://127.0.0.1:8080/healthz
 echo
 
 echo "Checking Telegram API from api container..."
-if docker exec ealzy-app-api-1 wget -q -O /dev/null -T 15 https://api.telegram.org; then
+# With TELEGRAM_API_BASE_URL the bot talks to Telegram through an HTTPS proxy and
+# does not need the VPN; check the address the app will really use.
+TG_BASE="$(grep -E '^TELEGRAM_API_BASE_URL=' .env | cut -d= -f2- || true)"
+TG_ORIGIN="$(printf '%s' "${TG_BASE:-https://api.telegram.org}" | sed -E 's#^(https?://[^/]+).*#\1#')"
+if docker exec ealzy-app-api-1 wget -q -O /dev/null -T 15 "$TG_ORIGIN"; then
   echo "Telegram API reachable from api container."
 else
   status=$?

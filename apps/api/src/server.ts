@@ -20,7 +20,7 @@ const app = createApp({
   repository,
   env,
   supabaseAuth: database.auth,
-  telegram: new TelegramClient(env.TELEGRAM_BOT_TOKEN),
+  telegram: new TelegramClient(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_API_BASE_URL),
   ai: new OpenAiProvider(
     env.OPENAI_API_KEY,
     env.OPENAI_MODEL,

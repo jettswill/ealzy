@@ -10,6 +10,8 @@ export const EnvSchema = z.object({
   TELEGRAM_WEBHOOK_SECRET: z.string().min(16),
   TELEGRAM_MINI_APP_URL: z.string().url(),
   TELEGRAM_POLLING: z.enum(["true", "false"]).optional(),
+  // HTTPS-прокси к Bot API вместо api.telegram.org; не задан — ходим напрямую.
+  TELEGRAM_API_BASE_URL: z.string().url().optional(),
   TELEGRAM_INIT_DATA_MAX_AGE_SECONDS: z.coerce.number().int().positive().default(86_400),
   TELEGRAM_LOGIN_MAX_AGE_SECONDS: z.coerce.number().int().positive().default(86_400),
   SESSION_SECRET: z.string().min(32),

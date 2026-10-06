@@ -279,13 +279,24 @@ function splitTelegramChunks(text: string, maxLen = TELEGRAM_SAFE_CHUNK_LEN): st
   return chunks;
 }
 
+export const TELEGRAM_API_ORIGIN = "https://api.telegram.org";
+
 export class TelegramClient implements TelegramGateway {
-  constructor(private readonly token: string) {}
+  private readonly apiBase: string;
+  // apiBase — адрес Bot API. По умолчанию это сам Telegram; с сервера в России он
+  // недоступен, поэтому сюда можно подставить свой HTTPS-прокси (см.
+  // deploy/telegram-proxy). Прокси должен пересылать путь как есть.
+  constructor(
+    private readonly token: string,
+    apiBase: string = TELEGRAM_API_ORIGIN,
+  ) {
+    this.apiBase = apiBase.replace(/\/+$/, "");
+  }
   private async call(method: string, body: unknown) {
     await this.callJson(method, body);
   }
   private async callJson(method: string, body: unknown, timeoutMs = 15_000) {
-    const response = await fetch(`https://api.telegram.org/bot${this.token}/${method}`, {
+    const response = await fetch(`${this.apiBase}/bot${this.token}/${method}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -334,7 +345,7 @@ export class TelegramClient implements TelegramGateway {
         ? String((meta.result as { file_path?: unknown }).file_path ?? "")
         : "";
     if (!path) return null;
-    const file = await fetch(`https://api.telegram.org/file/bot${this.token}/${path}`, {
+    const file = await fetch(`${this.apiBase}/file/bot${this.token}/${path}`, {
       signal: AbortSignal.timeout(60_000),
     });
     if (!file.ok) return null;
