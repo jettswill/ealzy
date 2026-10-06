@@ -410,7 +410,11 @@ export function formatSettingsRecap(
         : "Дальше отвечаю по-русски.",
     );
   }
-  if (applied.communication_style) {
+  // «Стиль: на ты.» после ответа «Договорились, на ты» — лишний повтор.
+  if (
+    applied.communication_style &&
+    !/^на\s+(?:ты|вы)$/iu.test(applied.communication_style.trim())
+  ) {
     parts.push(ru ? `Стиль: ${applied.communication_style}.` : `Style: ${applied.communication_style}.`);
   }
   if (applied.bio) parts.push(ru ? "Обновила био." : "Updated bio.");
