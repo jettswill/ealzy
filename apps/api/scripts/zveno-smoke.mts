@@ -9,7 +9,8 @@ if (!apiKey) {
   process.exit(1);
 }
 
-const ai = new OpenAiProvider(apiKey, model, baseURL);
+const companionModel = process.env.OPENAI_COMPANION_MODEL || undefined;
+const ai = new OpenAiProvider(apiKey, model, baseURL, undefined, companionModel);
 
 const cases = [
   {
@@ -65,7 +66,7 @@ const cases = [
   },
 ];
 
-console.log(`Provider: ${baseURL} / ${model}\n`);
+console.log(`Provider: ${baseURL} / ${model} (companion: ${companionModel ?? model})\n`);
 
 let passed = 0;
 for (const testCase of cases) {

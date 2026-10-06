@@ -26,6 +26,7 @@ const app = createApp({
     env.OPENAI_MODEL,
     env.OPENAI_BASE_URL,
     env.OPENAI_TRANSCRIPTION_MODEL,
+    env.OPENAI_COMPANION_MODEL,
   ),
 });
 

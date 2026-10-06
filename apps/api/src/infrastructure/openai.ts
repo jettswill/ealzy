@@ -332,6 +332,10 @@ export class OpenAiProvider implements AiProvider {
     private readonly model: string,
     baseURL = "https://api.zveno.ai/v1",
     private readonly transcriptionModel = "openai/gpt-4o-mini-transcribe",
+    // Разговор с Илзи может идти на более сильной модели, чем фоновая работа
+    // (сводки, разбор писем, импорт): качество нужно там, где человек его видит,
+    // а платить за него в каждом фоновом вызове незачем.
+    private readonly companionModel: string = model,
   ) {
     this.client = new OpenAI({ apiKey, baseURL, timeout: FAST_AI_TIMEOUT_MS, maxRetries: 1 });
   }
@@ -413,12 +417,43 @@ export class OpenAiProvider implements AiProvider {
     return this.companionStream(query, context);
   }
   async companionStream(query: string, context: unknown, onAnswerDelta?: (answer: string) => void) {
+    if (this.companionModel === this.model) {
+      return this.companionWith(this.model, query, context, onAnswerDelta);
+    }
+    let started = false;
+    try {
+      return await this.companionWith(this.companionModel, query, context, (answer) => {
+        started = true;
+        onAnswerDelta?.(answer);
+      });
+    } catch (error) {
+      // Ответ уже пошёл человеку на экран — подменять его на полуслове нельзя.
+      if (started) throw error;
+      // Модель чата недоступна или не приняла запрос: Илзи не должна замолчать,
+      // отвечаем основной моделью и оставляем след в логах.
+      console.error(
+        JSON.stringify({
+          event: "companion_model_fallback",
+          model: this.companionModel,
+          fallback: this.model,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      return this.companionWith(this.model, query, context, onAnswerDelta);
+    }
+  }
+  private async companionWith(
+    model: string,
+    query: string,
+    context: unknown,
+    onAnswerDelta?: (answer: string) => void,
+  ) {
     const packed = companionPayload(context);
     const truncated = overflowHint(packed.workspace);
     const stream = await this.client.chat.completions.create(
       {
-        model: this.model,
-        ...chatCompletionControls(this.model, {
+        model,
+        ...chatCompletionControls(model, {
           maxTokens: COMPANION_AI_MAX_TOKENS,
           temperature: COMPANION_AI_TEMPERATURE,
           reasoningEffort: "none",

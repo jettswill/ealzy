@@ -8,6 +8,7 @@ import {
   chatCompletionControls,
   companionPayload,
   compactCompanionWorkspace,
+  OpenAiProvider,
 } from "../src/infrastructure/openai.js";
 
 describe("fast companion packing", () => {
@@ -58,5 +59,82 @@ describe("fast companion packing", () => {
     expect(packed.conversation).toHaveLength(COMPANION_CONVERSATION_TURNS);
     expect(packed.conversation[0]?.content.length).toBeLessThanOrEqual(COMPANION_CONVERSATION_CHARS + 1);
     expect(packed.workspace).toEqual({ tasks: [] });
+  });
+});
+
+describe("companion model", () => {
+  const reply = (text: string) => ({
+    async *[Symbol.asyncIterator]() {
+      yield { choices: [{ delta: { content: JSON.stringify({ answer: text }) } }] };
+    },
+  });
+  function providerWith(create: (body: { model: string }) => unknown, companionModel?: string) {
+    const provider = new OpenAiProvider(
+      "key",
+      "openai/gpt-4.1",
+      "https://example.com/v1",
+      undefined,
+      companionModel,
+    );
+    const calls: Record<string, unknown>[] = [];
+    (provider as unknown as { client: unknown }).client = {
+      chat: {
+        completions: {
+          create: async (body: { model: string }) => {
+            calls.push(body);
+            return create(body);
+          },
+        },
+      },
+    };
+    return { provider, calls };
+  }
+
+  it("talks on the companion model with that model's own controls", async () => {
+    const { provider, calls } = providerWith(() => reply("Привет"), "openai/gpt-6.1-sol");
+    await expect(provider.companion("Привет", {})).resolves.toEqual({ answer: "Привет" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      model: "openai/gpt-6.1-sol",
+      reasoning_effort: "none",
+      max_completion_tokens: COMPANION_AI_MAX_TOKENS,
+    });
+    expect(calls[0]).not.toHaveProperty("temperature");
+  });
+
+  it("stays on the base model when no companion model is set", async () => {
+    const { provider, calls } = providerWith(() => reply("Привет"));
+    await provider.companion("Привет", {});
+    expect(calls.map((call) => call.model)).toEqual(["openai/gpt-4.1"]);
+    expect(calls[0]).toMatchObject({ temperature: COMPANION_AI_TEMPERATURE });
+  });
+
+  it("answers on the base model when the companion model rejects the request", async () => {
+    const { provider, calls } = providerWith((body) => {
+      if (body.model === "openai/gpt-6.1-sol") throw new Error("404 model not found");
+      return reply("Отвечаю запасной моделью");
+    }, "openai/gpt-6.1-sol");
+    await expect(provider.companion("Привет", {})).resolves.toEqual({
+      answer: "Отвечаю запасной моделью",
+    });
+    expect(calls.map((call) => call.model)).toEqual(["openai/gpt-6.1-sol", "openai/gpt-4.1"]);
+  });
+
+  it("does not swap models once the answer has started streaming", async () => {
+    const { provider, calls } = providerWith(
+      () => ({
+        async *[Symbol.asyncIterator]() {
+          yield { choices: [{ delta: { content: '{"answer":"Начала отвечать' } }] };
+          throw new Error("stream broke");
+        },
+      }),
+      "openai/gpt-6.1-sol",
+    );
+    const seen: string[] = [];
+    await expect(
+      provider.companionStream("Привет", {}, (answer) => seen.push(answer)),
+    ).rejects.toThrow("stream broke");
+    expect(seen.length).toBeGreaterThan(0);
+    expect(calls).toHaveLength(1);
   });
 });

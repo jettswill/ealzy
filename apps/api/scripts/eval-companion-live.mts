@@ -24,6 +24,8 @@ const ai = new OpenAiProvider(
   apiKey,
   process.env.OPENAI_MODEL ?? "openai/gpt-4o-mini",
   process.env.OPENAI_BASE_URL ?? "https://api.zveno.ai/v1",
+  undefined,
+  process.env.OPENAI_COMPANION_MODEL || undefined,
 );
 
 const result = await runCompanionEvalGenerated(
