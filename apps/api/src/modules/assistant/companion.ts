@@ -6,6 +6,7 @@ import type { Message, PersonalContext, Reflection, SourceChannel, Task } from "
 import { withGoalStats, withPromiseStats } from "../../direction.js";
 import type { AiProvider } from "./index.js";
 import {
+  giftIdeaHits,
   attachSearchAnswer,
   cityForTimezone,
   collectUpcomingDates,
@@ -2063,7 +2064,15 @@ export class CompanionService {
             context.profile.locale,
           )
         : [];
-      const searchResults = dedupeHits([...hits, ...extraHits]);
+      // О подарке: ссылки на то, что Илзи предложила, вместо поиска по самому вопросу.
+      const ideaHits = explicitDiscovery
+        ? giftIdeaHits(text, response.answer, context.profile.locale)
+        : [];
+      const searchResults = dedupeHits([
+        ...ideaHits,
+        ...(ideaHits.length ? hits.filter((hit) => hit.kind !== "shop") : hits),
+        ...extraHits,
+      ]);
       response.search_results = searchResults;
       if (searchResults.length) {
         response.answer = attachSearchAnswer(

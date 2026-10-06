@@ -854,6 +854,33 @@ export function shoppingQuery(query: string) {
   return cleaned || query.trim();
 }
 
+/**
+ * Карточки магазинов под ответом о подарке. Вопрос «что подарить Ире» в поиске
+ * маркетплейса бесполезен; полезен поиск по тем вариантам, которые Илзи сама
+ * назвала в ответе («**Сертификат на растения** — …»). По одной ссылке на вариант.
+ */
+export function giftIdeaHits(
+  question: string,
+  answer: string,
+  locale?: string | null,
+): DiscoveryHit[] {
+  if (!/подар|gift/iu.test(question)) return [];
+  const ideas: string[] = [];
+  for (const match of answer.matchAll(
+    /^[ \t]*(?:[-•*]|\d+[.)])?[ \t]*\*\*([^*\n]{3,60})\*\*[ \t]*[—–-]/gmu,
+  )) {
+    const idea = match[1]!.replace(/[:.,;]+$/u, "").trim();
+    if (idea && !ideas.some((known) => known.toLocaleLowerCase() === idea.toLocaleLowerCase())) {
+      ideas.push(idea);
+    }
+  }
+  if (ideas.length < 2) return [];
+  return ideas
+    .slice(0, 3)
+    .map((idea) => marketplaceHits(idea, null, locale)[0])
+    .filter((hit): hit is DiscoveryHit => Boolean(hit));
+}
+
 function placeQuery(intent: DiscoveryIntent) {
   const city = intent.city || "Москва";
   if (intent.placeKind === "place" && /куда\s+сходить|развлечен/iu.test(intent.query)) {

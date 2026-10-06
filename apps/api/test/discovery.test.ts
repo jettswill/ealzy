@@ -9,6 +9,7 @@ import {
   reminderTasksFromDates,
   runDiscovery,
   catalogTopicsFor,
+  giftIdeaHits,
   shoppingQuery,
   searchProducts,
   upcomingDateDigestLines,
@@ -664,5 +665,24 @@ describe("companion discovery", () => {
       "мастерские по керамике в Москве",
     );
     expect(shoppingQuery("наушники sony")).toBe("наушники sony");
+  });
+
+  it("links gift cards to the options named in the answer, not to the question", () => {
+    const answer = [
+      "Мой выбор — **сертификат в магазин растений**: попадёшь в её интерес.",
+      "",
+      "• **Сертификат на растения** — можно добавить кашпо.",
+      "• **Подарок для йоги** — сертификат в её студию.",
+      "",
+      "**Что дальше**",
+      "День рождения 2 февраля.",
+    ].join("\n");
+    const hits = giftIdeaHits("Что подарить Ире на день рождения?", answer, "ru");
+    expect(hits.map((hit) => hit.title)).toEqual([
+      "Яндекс Маркет: Сертификат на растения",
+      "Яндекс Маркет: Подарок для йоги",
+    ]);
+    expect(giftIdeaHits("Какие дела на сегодня?", answer, "ru")).toEqual([]);
+    expect(giftIdeaHits("Что подарить Ире?", "Подари книгу.", "ru")).toEqual([]);
   });
 });
