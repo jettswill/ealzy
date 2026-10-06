@@ -22,6 +22,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # api импортирует @lifeos/contracts из dist — собираем до типов и тестов.
+      - run: pnpm --filter @lifeos/contracts build
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
