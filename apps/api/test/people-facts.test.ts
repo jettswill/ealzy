@@ -32,6 +32,27 @@ describe("companion person facts", () => {
     expect(olya?.relationship).toBe("сестра");
   });
 
+  it("reads family from an onboarding bio: capitalised role, and a birthday owned by «у брата Кости»", () => {
+    const facts = inferCompanionPersonFacts(
+      "Дизайнер-фрилансер. Жена Марина, дочь Соня 5 лет. У брата Кости день рождения 20 октября. Важно не срывать сроки.",
+      { maxLength: 2000 },
+    );
+    expect(facts.map((fact) => [fact.person_name, fact.relationship, fact.date_kind])).toEqual([
+      ["Марина", "жена", null],
+      ["Соня", "дочь", null],
+      ["Костя", "брат", "birthday"],
+    ]);
+    expect(facts[2]?.occurred_at).toBe("2000-10-20T12:00:00.000Z");
+  });
+
+  it("names the person in the nominative when the birthday is said as «у Оли», «у Павла»", () => {
+    const one = (text: string) => inferCompanionPersonFacts(text).map((fact) => fact.person_name);
+    expect(one("Запомни: у сестры Оли день рождения 14 ноября")).toEqual(["Оля"]);
+    expect(one("у Димы день рождения 29.03.1994")).toEqual(["Дима"]);
+    expect(one("у Павла день рождения 3 марта")).toEqual(["Павел"]);
+    expect(one("у мамы день рождения 3 октября")).toEqual(["Мама"]);
+  });
+
   it("keeps a fact about a saved person out of the user's own facts", () => {
     const facts = [{ person_name: "Оля", relationship: "сестра" }];
     expect(selfFactIsAboutSavedPerson("У сестры Оли день рождения 14 ноября", facts)).toBe(true);

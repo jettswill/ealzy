@@ -359,6 +359,36 @@ function usableName(value: string | null | undefined) {
   return name;
 }
 
+const INDECLINABLE_NAMES = new Set([
+  "мери", "софи", "натали", "эмили", "люси", "гоги", "джонни", "генри", "гарри", "тони", "реми",
+]);
+const IRREGULAR_GENITIVE_NAMES: Record<string, string> = {
+  павла: "Павел",
+  льва: "Лев",
+  петра: "Пётр",
+};
+
+/**
+ * «у Кости», «у Оли», «у Ивана» → Костя, Оля, Иван. Правило по окончанию, без
+ * словаря: слова родства и несклоняемые имена не трогает. Нужна, чтобы карточка
+ * человека называлась именем, а не его родительным падежом.
+ */
+export function nominativeName(value: string): string {
+  const word = value.trim();
+  const lower = normalize(word);
+  if (word.length < 3 || relationshipFromWord(word) || INDECLINABLE_NAMES.has(lower)) return word;
+  if (!/^\p{Lu}/u.test(word)) return word;
+  if (IRREGULAR_GENITIVE_NAMES[lower]) return IRREGULAR_GENITIVE_NAMES[lower]!;
+  const stem = word.slice(0, -1);
+  const before = lower.at(-2) ?? "";
+  if (lower.endsWith("ии")) return `${stem}я`;
+  if (lower.endsWith("ы")) return `${stem}а`;
+  if (lower.endsWith("и")) return /[гкхжшчщ]/u.test(before) ? `${stem}а` : `${stem}я`;
+  if (lower.endsWith("а") && /[бвгджзклмнпрстфхцчшщ]/u.test(before)) return stem;
+  if (lower.endsWith("я")) return /[аеёиоуыэюя]/u.test(before) ? `${stem}й` : `${stem}ь`;
+  return word;
+}
+
 function pushFact(
   facts: CompanionPersonFact[],
   fact: Omit<CompanionPersonFact, "date_kind" | "date_year"> &
@@ -436,7 +466,9 @@ export function inferCompanionPersonFacts(
     ...t.matchAll(
       new RegExp(
         `(?:^|[\\s,;.:()«"-])(${relationshipNamePattern})\\s+([\\p{L}-]{2,30})`,
-        "gu",
+        // i — ради «Жена Марина» в начале предложения; заглавную у имени
+        // проверяем ниже руками, потому что с флагом i \\p{Lu} её не различает.
+        "giu",
       ),
     ),
   ];
@@ -487,23 +519,36 @@ export function inferCompanionPersonFacts(
   // дату к последнему упомянутому человеку. Разбираем отдельно и вычёркиваем
   // разобранный кусок, чтобы общее правило не продублировало ту же дату.
   let birthdayScan = t;
+  // «у Димы день рождения…» в начале текста уже разобрано здесь; общее правило
+  // «у X …» в конце не должно завести второго человека из того же куска.
+  let birthdayAtStart = false;
   const ownedBirthday = [
     ...t.matchAll(
       // \b здесь бесполезен: в JS это граница ASCII-слова, а вокруг кириллица.
-      /(?:^|[\s,;:(])у\s+(?!меня\s)([\p{L}-]{2,30})\s+(?:день\s*рожден\p{L}*|др\.?)[\s,:—-]*([^\n,;]+)/giu,
+      /(?:^|[\s,;:(.!?])у\s+(?!меня\s)([\p{L}-]{2,30})(?:\s+([\p{L}-]{2,30}))?\s+(?:день\s*рожден\p{L}*|др\.?)[\s,:—-]*([^\n,;]+)/giu,
     ),
   ];
   for (const match of ownedBirthday) {
-    const said = clipFactText(match[2] ?? "");
+    const said = clipFactText(match[3] ?? "");
     const parts = parseFactDateParts(said);
     const occurred_at = parts ? parseFactDate(said) : null;
     if (!occurred_at || !parts) continue;
-    const name = usableName(match[1]);
+    // «у брата Кости день рождения…» — родство и имя в родительном падеже.
+    // Без этого дата уходила последнему названному человеку, а брат терялся.
+    const role = relationshipFromWord(match[1]);
+    const given = match[2] && /^\p{Lu}/u.test(match[2]) ? match[2] : "";
+    if (match[2] && !(role && given)) continue;
+    const name = given ? usableName(nominativeName(given)) : usableName(nominativeName(match[1]!));
     if (!name) continue;
     birthdayScan = birthdayScan.replace(match[0]!, " ".repeat(match[0]!.length));
+    if ((match.index ?? 0) <= 1) birthdayAtStart = true;
+    if (given) {
+      currentName = name;
+      currentRelationship = role;
+    }
     pushFact(facts, {
       person_name: name,
-      relationship: relationshipFromWord(match[1]),
+      relationship: role,
       content: `День рождения ${said}`,
       category: "important_date",
       occurred_at,
@@ -584,7 +629,7 @@ export function inferCompanionPersonFacts(
   }
 
   const possessive = t.match(new RegExp(`^у\\s+(?!меня\\b)([\\p{L}-]+)\\s+(.+)$`, "iu"));
-  if (possessive && !likes.length) {
+  if (possessive && !likes.length && !birthdayAtStart) {
     const name = usableName(possessive[1]);
     const content = possessive[2]!.trim();
     const alreadyDated = facts.some(
