@@ -400,7 +400,10 @@ export async function flushTaskOutbox(
       try {
         applyRemoteTasks(await transport.request<Task[]>("/api/tasks"));
       } catch {
-        notify();
+        // Фоновое обновление не удалось. Если мы перед этим ничего не отправляли,
+        // кэш не менялся — будить экраны незачем: они перечитали бы кэш и
+        // затёрли им свежий список, который только что получили с сервера сами.
+        if (pending.length) notify();
       }
     }
   })().finally(() => {
