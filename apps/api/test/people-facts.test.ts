@@ -5,6 +5,7 @@ import {
   CompanionPersonFactSchema,
   inferCompanionPersonFacts,
   selfFactIsAboutSavedPerson,
+  withStatedDates,
   parseFactDate,
   relationshipFromWord,
 } from "../src/modules/assistant/people.js";
@@ -51,6 +52,33 @@ describe("companion person facts", () => {
     expect(one("у Димы день рождения 29.03.1994")).toEqual(["Дима"]);
     expect(one("у Павла день рождения 3 марта")).toEqual(["Павел"]);
     expect(one("у мамы день рождения 3 октября")).toEqual(["Мама"]);
+  });
+
+  it("saves what the person said even when the model left out the category and the date", async () => {
+    const text =
+      "Запомни: у сестры Оли день рождения 14 ноября, она любит настольные игры. А друг Серёжа не ест мясо.";
+    const fromModel = [
+      CompanionPersonFactSchema.parse({ person_name: "Оля", relationship: "сестра" }),
+      CompanionPersonFactSchema.parse({
+        person_name: "Серёжа",
+        relationship: "друг",
+        content: "Не ест мясо",
+      }),
+    ];
+    const facts = withStatedDates(fromModel, text);
+    const repository = new InMemoryRepository();
+    const user = await repository.upsertTelegramUser({ telegram_id: 502, name: "A" });
+    await applyCompanionPersonFacts(repository, user.id, facts);
+    const people = await repository.listPeople(user.id);
+    const olya = people.find((person) => person.name === "Оля");
+    const seryozha = people.find((person) => person.name === "Серёжа");
+    expect(await repository.listDates(user.id, olya!.id)).toEqual([
+      expect.objectContaining({ kind: "birthday", day: 14, month: 11 }),
+    ]);
+    const memories = await repository.listMemories(user.id, seryozha!.id);
+    expect(memories.map((memory) => [memory.content, memory.category])).toEqual([
+      ["Не ест мясо", "dislike"],
+    ]);
   });
 
   it("keeps a fact about a saved person out of the user's own facts", () => {

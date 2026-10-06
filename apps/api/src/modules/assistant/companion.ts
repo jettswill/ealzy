@@ -27,6 +27,7 @@ import {
   applyCompanionPersonFacts,
   CompanionPersonFactSchema,
   selfFactIsAboutSavedPerson,
+  withStatedDates,
   formatPersonSaveAnswer,
   inferCompanionPersonFacts,
   personMentionedIn,
@@ -2277,7 +2278,7 @@ export class CompanionService {
       // вместо плана на неделю, который человек реально сделает.
       const cappedTaskActions = capGoalNextSteps(taskActions, text);
       const personFacts = response.person_facts.some((fact) => fact.person_name.trim())
-        ? response.person_facts
+        ? withStatedDates(response.person_facts, text)
         : inferCompanionPersonFacts(text);
       const extractedSelf = response.self_facts.filter(
         (fact) => fact.content?.trim() && !selfFactIsAboutSavedPerson(fact.content, personFacts),

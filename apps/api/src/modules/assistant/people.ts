@@ -677,6 +677,40 @@ export function inferCompanionPersonFacts(
   return unique.slice(0, 8);
 }
 
+function categoryFromContent(content: string): MemoryCategory {
+  const text = content.toLocaleLowerCase();
+  if (/рожден|birthday|свад|wedding|годовщин|знаком/iu.test(text)) return "important_date";
+  if (/не\s+(?:любит|ест|пь[её]т|переносит|нос[ия]т)|аллерг|ненавид/iu.test(text)) return "dislike";
+  if (/любит|обожает|увлека|фанат|нравит|коллекцион/iu.test(text)) return "interest";
+  return "important_fact";
+}
+
+/**
+ * Даты, которые человек назвал прямо («у сестры Оли день рождения 14 ноября»),
+ * а модель в person_facts не вернула. Берём их из разбора текста, чтобы день
+ * рождения не зависел от того, вспомнила ли модель про поле occurred_at.
+ */
+export function withStatedDates(
+  facts: CompanionPersonFact[],
+  text: string,
+): CompanionPersonFact[] {
+  const named = new Set(facts.map((fact) => normalize(usableName(fact.person_name))).filter(Boolean));
+  if (!named.size) return facts;
+  const extra = inferCompanionPersonFacts(text).filter((stated) => {
+    if (!stated.date_kind || !stated.occurred_at) return false;
+    const name = normalize(stated.person_name);
+    if (!named.has(name)) return false;
+    return !facts.some(
+      (fact) =>
+        normalize(usableName(fact.person_name)) === name &&
+        (fact.date_kind === stated.date_kind ||
+          Boolean(fact.occurred_at) ||
+          /рожден|birthday|свад|знаком/iu.test(fact.content ?? "")),
+    );
+  });
+  return extra.length ? [...facts, ...extra] : facts;
+}
+
 export async function applyCompanionPersonFacts(
   repository: AppRepository,
   ownerId: string,
@@ -711,18 +745,27 @@ export async function applyCompanionPersonFacts(
       });
       if (updated) person = updated;
     }
-    if (fact.content && fact.category) {
+    // Модель нередко присылает текст факта без категории или дату только в
+    // самом тексте. Раньше такой факт молча пропадал: карточка создавалась
+    // пустой, а Илзи уже ответила «запомнила».
+    const category = fact.content ? (fact.category ?? categoryFromContent(fact.content)) : null;
+    const occurredAt =
+      toOccurredAt(fact.occurred_at) ??
+      (fact.content && /рожден|birthday|свад|wedding|знаком/iu.test(fact.content)
+        ? parseFactDate(fact.content)
+        : null);
+    if (fact.content && category) {
       await repository.createMemory(ownerId, person.id, {
         content: fact.content,
-        category: fact.category,
+        category,
         source_message_id: sourceMessageId ?? null,
-        importance: fact.category === "important_date" ? 5 : 4,
+        importance: category === "important_date" ? 5 : 4,
         confidence: 0.9,
-        occurred_at: toOccurredAt(fact.occurred_at),
+        occurred_at: occurredAt,
         metadata: { source: "companion" },
       });
     }
-    const dated = dateFromFact(fact);
+    const dated = dateFromFact({ ...fact, category, occurred_at: occurredAt });
     if (dated) {
       await repository.createDate(ownerId, person.id, dated);
     }
