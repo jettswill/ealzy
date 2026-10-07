@@ -1,10 +1,9 @@
 import type { AppRepository } from "../../repository.js";
 import type { TelegramGateway } from "../../infrastructure/telegram.js";
 import { languageOf } from "../../locale.js";
-import { CompanionService } from "./companion.js";
+import type { CompanionService } from "./companion.js";
 import {
   AI_WORK_MAX_ATTEMPTS,
-  AI_WORK_STALE_MS,
   aiWorkInstruction,
 } from "./ai-work-queue.js";
 import { runWithUsageOwner } from "../billing/usage.js";

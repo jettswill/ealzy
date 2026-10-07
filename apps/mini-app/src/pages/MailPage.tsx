@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth";
-import type { MailAccount, MailDraft, MailMessage, MailPlaybook, MailProvider } from "../types";
+import type { MailAccount, MailDraft, MailMessage, MailProvider } from "../types";
 import {
   Button,
   Card,

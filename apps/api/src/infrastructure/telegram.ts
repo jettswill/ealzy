@@ -199,7 +199,7 @@ function formatTelegramInline(text: string): string {
   let result = "";
   let index = 0;
   while (index < text.length) {
-    if (text[index] === "\\" && index + 1 < text.length && /[\\*_`\[\]]/.test(text[index + 1]!)) {
+    if (text[index] === "\\" && index + 1 < text.length && /[\\*_`[\]]/.test(text[index + 1]!)) {
       result += escapeTelegramHtml(text[index + 1]!);
       index += 2;
       continue;

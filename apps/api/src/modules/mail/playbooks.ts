@@ -1,11 +1,11 @@
 import type { MailPlaybook, MailPlaybookAction, MailPlaybookTrigger } from "../../types.js";
 
-export const DEFAULT_MAIL_PLAYBOOKS: Array<{
+export const DEFAULT_MAIL_PLAYBOOKS: {
   name: string;
   trigger: MailPlaybookTrigger;
   actions: MailPlaybookAction[];
   prompt: string | null;
-}> = [
+}[] = [
   {
     name: "Important digest",
     trigger: "important",

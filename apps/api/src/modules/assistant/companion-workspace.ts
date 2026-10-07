@@ -1,7 +1,7 @@
 import type { Memory, Message, PersonalContext, Person, PersonProfile } from "../../types.js";
 import { withGoalStats } from "../../direction.js";
 import { compactLocations } from "./locations.js";
-import { compactBirthday, compactDates } from "./dates.js";
+import { compactDates } from "./dates.js";
 import { personMentionedIn } from "./people.js";
 import { isPushTask } from "./task-priority.js";
 import { workspaceSettings } from "./settings.js";
