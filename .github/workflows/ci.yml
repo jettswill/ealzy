@@ -5,6 +5,10 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -18,6 +22,16 @@ jobs:
       - run: pnpm install --frozen-lockfile
       # api импортирует @lifeos/contracts из dist — собираем до типов и тестов.
       - run: pnpm --filter @lifeos/contracts build
+      # Временно: полный отчёт линтера уходит комментарием в запрос на слияние,
+      # потому что аннотации показывают только первые десять замечаний.
+      - name: Lint report
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pnpm -r --no-bail exec eslint . --format unix > lint-report.txt 2>&1 || true
+          { echo '```'; head -c 60000 lint-report.txt; echo '```'; } > lint-comment.md
+          gh pr comment ${{ github.event.pull_request.number }} --body-file lint-comment.md
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
