@@ -2,7 +2,6 @@ import type { AppRepository, MailAccountInput, MailDraftInput } from "../../repo
 import type {
   MailAccount,
   MailAccountPublic,
-  MailDraft,
   MailMessage,
   MailPlaybook,
 } from "../../types.js";

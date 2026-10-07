@@ -2181,7 +2181,7 @@ export class CompanionService {
       }
       const settingsPatch = mergeSettings(inferCompanionSettings(text), response.settings);
       const prepDraft = inferDatePrepProject(text);
-      let prepEntities: CompanionEntity[] = [];
+      const prepEntities: CompanionEntity[] = [];
       let createdPrepProject: { id: string; name: string } | null = null;
       if (prepDraft) {
         try {

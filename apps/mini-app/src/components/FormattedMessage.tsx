@@ -29,7 +29,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
   const nextKey = () => `${keyPrefix}-${nodeIndex++}`;
 
   while (index < text.length) {
-    if (text[index] === "\\" && index + 1 < text.length && /[\\*_`\[\]]/.test(text[index + 1]!)) {
+    if (text[index] === "\\" && index + 1 < text.length && /[\\*_`[\]]/.test(text[index + 1]!)) {
       plain += text[index + 1]!;
       index += 2;
       continue;

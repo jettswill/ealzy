@@ -72,8 +72,7 @@ function splitCsvLine(line: string) {
   const parts: string[] = [];
   let current = "";
   let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
+  for (const char of line) {
     if (char === '"') {
       quoted = !quoted;
       continue;

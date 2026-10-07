@@ -20,8 +20,13 @@ do $$ begin
 exception when duplicate_object then null;
 end $$;
 
-alter role authenticator with login noinherit;
-alter role service_role with nologin noinherit bypassrls;
+-- В локальном Supabase (CI) эти роли зарезервированы и уже настроены: менять их
+-- может только суперпользователь. На своём сервере блок выполняется как раньше.
+do $$ begin
+  alter role authenticator with login noinherit;
+  alter role service_role with nologin noinherit bypassrls;
+exception when insufficient_privilege then null;
+end $$;
 
 grant anon, authenticated, service_role to authenticator;
 grant usage on schema public to anon, authenticated, service_role, authenticator;

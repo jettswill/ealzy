@@ -21,7 +21,6 @@ import {
   nearbyQuery,
   offerLifeId,
   repairQuery,
-  type LifeHelpId,
 } from "./life-help.js";
 
 export {

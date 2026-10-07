@@ -15,7 +15,44 @@ export default tseslint.config(
       "@typescript-eslint/no-invalid-void-type": "off",
       "@typescript-eslint/no-namespace": "off",
       "@typescript-eslint/no-non-null-assertion": "off",
-      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
+      // «const { secret: _secret, ...rest } = account» — способ убрать поле из объекта.
+      "@typescript-eslint/no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", ignoreRestSiblings: true },
+      ],
+    },
+  },
+  {
+    // Заглушки шлюзов в тестах — пустые методы по смыслу.
+    files: ["**/test/**/*.{ts,tsx}", "**/*.test.{ts,tsx}"],
+    rules: { "@typescript-eslint/no-empty-function": "off" },
+  },
+  {
+    // Скрипты, которые браузер грузит как есть, без сборки.
+    files: ["apps/mini-app/public/**/*.js"],
+    languageOptions: {
+      globals: {
+        window: "readonly",
+        document: "readonly",
+        location: "readonly",
+        sessionStorage: "readonly",
+        self: "readonly",
+        caches: "readonly",
+        fetch: "readonly",
+        URL: "readonly",
+        Request: "readonly",
+        Response: "readonly",
+        AbortController: "readonly",
+        setTimeout: "readonly",
+        clearTimeout: "readonly",
+      },
+    },
+  },
+  {
+    // Воркер Cloudflare: окружение с веб-API, но без DOM.
+    files: ["deploy/telegram-proxy/**/*.js"],
+    languageOptions: {
+      globals: { URL: "readonly", Request: "readonly", Response: "readonly", fetch: "readonly" },
     },
   },
   prettier,
