@@ -29,7 +29,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          pnpm -r --no-bail exec eslint . --format unix > lint-report.txt 2>&1 || true
+          pnpm exec eslint . --format unix > lint-report.txt 2>&1 || true
           { echo '```'; head -c 60000 lint-report.txt; echo '```'; } > lint-comment.md
           gh pr comment ${{ github.event.pull_request.number }} --body-file lint-comment.md
       - run: pnpm lint
@@ -44,6 +44,16 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
+      - name: Database start report
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! supabase db start > db-start.txt 2>&1; then
+            { echo 'supabase db start failed:'; echo '```'; tail -c 6000 db-start.txt; echo '```'; } > db-comment.md
+            gh pr comment ${{ github.event.pull_request.number }} --body-file db-comment.md
+          fi
+          supabase stop --no-backup > /dev/null 2>&1 || true
       - run: supabase db start
       - run: supabase db reset --local
       - run: supabase test db
