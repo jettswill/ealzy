@@ -412,7 +412,13 @@ export function isVenueRequest(text: string): boolean {
 
 /** «покерный зал с крупье на 10 человек в субботу вечером» → «покерный зал с крупье». */
 export function venueQuery(text: string): string {
-  const cleaned = text
+  // В одном сообщении бывает несколько просьб — берём только ту, что про площадку.
+  const clause =
+    text
+      .split(/[.;!?\n]+|,?\s+(?:и|а)\s+ещ[её]\s+|\s+а\s+также\s+/iu)
+      .map((part) => part.trim())
+      .find((part) => isVenueRequest(part)) ?? text;
+  const cleaned = distillLifeQuery(clause)
     .replace(/[?!.]+$/u, "")
     .replace(/\s+на\s+\d+\s*(?:человек\p{L}*|чел\.?|гост\p{L}*|персон\p{L}*)/giu, "")
     .replace(

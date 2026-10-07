@@ -677,6 +677,9 @@ describe("companion discovery", () => {
     expect(venueQuery("покерный зал с крупье на 10 человек в субботу вечером")).toBe(
       "покерный зал с крупье",
     );
+    expect(
+      venueQuery("банкетный зал на 30 гостей в пятницу вечером. И ещё найди наушники sony до 10 тысяч"),
+    ).toBe("банкетный зал");
     const intent = inferDiscoveryIntent(text, "Москва");
     expect(intent).toMatchObject({ type: "places", query: "покерный зал с крупье" });
     const hits = await runDiscovery(intent!, async () => {
