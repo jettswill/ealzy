@@ -10,6 +10,8 @@ import {
   runDiscovery,
   catalogTopicsFor,
   giftActionHits,
+  isVenueRequest,
+  venueQuery,
   isGiftAdviceQuestion,
   shoppingQuery,
   searchProducts,
@@ -666,6 +668,24 @@ describe("companion discovery", () => {
       "мастерские по керамике в Москве",
     );
     expect(shoppingQuery("наушники sony")).toBe("наушники sony");
+  });
+
+  it("treats a hall for an event as a place to find on a map, not a product", async () => {
+    const text = "Найди покерный зал с крупье на 10 человек в субботу вечером";
+    expect(isVenueRequest(text)).toBe(true);
+    expect(isVenueRequest("найди наушники sony")).toBe(false);
+    expect(venueQuery("покерный зал с крупье на 10 человек в субботу вечером")).toBe(
+      "покерный зал с крупье",
+    );
+    const intent = inferDiscoveryIntent(text, "Москва");
+    expect(intent).toMatchObject({ type: "places", query: "покерный зал с крупье" });
+    const hits = await runDiscovery(intent!, async () => {
+      throw new Error("no network in this test");
+    });
+    expect(hits.map((hit) => hit.title)).toEqual([
+      "Яндекс Карты: покерный зал с крупье Москва",
+      "2ГИС: покерный зал с крупье Москва",
+    ]);
   });
 
   it("turns the model's gift decisions into the right kind of card", () => {

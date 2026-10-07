@@ -307,6 +307,20 @@ export function inferDiscoveryIntent(text: string, defaultCity = "Москва")
   const city = parseCity(raw) ?? defaultCity;
   const maxPrice = parsePrice(raw);
   const query = distillLifeQuery(raw) || raw;
+  // Зал, площадка, студия под событие — это место, а не товар. Живого поиска и
+  // брони площадок нет, поэтому даём честную ссылку на карты, а не маркетплейс.
+  if (wantsSearch && isVenueRequest(raw)) {
+    return {
+      type: "places",
+      query: venueQuery(query),
+      city,
+      maxPrice,
+      minPrice: null,
+      brand: null,
+      category: VENUE_CATEGORY,
+      placeKind: "place",
+    };
+  }
   if (rule) {
     return {
       type: rule.type,
@@ -386,6 +400,30 @@ export function inferDiscoveryIntent(text: string, defaultCity = "Москва")
     };
   }
   return null;
+}
+
+const VENUE_CATEGORY = "venue";
+
+export function isVenueRequest(text: string): boolean {
+  return /(?:^|[^\p{L}])(?:зал(?:а|у|е|ом|ы|ов)?|площадк\p{L}*|помещени\p{L}*|лофт\p{L}*|банкет\p{L}*|коворкинг\p{L}*|фотостуди\p{L}*|крупье|переговорн\p{L}*)(?![\p{L}])/iu.test(
+    text,
+  );
+}
+
+/** «покерный зал с крупье на 10 человек в субботу вечером» → «покерный зал с крупье». */
+export function venueQuery(text: string): string {
+  const cleaned = text
+    .replace(/[?!.]+$/u, "")
+    .replace(/\s+на\s+\d+\s*(?:человек\p{L}*|чел\.?|гост\p{L}*|персон\p{L}*)/giu, "")
+    .replace(
+      /\s+(?:в|на|во)\s+(?:эт[уи]\s+|следующ\p{L}+\s+)?(?:понедельник|вторник|сред[уы]|четверг|пятниц[уы]|суббот[уы]|воскресень[ея]|выходны[ех])/giu,
+      "",
+    )
+    .replace(/\s+(?:на\s+)?(?:сегодня|завтра|послезавтра|утром|дн[её]м|вечером|ночью)(?![\p{L}])/giu, "")
+    .replace(/\s+(?:в|к|с)\s+\d{1,2}(?::\d{2})?(?:\s*(?:час\p{L}*|ч))?(?![\p{L}\d])/giu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || text.trim();
 }
 
 export function intentFromSearchAction(
@@ -833,7 +871,13 @@ function textOf(value: unknown) {
 }
 
 function productQuery(intent: DiscoveryIntent) {
-  return [intent.brand, intent.category, intent.query].filter(Boolean).join(" ").trim();
+  // category бывает служебной меткой сценария («buy», «venue») — в поисковую
+  // строку она попадать не должна: иначе в магазине ищется «buy покерный зал…».
+  const category =
+    intent.category && !isLifeHelpId(intent.category) && intent.category !== VENUE_CATEGORY
+      ? intent.category
+      : null;
+  return [intent.brand, category, intent.query].filter(Boolean).join(" ").trim();
 }
 
 // В карточку маркетплейса уходил текст просьбы целиком — «Яндекс Маркет:
@@ -1840,6 +1884,14 @@ export async function runDiscovery(
   if (specialized) return specialized;
   if (intent.type === "fx") return searchCurrencyExchange(intent, fetchImpl);
   if (intent.type === "web") return searchWeb(intent, fetchImpl);
+  if (intent.type === "places" && intent.category === VENUE_CATEGORY) {
+    const city = intent.city?.trim();
+    const where =
+      city && !intent.query.toLocaleLowerCase().includes(city.toLocaleLowerCase())
+        ? `${intent.query} ${city}`
+        : intent.query;
+    return mapsHits(where, intent.locale);
+  }
   if (intent.type === "places") return searchPlaces(intent, fetchImpl);
   if (intent.type === "gifts") {
     const [products, places] = await Promise.all([
