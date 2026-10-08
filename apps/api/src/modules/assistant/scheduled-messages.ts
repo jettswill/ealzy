@@ -635,18 +635,45 @@ export class ScheduledMessageService {
       evening_sync: 0,
     };
     const profiles = await this.repository.listNotificationProfiles();
+    // Сбой у одного человека (заблокировал бота, тестовый telegram_id, таймаут
+    // Telegram) раньше обрывал весь проход: следующие по списку не получали ни
+    // утренней сводки, ни вечернего разбора. Теперь каждый шаг изолирован.
+    const guarded = async (ownerId: string, step: string, work: () => Promise<unknown>) => {
+      try {
+        return await work();
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            event: "scheduled_step_failed",
+            owner_id: ownerId,
+            step,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        return undefined;
+      }
+    };
     for (const profile of profiles) {
       await runWithUsageOwner(profile.owner_id, async () => {
         for (const kind of ["morning_digest", "weekly_digest", "evening_sync"] as const) {
           if (!notificationDue(profile, kind, at)) continue;
-          if (await this.deliver(profile, kind, at)) sent[kind] += 1;
+          if (await guarded(profile.owner_id, kind, () => this.deliver(profile, kind, at))) {
+            sent[kind] += 1;
+          }
         }
-        await this.maybeWeeklyReflection(profile, at);
-        await this.maybeGoalCheckIn(profile, at);
+        await guarded(profile.owner_id, "weekly_reflection", () =>
+          this.maybeWeeklyReflection(profile, at),
+        );
+        await guarded(profile.owner_id, "goal_check_in", () => this.maybeGoalCheckIn(profile, at));
       });
     }
-    const reengagement = await runReengagement(this.repository, this.telegram, at);
-    return { sent, reengagement: reengagement.sent };
+    const reengagement = await guarded("all", "reengagement", () =>
+      runReengagement(this.repository, this.telegram, at),
+    );
+    return {
+      sent,
+      reengagement: (reengagement as { sent: number } | undefined)?.sent ?? 0,
+    };
   }
 
   private async maybeGoalCheckIn(profile: UserProfile, at: Date): Promise<boolean> {

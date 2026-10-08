@@ -296,6 +296,35 @@ describe("digest copy", () => {
 });
 
 describe("scheduled message delivery", () => {
+  it("keeps sending to everyone else when one person's Telegram delivery fails", async () => {
+    const repository = new InMemoryRepository();
+    const sent: number[] = [];
+    const telegram: TelegramGateway = {
+      async sendMessage(chatId: number) {
+        if (chatId === 501) throw new Error("Forbidden: bot was blocked by the user");
+        sent.push(chatId);
+      },
+      async answerCallbackQuery() {
+        return Promise.resolve();
+      },
+    } as unknown as TelegramGateway;
+    for (const telegramId of [501, 502]) {
+      const user = await repository.upsertTelegramUser({ telegram_id: telegramId, name: "A" });
+      await repository.updateProfile(user.id, {
+        timezone: "UTC",
+        morning_digest_enabled: true,
+        morning_digest_time: "08:00",
+      });
+    }
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const service = new ScheduledMessageService(repository, telegram);
+    const result = await service.run(new Date("2026-08-24T08:05:00.000Z"));
+    errors.mockRestore();
+    expect(sent).toContain(502);
+    expect(sent).not.toContain(501);
+    expect(result.sent.morning_digest).toBe(1);
+  });
+
   it("saves notification settings and sends each Telegram digest once", async () => {
     const repository = new InMemoryRepository();
     const telegram = new FakeTelegram();

@@ -402,5 +402,11 @@ export async function linkTelegramLogin(
     );
   if (result.status !== "linked")
     throw new HttpError(409, "TELEGRAM_LINK_CONFLICT", "This Telegram account is already in use");
+  // Привязали Telegram к веб-аккаунту — утренняя сводка должна начать приходить
+  // туда сама. Раньше она включалась только у тех, кто начинал с бота.
+  const profile = await repository.getProfile(ownerId);
+  if (profile && !profile.morning_digest_enabled && !profile.last_morning_digest_on) {
+    await repository.updateProfile(ownerId, { morning_digest_enabled: true });
+  }
   return result.user;
 }
