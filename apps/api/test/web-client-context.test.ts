@@ -15,13 +15,14 @@ describe("часовой пояс и сводка при веб-входе", () 
   it("записывает пояс браузера и включает утреннюю сводку", async () => {
     const repository = new InMemoryRepository();
     const owner = await webOwner(repository);
-    // Провижининг не знает про браузер: UTC и выключенная сводка.
+    // Провижининг не знает про браузер: пояс UTC, но утренняя сводка уже включена —
+    // она по умолчанию у всех.
     expect((await repository.getProfile(owner))?.timezone).toBe("UTC");
-    expect((await repository.getProfile(owner))?.morning_digest_enabled).toBe(false);
+    expect((await repository.getProfile(owner))?.morning_digest_enabled).toBe(true);
 
     const applied = await applyWebClientContext(repository, owner, "Europe/Moscow");
 
-    expect(applied).toEqual({ timezone: true, morning_digest: true });
+    expect(applied.timezone).toBe(true);
     const profile = await repository.getProfile(owner);
     expect(profile?.timezone).toBe("Europe/Moscow");
     expect(profile?.morning_digest_enabled).toBe(true);
@@ -32,7 +33,6 @@ describe("часовой пояс и сводка при веб-входе", () 
     const owner = await webOwner(repository);
     const applied = await applyWebClientContext(repository, owner, "UTC");
     expect(applied.timezone).toBe(false);
-    expect(applied.morning_digest).toBe(true);
     expect((await repository.getProfile(owner))?.morning_digest_enabled).toBe(true);
   });
 

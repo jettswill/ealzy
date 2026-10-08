@@ -752,7 +752,8 @@ export class InMemoryRepository implements AppRepository {
         locale: "ru",
         context_summary: null,
         weekly_reflection_enabled: false,
-        morning_digest_enabled: hasTelegram,
+        // Утренняя сводка — всем по умолчанию (как в миграции 035).
+        morning_digest_enabled: true,
         morning_digest_time: "08:00",
         weekly_digest_enabled: false,
         weekly_digest_time: "09:00",

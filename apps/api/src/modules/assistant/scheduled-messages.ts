@@ -786,6 +786,13 @@ export class ScheduledMessageService {
   ): Promise<boolean> {
     const user = await this.repository.getUser(profile.owner_id);
     if (!user) return false;
+    // Сводка теперь включена у всех, в том числе у гостей, которых сайт заводит
+    // на каждый заход без сессии (и на роботов). Гостю без Telegram, который не
+    // заходил неделю, сводку не собираем: её никто не увидит, а модель стоит денег.
+    if (!user.telegram_id && user.is_guest) {
+      const lastActive = Date.parse(profile.last_active_at ?? "");
+      if (Number.isNaN(lastActive) || at.getTime() - lastActive > 7 * 24 * 3600_000) return false;
+    }
     const { local, snapshot, leftover } = await buildDigestSnapshot(
       this.repository,
       profile,
