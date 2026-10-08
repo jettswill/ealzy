@@ -44,7 +44,7 @@ import type {
   ImportSource,
 } from "./types.js";
 import {
-  nextRecurrenceAt,
+  nextUpcomingRecurrenceAt,
   recurrenceTemplate,
   type RecurrenceTemplate,
 } from "./task-recurrence.js";
@@ -166,11 +166,11 @@ function recurrenceFields(input: TaskInput) {
   };
 }
 
-function nextRecurringInput(task: Task): TaskInput | null {
+function nextRecurringInput(task: Task, timezone = "UTC", at = new Date()): TaskInput | null {
   if (!task.recurrence_frequency || !task.recurrence_series_id) return null;
   const anchor = task.recurrence_anchor_at ?? task.due_at;
   if (!anchor) return null;
-  const next = nextRecurrenceAt(anchor, task.recurrence_frequency);
+  const next = nextUpcomingRecurrenceAt(anchor, task.recurrence_frequency, at, timezone);
   const template = (task.recurrence_template ?? recurrenceTemplate(task)) as RecurrenceTemplate;
   return {
     ...template,
@@ -1338,7 +1338,8 @@ export class InMemoryRepository implements AppRepository {
     await this.assertOwnedLinks(ownerId, fields);
     Object.assign(t, fields, { updated_at: now() });
     if (!wasDone && t.status === "done") {
-      const next = nextRecurringInput(t);
+      const profile = await this.getProfile(ownerId);
+      const next = nextRecurringInput(t, profile?.timezone || "UTC");
       if (
         next &&
         !this.tasks.some(
@@ -2793,7 +2794,8 @@ export class SupabaseRepository implements AppRepository {
         .maybeSingle(),
     );
     if (!wasDone && updated?.status === "done") {
-      const next = nextRecurringInput(updated);
+      const profile = await this.getProfile(ownerId);
+      const next = nextRecurringInput(updated, profile?.timezone || "UTC");
       if (next) {
         try {
           await this.createTask(ownerId, next);

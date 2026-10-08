@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomUUID } from "node:crypto";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../src/app.js";
 import { InMemoryRepository } from "../src/repository.js";
 import { createSession, verifyTelegramInitData } from "../src/modules/auth/index.js";
@@ -58,6 +58,10 @@ const auth = async (ownerId: string) => ({
 });
 
 describe("Telegram initData", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("verifies HMAC and freshness and rejects tampering", () => {
     const now = 1_800_000_000;
     const data = signedInitData({ id: 42, first_name: "Анна" }, now);
@@ -229,6 +233,8 @@ describe("recommendations, tasks and spaces", () => {
   });
 
   it("creates the next occurrence after completing a recurring task", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-01T06:00:00.000Z"));
     const { app, repository } = setup();
     const user = await repository.upsertTelegramUser({ telegram_id: 71, name: "A" });
     const headers = await auth(user.id);
@@ -272,6 +278,35 @@ describe("recommendations, tasks and spaces", () => {
         }),
       ]),
     );
+  });
+
+  it("does not resurrect skipped days when an overdue recurring task is completed", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-08T05:12:00.000Z"));
+    const { app, repository } = setup();
+    const user = await repository.upsertTelegramUser({ telegram_id: 72, name: "A" });
+    const headers = await auth(user.id);
+    const first = await request(app).post("/api/tasks").set(headers).send({
+      title: "Изучать курсы",
+      due_at: "2026-09-25T09:00:00.000Z",
+      recurrence_frequency: "daily",
+    });
+    await request(app)
+      .patch(`/api/tasks/${first.body.data.id}`)
+      .set(headers)
+      .send({ status: "done" });
+
+    const open = (await repository.listTasks(user.id)).filter((task) => task.status === "todo");
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({
+      title: "Изучать курсы",
+      due_at: "2026-10-08T09:00:00.000Z",
+      recurrence_series_id: first.body.data.recurrence_series_id,
+    });
+
+    await request(app).patch(`/api/tasks/${open[0]!.id}`).set(headers).send({ status: "done" });
+    const after = (await repository.listTasks(user.id)).filter((task) => task.status === "todo");
+    expect(after.map((task) => task.due_at)).toEqual(["2026-10-09T09:00:00.000Z"]);
   });
 
   it("reuses a client-supplied task id so offline retries stay idempotent", async () => {
