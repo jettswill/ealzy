@@ -287,6 +287,7 @@ function overflowHint(workspace: unknown): string | null {
 export const FAST_AI_TIMEOUT_MS = 12_000;
 export const COMPANION_AI_TIMEOUT_MS = 20_000;
 export const WEB_RESEARCH_TIMEOUT_MS = 25_000;
+const WEB_QUERY_MODEL = "openai/gpt-4.1-mini";
 export const COMPANION_AI_MAX_TOKENS = 1_800;
 export const COMPANION_AI_TEMPERATURE = 0.6;
 export const COMPANION_CONVERSATION_TURNS = 12;
@@ -558,7 +559,66 @@ export class OpenAiProvider implements AiProvider {
   }
   // Короткий поиск в интернете перед ответом Илзи. Без JSON-режима: провайдер
   // не совмещает его с веб-поиском. С человеком разговаривает модель чата.
-  async research(query: string, context: WebResearchContext): Promise<WebResearch | null> {
+  // Поисковик ищет по одной строке: «Из Петербурга. А обратно?» без прошлых
+  // сообщений ищет не то. Быстрая модель сначала собирает самодостаточный
+  // запрос — откуда, куда, точные даты с годом, — или говорит, что искать нечего.
+  private async researchQuery(query: string, context: WebResearchContext): Promise<string | null> {
+    try {
+      const result = await this.client.chat.completions.create(
+        {
+          model: WEB_QUERY_MODEL,
+          ...chatCompletionControls(WEB_QUERY_MODEL, { maxTokens: 160 }),
+          response_format: {
+            type: "json_schema",
+            json_schema: {
+              name: "web_query",
+              strict: true,
+              schema: {
+                type: "object",
+                additionalProperties: false,
+                required: ["search", "query"],
+                properties: { search: { type: "boolean" }, query: { type: "string" } },
+              },
+            },
+          },
+          messages: [
+            {
+              role: "system",
+              content: [
+                "Turn the user's latest message into ONE self-contained web search query in their language.",
+                "Resolve everything from the conversation: origin and destination cities (origin defaults to the user's city), exact dates with year instead of «в субботу» / «завтра», times of day, what is being looked for.",
+                "search=false only when the message needs no fresh facts from the internet (a pure task to record, a feeling, a question about their own data).",
+                researchWhereWhen(context),
+              ].join(" "),
+            },
+            ...(context.recent.length
+              ? [
+                  {
+                    role: "system" as const,
+                    content: `Conversation so far:\n${context.recent.join("\n")}`,
+                  },
+                ]
+              : []),
+            { role: "user", content: query },
+          ],
+        },
+        { timeout: FAST_AI_TIMEOUT_MS, maxRetries: 0 },
+      );
+      this.report("web_query", tokensFromCompletionUsage(result.usage));
+      const parsed = JSON.parse(result.choices[0]?.message.content ?? "{}") as {
+        search?: boolean;
+        query?: string;
+      };
+      if (parsed.search === false) return null;
+      return parsed.query?.trim() || query;
+    } catch {
+      // Не собрали запрос — ищем по самому сообщению: хуже, но лучше, чем ничего.
+      return query;
+    }
+  }
+  async research(userText: string, context: WebResearchContext): Promise<WebResearch | null> {
+    const query = await this.researchQuery(userText, context);
+    if (!query) return null;
     const result = await this.client.chat.completions.create(
       {
         model: this.webModel,

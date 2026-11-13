@@ -102,6 +102,9 @@ export function attachWebSources(
   locale?: string | null,
 ): string {
   if (!research?.sources.length) return answer;
+  // Источники — к ответу с фактами. Уточняющий вопрос («из какого города?»)
+  // со ссылками на случайные расписания выглядит как мусор.
+  if (!/\d{1,2}:\d{2}|₽|°|\d\s?(?:руб|€|\$)/u.test(answer)) return answer;
   const fresh = research.sources.filter((source) => !answer.includes(source.url)).slice(0, 3);
   if (!fresh.length) return answer;
   const en = (locale ?? "").toLowerCase().startsWith("en");
