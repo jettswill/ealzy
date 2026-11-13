@@ -5,6 +5,7 @@ import { localMidday } from "../../time.js";
 import type { Message, PersonalContext, Reflection, SourceChannel, Task } from "../../types.js";
 import { withGoalStats, withPromiseStats } from "../../direction.js";
 import type { AiProvider } from "./index.js";
+import { attachWebSources, needsLiveWeb, type WebResearch } from "./web-research.js";
 import {
   giftActionHits,
   isGiftAdviceQuestion,
@@ -2016,11 +2017,16 @@ export class CompanionService {
       let usedAi = false;
       let response: CompanionResponse = fallbackCompanionResponse();
       const generate = this.ai?.companionStream ?? this.ai?.companion;
+      const webResearch =
+        generate && !giftAdvice && needsLiveWeb(text)
+          ? await this.researchWeb(text, city, context)
+          : null;
       if (generate) {
         try {
           const packed = {
             workspace: {
               ...toCompanionWorkspace(context),
+              ...(webResearch ? { web_research: webResearch } : {}),
               ...(replyTo
                 ? {
                     replied_to: {
@@ -2074,6 +2080,9 @@ export class CompanionService {
           : [];
       const searchResults = dedupeHits([...hits, ...extraHits]);
       response.search_results = searchResults;
+      if (usedAi && webResearch) {
+        response.answer = attachWebSources(response.answer, webResearch, context.profile.locale);
+      }
       if (searchResults.length) {
         response.answer = attachSearchAnswer(
           response.answer,
@@ -2589,6 +2598,48 @@ export class CompanionService {
         response,
         mail_confirm: null,
       };
+    }
+  }
+
+  // Поиск в интернете перед ответом. Не вышло — Илзи отвечает как раньше,
+  // честно говоря, что живых данных нет; разговор не должен ломаться из-за поиска.
+  private async researchWeb(
+    text: string,
+    city: string | null | undefined,
+    context: PersonalContext,
+  ): Promise<WebResearch | null> {
+    if (!this.ai?.research) return null;
+    const startedAt = Date.now();
+    try {
+      const recent = context.recent_messages
+        .filter((message) => message.role === "user" || message.role === "assistant")
+        .slice(-4)
+        .map((message) => `${message.role}: ${message.content.replace(/\s+/g, " ").slice(0, 300)}`);
+      const result = await this.ai.research(text, {
+        now: new Date().toISOString(),
+        city: city ?? null,
+        timezone: context.profile.timezone ?? null,
+        locale: context.profile.locale ?? null,
+        recent,
+      });
+      console.log(
+        JSON.stringify({
+          event: "web_research",
+          ms: Date.now() - startedAt,
+          sources: result?.sources.length ?? 0,
+          ok: Boolean(result),
+        }),
+      );
+      return result;
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "web_research_failed",
+          ms: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+      return null;
     }
   }
 

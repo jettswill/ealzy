@@ -96,7 +96,8 @@ describe("companion model", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]).toMatchObject({
       model: "openai/gpt-6.1-sol",
-      reasoning_effort: "none",
+      // gpt-6 у шлюза не принимает «none»: без этого чат уходил на запасную модель.
+      reasoning_effort: "minimal",
       max_completion_tokens: COMPANION_AI_MAX_TOKENS,
     });
     expect(calls[0]).not.toHaveProperty("temperature");

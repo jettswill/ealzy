@@ -3,6 +3,12 @@ import type { AiProvider } from "../modules/assistant/index.js";
 import { companionSystemPrompt } from "../modules/assistant/companion-prompt.js";
 import { extractStreamingAnswer } from "../modules/assistant/companion-stream.js";
 import {
+  dedupeSources,
+  stripInlineLinks,
+  type WebResearch,
+  type WebResearchContext,
+} from "../modules/assistant/web-research.js";
+import {
   metricForSchema,
   tokensFromCompletionUsage,
   tokensFromTranscriptionUsage,
@@ -280,6 +286,7 @@ function overflowHint(workspace: unknown): string | null {
 
 export const FAST_AI_TIMEOUT_MS = 12_000;
 export const COMPANION_AI_TIMEOUT_MS = 20_000;
+export const WEB_RESEARCH_TIMEOUT_MS = 25_000;
 export const COMPANION_AI_MAX_TOKENS = 1_800;
 export const COMPANION_AI_TEMPERATURE = 0.6;
 export const COMPANION_CONVERSATION_TURNS = 12;
@@ -303,6 +310,11 @@ export function usesReasoningEffort(model: string): boolean {
   return /(?:^|\/)(?:gpt-(?:5|6)|o[1-4](?:-|$))/.test(id);
 }
 
+export function requiresReasoning(model: string): boolean {
+  const id = model.replace(/^~/, "").toLowerCase();
+  return /(?:^|\/)gpt-6/.test(id);
+}
+
 export function chatCompletionControls(
   model: string,
   options: {
@@ -313,7 +325,13 @@ export function chatCompletionControls(
 ): ChatControls {
   const controls: ChatControls = {};
   if (usesSamplingTemperature(model)) controls.temperature = options.temperature ?? 0;
-  if (usesReasoningEffort(model)) controls.reasoning_effort = options.reasoningEffort ?? "none";
+  if (usesReasoningEffort(model)) {
+    const effort = options.reasoningEffort ?? "none";
+    // Семейство gpt-6 у шлюза больше не принимает «none» («Reasoning is mandatory
+    // for this endpoint»): чат молча уходил на запасную модель. Самый лёгкий
+    // допустимый режим — minimal.
+    controls.reasoning_effort = effort === "none" && requiresReasoning(model) ? "minimal" : effort;
+  }
   if (options.maxTokens) {
     if (usesSamplingTemperature(model)) controls.max_tokens = options.maxTokens;
     else controls.max_completion_tokens = options.maxTokens;
@@ -335,6 +353,24 @@ export const companionModelStats = {
   lastFallbackError: null as string | null,
 };
 
+function researchWhereWhen(context: WebResearchContext) {
+  const en = (context.locale ?? "").toLowerCase().startsWith("en");
+  let today = context.now.slice(0, 10);
+  try {
+    today = new Intl.DateTimeFormat(en ? "en-GB" : "ru-RU", {
+      timeZone: context.timezone || "Europe/Moscow",
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(new Date(context.now));
+  } catch {
+    // неизвестный часовой пояс — остаётся дата ISO
+  }
+  if (en) return `${context.city ? `I am in ${context.city}. ` : ""}Today is ${today}.`;
+  return `${context.city ? `Я сейчас в городе: ${context.city}. ` : ""}Сегодня ${today}.`;
+}
+
 export class OpenAiProvider implements AiProvider {
   private readonly client: OpenAI;
   private onUsage?: (usage: AiTokenUsage) => void;
@@ -347,6 +383,9 @@ export class OpenAiProvider implements AiProvider {
     // (сводки, разбор писем, импорт): качество нужно там, где человек его видит,
     // а платить за него в каждом фоновом вызове незачем.
     private readonly companionModel: string = model,
+    // Поиск в интернете: Perplexity Sonar Pro ищет сам и отвечает за ~5 с за
+    // несколько рублей. GPT с поиском по качеству близко, но думает 25–30 с.
+    private readonly webModel = "perplexity/sonar-pro",
   ) {
     this.client = new OpenAI({ apiKey, baseURL, timeout: FAST_AI_TIMEOUT_MS, maxRetries: 1 });
     companionModelStats.model = companionModel;
@@ -516,6 +555,59 @@ export class OpenAiProvider implements AiProvider {
       .replace(/\s*```$/, "");
     if (!trimmed) throw new Error("OpenAI returned no structured content");
     return JSON.parse(trimmed) as unknown;
+  }
+  // Короткий поиск в интернете перед ответом Илзи. Без JSON-режима: провайдер
+  // не совмещает его с веб-поиском. С человеком разговаривает модель чата.
+  async research(query: string, context: WebResearchContext): Promise<WebResearch | null> {
+    const result = await this.client.chat.completions.create(
+      {
+        model: this.webModel,
+        ...chatCompletionControls(this.webModel, { maxTokens: 900 }),
+        messages: [
+          {
+            role: "system",
+            content: [
+              "You are Ilzi's research step. Search the web and return a compact factual brief for the user's request.",
+              "Concrete facts only: names, dates, times, prices with currency, addresses, durations. Say «от» / «примерно» for prices and that fares change. Prefer official and big sources (РЖД, Туту, Яндекс Расписания, Авиасейлс, Афиша, Яндекс Погода, official sites).",
+              "No advice, no greetings, no questions, no offers to help further. If the web has nothing reliable, say so in one line.",
+              `Write in the language of locale ${context.locale ?? "ru-RU"}. Max ~1500 characters.`,
+              ...(context.recent.length
+                ? [`Earlier in this conversation (context only):\n${context.recent.join("\n")}`]
+                : []),
+            ].join(" "),
+          },
+          // Поисковик опирается на само сообщение: без города и даты «поезда в
+          // Москву в субботу» ищутся из Казани и не на те числа.
+          { role: "user", content: `${query}\n\n(${researchWhereWhen(context)})` },
+        ],
+        // Perplexity ищет сам; остальным моделям нужен плагин шлюза.
+        ...(this.webModel.startsWith("perplexity/")
+          ? {}
+          : ({ plugins: [{ id: "web", max_results: 5 }] } as Record<string, unknown>)),
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+      { timeout: WEB_RESEARCH_TIMEOUT_MS, maxRetries: 0 },
+    );
+    this.report("web_research", tokensFromCompletionUsage(result.usage));
+    const message = result.choices[0]?.message;
+    const content = message?.content?.trim();
+    if (!content) return null;
+    const annotations = (message as { annotations?: unknown } | undefined)?.annotations;
+    const cited = (Array.isArray(annotations) ? annotations : []).flatMap((note: unknown) => {
+      const cite = (note as { url_citation?: { url?: unknown; title?: unknown } })?.url_citation;
+      return typeof cite?.url === "string"
+        ? [{ url: cite.url, title: typeof cite.title === "string" ? cite.title : "" }]
+        : [];
+    });
+    const inline = [...content.matchAll(/\[([^\]]*)\]\((https?:[^)\s]+)\)/g)].map((match) => ({
+      title: match[1] ?? "",
+      url: match[2]!,
+    }));
+    return {
+      fetched_at: new Date().toISOString(),
+      query,
+      summary: stripInlineLinks(content).slice(0, 2500),
+      sources: dedupeSources([...cited, ...inline]),
+    };
   }
   extractExperience(text: string, currentTime: string) {
     return this.structured("experience_extraction", experienceExtractionSchema, [

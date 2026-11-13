@@ -21,6 +21,7 @@ export const EnvSchema = z.object({
   OPENAI_MODEL: z.string().default("openai/gpt-4.1"),
   // Модель для разговора с Илзи; не задана — используется OPENAI_MODEL.
   OPENAI_COMPANION_MODEL: z.string().min(1).optional(),
+  OPENAI_WEB_MODEL: z.string().min(1).optional(),
   OPENAI_TRANSCRIPTION_MODEL: z.string().default("openai/gpt-4o-mini-transcribe"),
   CRON_SECRET: z.string().min(16).optional(),
   PUBLIC_APP_URL: z.string().url().optional(),

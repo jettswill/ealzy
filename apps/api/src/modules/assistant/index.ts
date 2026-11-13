@@ -10,6 +10,7 @@ import type {
   ScheduledNotificationKind,
 } from "../../types.js";
 import { ExperienceService, type ExtractedExperience } from "./experience.js";
+import type { WebResearch, WebResearchContext } from "./web-research.js";
 import {
   enrichRecommendationItems,
   generalIdeas,
@@ -230,6 +231,7 @@ export interface AiProvider {
     context: unknown,
     onAnswerDelta?: (answer: string) => void,
   ): Promise<unknown>;
+  research?(query: string, context: WebResearchContext): Promise<WebResearch | null>;
   reflect?(snapshot: Record<string, unknown>): Promise<unknown>;
   extractExperience?(text: string, currentTime: string): Promise<unknown>;
   digest?(kind: ScheduledNotificationKind, snapshot: Record<string, unknown>): Promise<unknown>;
