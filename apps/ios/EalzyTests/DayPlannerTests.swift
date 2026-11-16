@@ -114,7 +114,8 @@ final class DayPlannerTests: XCTestCase {
             task("Оплатить интернет", estimate: 5),
             task("Купить подарок", dayOffset: 3),
         ], now: now, calendar: calendar)
-        let snapshot = WidgetSnapshot.make(plan: plan, nextEvent: nil)
+        var snapshot = WidgetSnapshot.make(plan: plan, nextEvent: nil)
+        snapshot.updatedAt = now // в файле дата хранится с точностью до секунды
         XCTAssertEqual(snapshot.focus.map(\.title), ["Смета"])
         XCTAssertEqual(snapshot.next.map(\.title), ["Оплатить интернет"])
         XCTAssertEqual(snapshot.reserveCount, 1)
