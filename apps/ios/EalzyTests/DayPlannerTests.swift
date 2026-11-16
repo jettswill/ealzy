@@ -79,9 +79,9 @@ final class DayPlannerTests: XCTestCase {
     func testRemindersSkipDateOnlyAndPastTasks() {
         let tasks = [
             task("Только день", dayOffset: 1, hour: 12),
-            task("Со временем", dayOffset: 1, hour: 15),
+            task("Со временем", dayOffset: 1, hour: 16), // 16:00 МСК = 13:00 UTC: не «полдень» ни в одном поясе
             task("Прошло", dayOffset: -1, hour: 15),
-            task("Для Илзи", dayOffset: 1, hour: 16, assignee: "ealzy"),
+            task("Для Илзи", dayOffset: 1, hour: 17, assignee: "ealzy"),
         ]
         let titles = ReminderScheduler.reminderTasks(tasks, now: now).map(\.title)
         XCTAssertTrue(titles.contains("Со временем"))
