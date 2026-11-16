@@ -24,10 +24,16 @@ export type OAuthEnv = {
   YANDEX_OAUTH_REDIRECT_URI?: string;
 };
 
+/** Куда вернуть человека после входа: сайт или iOS-приложение (ealzy://). */
+export const OAUTH_CLIENTS = ["web", "ios"] as const;
+export type OAuthClient = (typeof OAUTH_CLIENTS)[number];
+export const IOS_APP_CALLBACK = "ealzy://auth/callback";
+
 const stateSchema = z.object({
   provider: z.enum(OAUTH_PROVIDERS),
   intent: z.enum(["login", "link"]),
   ownerId: z.string().uuid().optional(),
+  client: z.enum(OAUTH_CLIENTS).optional(),
 });
 
 function appUrl(env: OAuthEnv) {
@@ -97,6 +103,7 @@ export async function startOAuthUrl(
   provider: OAuthProvider,
   intent: "login" | "link",
   sessionToken?: string,
+  client: OAuthClient = "web",
 ) {
   const config = providerConfig(env, provider);
   let ownerId: string | undefined;
@@ -104,7 +111,7 @@ export async function startOAuthUrl(
     if (!sessionToken) throw new HttpError(401, "AUTH_REQUIRED", "Authentication required");
     ownerId = await verifySession(sessionToken, env.SESSION_SECRET);
   }
-  const state = await new SignJWT({ provider, intent, ownerId })
+  const state = await new SignJWT({ provider, intent, ownerId, ...(client === "web" ? {} : { client }) })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("10m")
@@ -119,6 +126,16 @@ export async function startOAuthUrl(
     url.searchParams.set(name, value);
   }
   return url.toString();
+}
+
+/** Клиент из state без проверки остального — чтобы даже ошибку вернуть в нужное приложение. */
+export async function oauthClientFromState(env: OAuthEnv, state: unknown): Promise<OAuthClient> {
+  if (typeof state !== "string") return "web";
+  try {
+    return (await readState(env, state)).client ?? "web";
+  } catch {
+    return "web";
+  }
 }
 
 async function readState(env: OAuthEnv, state: string) {
@@ -284,7 +301,13 @@ export async function completeOAuth(
 export function oauthAppRedirect(
   env: OAuthEnv,
   result: Awaited<ReturnType<typeof completeOAuth>> | { kind: "error"; message: string },
+  client: OAuthClient = "web",
 ) {
+  if (client === "ios") {
+    if (result.kind === "linked") return `${IOS_APP_CALLBACK}#linked=1`;
+    if (result.kind === "session") return `${IOS_APP_CALLBACK}#token=${encodeURIComponent(result.token)}`;
+    return `${IOS_APP_CALLBACK}#error=${encodeURIComponent(result.message)}`;
+  }
   const origin = appUrl(env);
   if (result.kind === "linked") return `${origin}/auth/callback#linked=1`;
   if (result.kind === "session") return `${origin}/auth/callback#token=${encodeURIComponent(result.token)}`;

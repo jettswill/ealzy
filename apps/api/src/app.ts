@@ -30,13 +30,17 @@ import {
   linkEmailUser,
   linkOAuthUser,
   linkTelegramLogin,
+  pollAppLogin,
   refreshSession,
+  startAppLogin,
   type SupabaseAuthVerifier,
 } from "./modules/auth/index.js";
 import {
   completeOAuth,
   configuredOAuthProviders,
   oauthAppRedirect,
+  oauthClientFromState,
+  OAUTH_CLIENTS,
   startOAuthUrl,
   type OAuthProvider,
 } from "./modules/auth/oauth.js";
@@ -350,6 +354,8 @@ export interface AppDependencies {
     | "TELEGRAM_WEBHOOK_SECRET"
     | "TELEGRAM_MINI_APP_URL"
     | "TELEGRAM_POLLING"
+    | "TELEGRAM_BOT_USERNAME"
+    | "VITE_TELEGRAM_BOT_USERNAME"
     | "TELEGRAM_INIT_DATA_MAX_AGE_SECONDS"
     | "TELEGRAM_LOGIN_MAX_AGE_SECONDS"
     | "SESSION_SECRET"
@@ -541,6 +547,31 @@ export function createApp(deps: AppDependencies): Express {
       res.json({ data });
     }),
   );
+  api.post(
+    "/auth/app-login/start",
+    rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: true, legacyHeaders: false }),
+    asyncHandler(async (_req, res) => {
+      res.status(201).json({
+        data: await startAppLogin(
+          repository,
+          env.TELEGRAM_BOT_USERNAME ?? env.VITE_TELEGRAM_BOT_USERNAME,
+        ),
+      });
+    }),
+  );
+  api.post(
+    "/auth/app-login/poll",
+    rateLimit({ windowMs: 15 * 60_000, limit: 600, standardHeaders: true, legacyHeaders: false }),
+    asyncHandler(async (req, res) => {
+      const { nonce } = z.object({ nonce: z.string().min(1).max(64) }).parse(req.body);
+      res.json({
+        data: await pollAppLogin(repository, nonce, {
+          sessionSecret: env.SESSION_SECRET,
+          sessionTtlSeconds: env.SESSION_TTL_SECONDS,
+        }),
+      });
+    }),
+  );
   api.get("/auth/telegram/config", (_req, res) => {
     res.json({
       data: {
@@ -586,16 +617,20 @@ export function createApp(deps: AppDependencies): Express {
     asyncHandler(async (req, res) => {
       const provider = z.enum(["google", "apple", "yandex"]).parse(req.params.provider);
       const intent = z.enum(["login", "link"]).catch("login").parse(req.query.intent);
+      const client = z.enum(OAUTH_CLIENTS).catch("web").parse(req.query.client);
       const sessionToken =
         typeof req.query.session === "string"
           ? req.query.session
           : (req.header("authorization") ?? "").replace(/^Bearer\s+/i, "") || undefined;
-      res.redirect(await startOAuthUrl(env, provider as OAuthProvider, intent, sessionToken));
+      res.redirect(
+        await startOAuthUrl(env, provider as OAuthProvider, intent, sessionToken, client),
+      );
     }),
   );
   const handleOAuthCallback = (provider: OAuthProvider) =>
     asyncHandler(async (req, res) => {
       const params = { ...(req.query as Record<string, unknown>), ...(req.body as object) };
+      const client = await oauthClientFromState(env, params.state);
       try {
         const result = await completeOAuth(repository, env, {
           provider,
@@ -603,10 +638,10 @@ export function createApp(deps: AppDependencies): Express {
           state: typeof params.state === "string" ? params.state : undefined,
           error: typeof params.error === "string" ? params.error : undefined,
         });
-        res.redirect(oauthAppRedirect(env, result));
+        res.redirect(oauthAppRedirect(env, result, client));
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not complete sign-in";
-        res.redirect(oauthAppRedirect(env, { kind: "error", message }));
+        res.redirect(oauthAppRedirect(env, { kind: "error", message }, client));
       }
     });
   api.get("/auth/oauth/:provider/callback", (req, res, next) => {
@@ -738,6 +773,31 @@ export function createApp(deps: AppDependencies): Express {
           maxAgeSeconds: env.TELEGRAM_LOGIN_MAX_AGE_SECONDS,
         }),
       });
+    }),
+  );
+  api.post(
+    "/devices",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          platform: z.literal("ios"),
+          push_token: z.string().trim().min(16).max(512),
+          environment: z.enum(["sandbox", "production"]).default("production"),
+          app_version: z.string().trim().max(40).nullable().optional(),
+        })
+        .strict()
+        .parse(req.body);
+      res.status(201).json({ data: await repository.upsertDevice(owner(req), input) });
+    }),
+  );
+  api.delete(
+    "/devices",
+    asyncHandler(async (req, res) => {
+      const { push_token } = z
+        .object({ push_token: z.string().trim().min(16).max(512) })
+        .parse(req.body);
+      await repository.deleteDevice(owner(req), push_token);
+      res.status(204).end();
     }),
   );
   api.post(

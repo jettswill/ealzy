@@ -1,3 +1,4 @@
+import { parseAppLoginStart } from "../modules/auth/index.js";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { formatCompanionTelegramText } from "../modules/assistant/companion.js";
@@ -619,6 +620,21 @@ export class TelegramUpdateHandler {
     }
     const text = inbound.text;
     const commandText = stripForwardAttribution(text);
+    const appLoginNonce = parseAppLoginStart(commandText);
+    if (appLoginNonce) {
+      const approved = await this.repository.approveAppLoginRequest(appLoginNonce, user.id);
+      await this.telegram.sendMessage(
+        message.chat.id,
+        approved
+          ? en
+            ? "Done — you're signed in to the Ealzy app. Go back to it."
+            : "Готово, вход в приложение Ealzy подтверждён. Возвращайся в него."
+          : en
+            ? "This sign-in link has expired. Tap “Sign in with Telegram” in the app again."
+            : "Ссылка для входа устарела. Нажми «Войти через Telegram» в приложении ещё раз.",
+      );
+      return { duplicate: false };
+    }
     const replyTo = await this.resolveQuotedReply(user.id, message.chat.id, message);
     const stored = await this.repository.createMessage(user.id, {
       conversation_id: conversation.id,

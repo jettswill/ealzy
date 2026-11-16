@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import { z } from "zod";
@@ -259,6 +259,45 @@ async function sessionForUser(
     expires_at: new Date(Date.now() + config.sessionTtlSeconds * 1000).toISOString(),
     user,
   };
+}
+
+/** Префикс в /start, по которому бот узнаёт вход в iOS-приложение. */
+export const APP_LOGIN_START_PREFIX = "applogin_";
+const APP_LOGIN_NONCE_RE = /^[A-Za-z0-9_-]{24,64}$/;
+
+export function parseAppLoginStart(text: string): string | null {
+  const match = /^\/start(?:@\w+)?\s+applogin_([A-Za-z0-9_-]+)\s*$/.exec(text.trim());
+  const nonce = match?.[1];
+  return nonce && APP_LOGIN_NONCE_RE.test(nonce) ? nonce : null;
+}
+
+/**
+ * Вход в приложение через Telegram: приложение получает одноразовый код и ссылку
+ * на бота; человек жмёт «Старт», бот подтверждает код за его аккаунтом.
+ */
+export async function startAppLogin(repository: AppRepository, botUsername?: string | null) {
+  const nonce = randomBytes(24).toString("base64url");
+  await repository.createAppLoginRequest(nonce);
+  const username = botUsername?.trim().replace(/^@/, "");
+  const payload = `${APP_LOGIN_START_PREFIX}${nonce}`;
+  return {
+    nonce,
+    telegram_url: username ? `https://t.me/${username}?start=${payload}` : null,
+    telegram_app_url: username ? `tg://resolve?domain=${username}&start=${payload}` : null,
+    expires_in: 600,
+  };
+}
+
+export async function pollAppLogin(
+  repository: AppRepository,
+  nonce: string,
+  config: SessionConfig,
+) {
+  if (!APP_LOGIN_NONCE_RE.test(nonce)) return { status: "expired" as const };
+  const result = await repository.consumeAppLoginRequest(nonce);
+  if (result.status !== "approved") return { status: result.status };
+  const session = await sessionForUser(await repository.getUser(result.owner_id), config);
+  return { status: "approved" as const, ...session };
 }
 
 export async function exchangeGuestUser(
