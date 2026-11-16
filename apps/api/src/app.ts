@@ -1,3 +1,4 @@
+import type { PushGateway } from "./infrastructure/apns.js";
 import express, { type Express, Router } from "express";
 import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
@@ -382,6 +383,7 @@ export interface AppDependencies {
   discovery?: DiscoveryClient;
   mail?: MailGateway;
   todoist?: TodoistGateway;
+  push?: PushGateway;
 }
 
 export function createApp(deps: AppDependencies): Express {
@@ -421,7 +423,7 @@ export function createApp(deps: AppDependencies): Express {
     deps.mail ?? new ImapSmtpGateway(),
     env.MAIL_ENCRYPTION_KEY || env.SESSION_SECRET,
   );
-  const scheduled = new ScheduledMessageService(repository, deps.telegram, deps.ai);
+  const scheduled = new ScheduledMessageService(repository, deps.telegram, deps.ai, deps.push);
   const aiWork = new AiWorkService(repository, companion, deps.telegram);
   const noteActions = new NoteActionService(repository, deps.ai);
   const webhook = new TelegramUpdateHandler(
@@ -772,6 +774,63 @@ export function createApp(deps: AppDependencies): Express {
           botToken: env.TELEGRAM_BOT_TOKEN,
           maxAgeSeconds: env.TELEGRAM_LOGIN_MAX_AGE_SECONDS,
         }),
+      });
+    }),
+  );
+  // Календарь телефона: приложение присылает окно целиком и заменяет прошлую копию.
+  api.put(
+    "/calendar/events",
+    asyncHandler(async (req, res) => {
+      const iso = z.string().datetime({ offset: true });
+      const input = z
+        .object({
+          source: z.literal("ios"),
+          from: iso,
+          to: iso,
+          events: z
+            .array(
+              z
+                .object({
+                  external_id: z.string().trim().min(1).max(300),
+                  title: z.string().trim().min(1).max(300),
+                  starts_at: iso,
+                  ends_at: iso,
+                  all_day: z.boolean().default(false),
+                  location: z.string().trim().max(300).nullable().optional(),
+                  calendar_title: z.string().trim().max(120).nullable().optional(),
+                })
+                .strict(),
+            )
+            .max(500),
+        })
+        .strict()
+        .parse(req.body);
+      if (Date.parse(input.to) - Date.parse(input.from) > 35 * 24 * 3600_000 || input.to <= input.from)
+        throw new HttpError(400, "CALENDAR_RANGE", "Calendar window must be 1–35 days");
+      const stored = await repository.replaceCalendarEvents(owner(req), {
+        source: input.source,
+        from: new Date(input.from).toISOString(),
+        to: new Date(input.to).toISOString(),
+        events: input.events.map((event) => ({
+          external_id: event.external_id,
+          title: event.title,
+          starts_at: new Date(event.starts_at).toISOString(),
+          ends_at: new Date(event.ends_at).toISOString(),
+          all_day: event.all_day,
+          location: event.location || null,
+          calendar_title: event.calendar_title || null,
+        })),
+      });
+      res.json({ data: { stored } });
+    }),
+  );
+  api.get(
+    "/calendar/events",
+    asyncHandler(async (req, res) => {
+      const from = new Date();
+      const to = new Date(from.getTime() + 7 * 24 * 3600_000);
+      res.json({
+        data: await repository.listCalendarEvents(owner(req), from.toISOString(), to.toISOString()),
       });
     }),
   );

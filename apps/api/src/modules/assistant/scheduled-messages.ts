@@ -1,3 +1,4 @@
+import { pushPreview, type PushGateway } from "../../infrastructure/apns.js";
 import type { AppRepository } from "../../repository.js";
 import { withGoalStats, withPromiseStats } from "../../direction.js";
 import { pushTasks } from "./task-priority.js";
@@ -621,6 +622,7 @@ export class ScheduledMessageService {
     private readonly repository: AppRepository,
     private readonly telegram: TelegramGateway,
     private readonly ai?: AiProvider,
+    private readonly push?: PushGateway,
   ) {
     this.contextBuilder = new PersonalContextBuilder(repository);
     this.reflections = new ReflectionService(repository, ai);
@@ -865,6 +867,18 @@ export class ScheduledMessageService {
       });
     }
     await this.persist(profile.owner_id, kind, text);
+    if (this.push) {
+      const en = profile.locale === "en";
+      const title = {
+        morning_digest: en ? "Plan for today" : "План на сегодня",
+        evening_sync: en ? "Closing the day" : "Закрываем день",
+        weekly_digest: en ? "Your week" : "Неделя",
+      }[kind];
+      // Push — дополнительный канал: его сбой не должен ломать сводку.
+      await this.push
+        .notifyOwner(profile.owner_id, { title, body: pushPreview(text), kind })
+        .catch(() => 0);
+    }
     await this.repository.updateProfile(profile.owner_id, {
       [lastSentKey[kind]]: local.date,
     });

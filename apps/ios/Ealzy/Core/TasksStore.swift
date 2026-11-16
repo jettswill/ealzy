@@ -1,11 +1,6 @@
 import Foundation
 import Observation
 
-private struct TaskPatch: Encodable {
-    var status: String?
-    var dueAt: Date?
-}
-
 /// Дела человека: загрузка, «готово», перенос. Источник для экрана «Сегодня»
 /// и для локальных напоминаний.
 @MainActor
@@ -14,8 +9,17 @@ final class TasksStore {
     private(set) var tasks: [EalzyTask] = []
     private(set) var isLoading = false
     var errorMessage: String?
+    /// Ближайшее событие календаря — для виджета (ставит PhoneCalendar после синхронизации).
+    var nextEvent: WidgetSnapshot.Item? {
+        didSet { publishSnapshot() }
+    }
 
     var plan: DayPlan { DayPlanner.plan(tasks) }
+
+    func publishSnapshot() {
+        guard !tasks.isEmpty || errorMessage == nil else { return }
+        WidgetSnapshot.make(plan: plan, nextEvent: nextEvent).save()
+    }
 
     func load() async {
         isLoading = true
@@ -23,6 +27,7 @@ final class TasksStore {
         do {
             tasks = try await APIClient.shared.get("/tasks")
             errorMessage = nil
+            publishSnapshot()
             await ReminderScheduler.shared.reschedule(for: tasks)
         } catch {
             errorMessage = error.localizedDescription
@@ -60,17 +65,7 @@ final class TasksStore {
             errorMessage = error.localizedDescription
             await load()
         }
+        publishSnapshot()
         await ReminderScheduler.shared.reschedule(for: tasks)
-    }
-}
-
-/// Действия из уведомлений: приложение может быть не запущено, поэтому без стора.
-enum TaskActions {
-    static func complete(id: String) async {
-        let _: EalzyTask? = try? await APIClient.shared.patch("/tasks/\(id)", body: TaskPatch(status: "done"))
-    }
-
-    static func snooze(id: String, until date: Date) async {
-        let _: EalzyTask? = try? await APIClient.shared.patch("/tasks/\(id)", body: TaskPatch(dueAt: date))
     }
 }

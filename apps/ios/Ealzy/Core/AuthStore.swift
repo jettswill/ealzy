@@ -121,7 +121,10 @@ final class AuthStore {
         phase = .idle
         errorMessage = nil
         isSignedIn = true
-        Task { await ReminderScheduler.shared.requestPermission() }
+        Task {
+            await ReminderScheduler.shared.requestPermission()
+            await AppDelegate.upload()
+        }
     }
 
     /// Продлеваем сессию при каждом запуске, чтобы человек не выпадал из аккаунта.
@@ -133,8 +136,14 @@ final class AuthStore {
     }
 
     func signOut() {
-        Keychain.deleteToken()
+        guard isSignedIn else { return }
         isSignedIn = false
         phase = .idle
+        WidgetSnapshot.clear()
+        // Сначала отвязываем устройство от аккаунта (нужен ещё живой токен), потом забываем токен.
+        Task {
+            await AppDelegate.forget()
+            Keychain.deleteToken()
+        }
     }
 }

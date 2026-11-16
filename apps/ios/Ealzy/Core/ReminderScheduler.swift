@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import UserNotifications
 
 /// Точные напоминания: звенят ровно во время дела, даже без интернета.
@@ -34,7 +35,16 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
 
     @discardableResult
     func requestPermission() async -> Bool {
-        (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        let granted = (try? await center.requestAuthorization(options: [.alert, .sound, .badge])) ?? false
+        if granted {
+            await MainActor.run { UIApplication.shared.registerForRemoteNotifications() }
+        }
+        return granted
+    }
+
+    func isAuthorized() async -> Bool {
+        let settings = await center.notificationSettings()
+        return settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
     }
 
     /// Дела, которым нужен звонок: открытые, мои, со временем (не «только день»), в будущем.

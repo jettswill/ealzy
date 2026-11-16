@@ -233,6 +233,7 @@ export function compactCompanionWorkspace(workspace: unknown) {
   if (Array.isArray(row.discovery_results) && row.discovery_results.length === 0) {
     delete row.discovery_results;
   }
+  if (Array.isArray(row.calendar) && row.calendar.length === 0) delete row.calendar;
   const mail = row.mail;
   if (mail && typeof mail === "object") {
     const sections = mail as Record<string, unknown>;

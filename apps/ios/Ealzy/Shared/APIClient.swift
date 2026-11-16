@@ -43,6 +43,10 @@ final class APIClient {
         try await call(path, method: "PATCH", body: body)
     }
 
+    func put<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
+        try await call(path, method: "PUT", body: body)
+    }
+
     func delete<B: Encodable>(_ path: String, body: B) async throws {
         _ = try await raw(path, method: "DELETE", body: body)
     }

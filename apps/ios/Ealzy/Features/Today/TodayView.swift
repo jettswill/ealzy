@@ -1,9 +1,12 @@
+import EventKit
 import SwiftUI
 
 /// Главный экран: день, а не база дел.
 struct TodayView: View {
     @Environment(TasksStore.self) private var tasks
     @Environment(ChatStore.self) private var chat
+    @Environment(PhoneCalendar.self) private var calendar
+    @Environment(AppRouter.self) private var router
     @State private var showReserve = false
     @State private var capture = ""
     @State private var lastReply: String?
@@ -30,6 +33,13 @@ struct TodayView: View {
                             .buttonStyle(.plain)
                         }
                     } header: { Text("Илзи") }
+                }
+
+                if !calendar.todayEvents.isEmpty {
+                    Section("Расписание") {
+                        // У повторяющихся событий один идентификатор на все повторы — берём порядок.
+                        ForEach(Array(calendar.todayEvents.enumerated()), id: \.offset) { EventRow(event: $0.element) }
+                    }
                 }
 
                 if !plan.focus.isEmpty {
@@ -73,7 +83,13 @@ struct TodayView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle(Self.dayTitle(Date()))
-            .refreshable { await tasks.load() }
+            .refreshable {
+                await calendar.sync()
+                tasks.nextEvent = calendar.nextEventItem
+                await tasks.load()
+            }
+            .onChange(of: router.captureRequest) { captureFocused = true }
+            .onAppear { if router.captureRequest > 0 { captureFocused = true } }
             .safeAreaInset(edge: .bottom) { captureBar }
             .overlay {
                 if tasks.isLoading && tasks.tasks.isEmpty { ProgressView() }
@@ -125,8 +141,28 @@ struct TodayView: View {
     }
 }
 
+struct EventRow: View {
+    let event: EKEvent
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(event.isAllDay ? "весь день" : event.startDate.formatted(date: .omitted, time: .shortened))
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 52, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.title ?? "Событие")
+                if let location = event.location, !location.isEmpty {
+                    Text(location).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
 struct TaskRow: View {
     @Environment(TasksStore.self) private var tasks
+    @Environment(PhoneCalendar.self) private var calendar
     let task: EalzyTask
     var emphasis = false
     var canComplete = true
@@ -158,26 +194,17 @@ struct TaskRow: View {
                 Button("Завтра") { Task { await tasks.moveToTomorrow(task) } }.tint(.orange)
             }
         }
-    }
-
-    private var meta: String? {
-        var parts: [String] = []
-        if task.isMeeting { parts.append("встреча") }
-        if let due = task.dueAt {
-            let calendar = Calendar.current
-            let time = DueClock.isDateOnly(due) ? nil : due.formatted(date: .omitted, time: .shortened)
-            if calendar.isDateInToday(due) {
-                if let time { parts.append(time) }
-            } else if calendar.isDateInTomorrow(due) {
-                parts.append(["завтра", time].compactMap { $0 }.joined(separator: " "))
-            } else {
-                let day = due.formatted(.dateTime.day().month(.wide).locale(Locale(identifier: "ru_RU")))
-                parts.append([day, time].compactMap { $0 }.joined(separator: " "))
+        .swipeActions(edge: .leading) {
+            if task.dueAt != nil {
+                Button {
+                    Task { _ = await calendar.addToCalendar(task) }
+                } label: {
+                    Label("В календарь", systemImage: "calendar.badge.plus")
+                }
+                .tint(.blue)
             }
         }
-        if let minutes = task.estimateMinutes {
-            parts.append(minutes >= 60 ? "~\(minutes / 60) ч\(minutes % 60 == 0 ? "" : " \(minutes % 60) мин")" : "~\(minutes) мин")
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
+
+    private var meta: String? { TaskMeta.text(for: task) }
 }

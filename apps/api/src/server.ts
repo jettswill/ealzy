@@ -1,3 +1,4 @@
+import { ApnsPushGateway } from "./infrastructure/apns.js";
 import dotenv from "dotenv";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,7 @@ const database = createDatabase(env);
 const repository = new SupabaseRepository(database);
 const app = createApp({
   repository,
+  push: ApnsPushGateway.fromEnv(repository, env),
   env,
   supabaseAuth: database.auth,
   telegram: new TelegramClient(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_API_BASE_URL),

@@ -107,4 +107,29 @@ final class DayPlannerTests: XCTestCase {
         XCTAssertEqual(tasks.first?.estimateMinutes, 90)
         XCTAssertNotNil(tasks.first?.dueAt)
     }
+
+    func testWidgetSnapshotKeepsFocusAndCounts() {
+        let plan = DayPlanner.plan([
+            task("Смета", importance: 5, estimate: 90),
+            task("Оплатить интернет", estimate: 5),
+            task("Купить подарок", dayOffset: 3),
+        ], now: now, calendar: calendar)
+        var snapshot = WidgetSnapshot.make(plan: plan, nextEvent: nil)
+        snapshot.updatedAt = now // в файле дата хранится с точностью до секунды
+        XCTAssertEqual(snapshot.focus.map(\.title), ["Смета"])
+        XCTAssertEqual(snapshot.next.map(\.title), ["Оплатить интернет"])
+        XCTAssertEqual(snapshot.reserveCount, 1)
+        let data = try! JSONCoding.encoder.encode(snapshot)
+        XCTAssertEqual(try! JSONCoding.decoder.decode(WidgetSnapshot.self, from: data), snapshot)
+    }
+
+    func testNoteBodyMatchesTheWebEditor() throws {
+        let note = NoteUpsert(title: "Покупки", text: "Молоко\n\nХлеб")
+        let json = try JSONSerialization.jsonObject(with: JSONCoding.encoder.encode(note)) as! [String: Any]
+        XCTAssertEqual(json["base_revision"] as? Int, 0)
+        XCTAssertEqual(json["plain_text"] as? String, "Молоко\n\nХлеб")
+        let content = json["content"] as! [String: Any]
+        XCTAssertEqual(content["type"] as? String, "doc")
+        XCTAssertEqual((content["content"] as! [Any]).count, 3)
+    }
 }
