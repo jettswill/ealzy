@@ -506,6 +506,11 @@ export interface AppRepository {
     ownerId: string,
     events: { name: string; properties?: Record<string, unknown> }[],
   ): Promise<void>;
+  createAppLoginRequest(nonce: string): Promise<void>;
+  approveAppLoginRequest(nonce: string, ownerId: string): Promise<boolean>;
+  consumeAppLoginRequest(nonce: string): Promise<AppLoginPoll>;
+  upsertDevice(ownerId: string, input: DeviceInput): Promise<Device>;
+  deleteDevice(ownerId: string, pushToken: string): Promise<void>;
   incrementUsage(
     ownerId: string,
     input: {
@@ -569,6 +574,35 @@ export interface AppRepository {
 }
 
 const now = () => new Date().toISOString();
+
+export const APP_LOGIN_TTL_MS = 10 * 60_000;
+export type AppLoginPoll =
+  | { status: "pending" }
+  | { status: "expired" }
+  | { status: "approved"; owner_id: string };
+export interface DeviceInput {
+  platform: "ios";
+  push_token: string;
+  environment: "sandbox" | "production";
+  app_version?: string | null;
+}
+export interface Device extends DeviceInput {
+  id: string;
+  owner_id: string;
+  app_version: string | null;
+  created_at: string;
+  updated_at: string;
+}
+interface AppLoginRow {
+  nonce: string;
+  owner_id: string | null;
+  created_at: string;
+  approved_at: string | null;
+  consumed_at: string | null;
+}
+function appLoginExpired(row: Pick<AppLoginRow, "created_at">, at = Date.now()) {
+  return at - Date.parse(row.created_at) > APP_LOGIN_TTL_MS;
+}
 const norm = (value: string) => value.trim().toLocaleLowerCase().replace(/\s+/g, " ");
 const PERSON_LOCATION_MAX = 10;
 const normalizeDateInput = (input: DateInput): DateInput => {
@@ -604,6 +638,8 @@ const publicMailAccount = (account: MailAccount): MailAccountPublic => {
 
 export class InMemoryRepository implements AppRepository {
   users: User[] = [];
+  appLogins: AppLoginRow[] = [];
+  devices: Device[] = [];
   people: Person[] = [];
   personLocations: PersonLocation[] = [];
   personDates: PersonDate[] = [];
@@ -1854,6 +1890,53 @@ export class InMemoryRepository implements AppRepository {
     if (this.betaMetrics.some((metric) => metric.owner_id === ownerId && metric.name === name))
       return;
     this.betaMetrics.push({ owner_id: ownerId, name, properties, created_at: now() });
+  }
+  async createAppLoginRequest(nonce: string) {
+    this.appLogins.push({ nonce, owner_id: null, created_at: now(), approved_at: null, consumed_at: null });
+  }
+  async approveAppLoginRequest(nonce: string, ownerId: string) {
+    const row = this.appLogins.find((x) => x.nonce === nonce);
+    if (!row || row.consumed_at || appLoginExpired(row)) return false;
+    if (row.approved_at) return row.owner_id === ownerId;
+    row.owner_id = ownerId;
+    row.approved_at = now();
+    return true;
+  }
+  async consumeAppLoginRequest(nonce: string): Promise<AppLoginPoll> {
+    const row = this.appLogins.find((x) => x.nonce === nonce);
+    if (!row || row.consumed_at || appLoginExpired(row)) return { status: "expired" };
+    if (!row.approved_at || !row.owner_id) return { status: "pending" };
+    row.consumed_at = now();
+    return { status: "approved", owner_id: row.owner_id };
+  }
+  async upsertDevice(ownerId: string, input: DeviceInput) {
+    const existing = this.devices.find(
+      (x) => x.platform === input.platform && x.push_token === input.push_token,
+    );
+    if (existing) {
+      Object.assign(existing, {
+        owner_id: ownerId,
+        environment: input.environment,
+        app_version: input.app_version ?? null,
+        updated_at: now(),
+      });
+      return existing;
+    }
+    const device: Device = {
+      id: randomUUID(),
+      owner_id: ownerId,
+      platform: input.platform,
+      push_token: input.push_token,
+      environment: input.environment,
+      app_version: input.app_version ?? null,
+      created_at: now(),
+      updated_at: now(),
+    };
+    this.devices.push(device);
+    return device;
+  }
+  async deleteDevice(ownerId: string, pushToken: string) {
+    this.devices = this.devices.filter((x) => !(x.owner_id === ownerId && x.push_token === pushToken));
   }
   async trackEvents(
     ownerId: string,
@@ -3466,6 +3549,68 @@ export class SupabaseRepository implements AppRepository {
           { owner_id: ownerId, name, properties },
           { onConflict: "owner_id,name", ignoreDuplicates: true },
         ),
+    );
+  }
+  async createAppLoginRequest(nonce: string) {
+    await this.one(this.db.from("app_login_requests").insert({ nonce }));
+  }
+  async approveAppLoginRequest(nonce: string, ownerId: string) {
+    const freshSince = new Date(Date.now() - APP_LOGIN_TTL_MS).toISOString();
+    const updated = await this.many<{ nonce: string }>(
+      this.db
+        .from("app_login_requests")
+        .update({ owner_id: ownerId, approved_at: now() })
+        .eq("nonce", nonce)
+        .is("approved_at", null)
+        .is("consumed_at", null)
+        .gte("created_at", freshSince)
+        .select("nonce"),
+    );
+    if (updated.length) return true;
+    // Повтор того же /start (Telegram переотправил вебхук) — не ошибка.
+    const row = await this.one<AppLoginRow | null>(
+      this.db.from("app_login_requests").select("*").eq("nonce", nonce).maybeSingle(),
+    );
+    return Boolean(row && row.owner_id === ownerId && !row.consumed_at && !appLoginExpired(row));
+  }
+  async consumeAppLoginRequest(nonce: string): Promise<AppLoginPoll> {
+    const row = await this.one<AppLoginRow | null>(
+      this.db.from("app_login_requests").select("*").eq("nonce", nonce).maybeSingle(),
+    );
+    if (!row || row.consumed_at || appLoginExpired(row)) return { status: "expired" };
+    if (!row.approved_at || !row.owner_id) return { status: "pending" };
+    const consumed = await this.many<{ owner_id: string }>(
+      this.db
+        .from("app_login_requests")
+        .update({ consumed_at: now() })
+        .eq("nonce", nonce)
+        .is("consumed_at", null)
+        .select("owner_id"),
+    );
+    if (!consumed.length) return { status: "expired" };
+    return { status: "approved", owner_id: row.owner_id };
+  }
+  async upsertDevice(ownerId: string, input: DeviceInput) {
+    return this.one<Device>(
+      this.db
+        .from("devices")
+        .upsert(
+          {
+            owner_id: ownerId,
+            platform: input.platform,
+            push_token: input.push_token,
+            environment: input.environment,
+            app_version: input.app_version ?? null,
+          },
+          { onConflict: "platform,push_token" },
+        )
+        .select("*")
+        .single(),
+    );
+  }
+  async deleteDevice(ownerId: string, pushToken: string) {
+    await this.one(
+      this.db.from("devices").delete().eq("owner_id", ownerId).eq("push_token", pushToken),
     );
   }
   async trackEvents(

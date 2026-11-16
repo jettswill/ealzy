@@ -2169,9 +2169,9 @@ describe("shared companion ledger and context", () => {
       .set(await auth(user.id))
       .send({ content: "напомни о днях рождения", source_channel: "mini_app" });
     expect(response.status).toBe(201);
-    expect(await repository.listTasks(user.id)).toEqual([
-      expect.objectContaining({ title: "День рождения: Маша" }),
-    ]);
+    // С середины ноября в горизонт попадает и Новый год — общий праздник, не про Машу.
+    const tasks = (await repository.listTasks(user.id)).filter((t) => t.title !== "Напомнить: Новый год");
+    expect(tasks).toEqual([expect.objectContaining({ title: "День рождения: Маша" })]);
   });
 
   it("saves a mentioned friend, birthday and interests from chat", async () => {

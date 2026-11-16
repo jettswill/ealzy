@@ -1,0 +1,4 @@
+# Проект Xcode генерируется из project.yml (xcodegen) — в репозиторий не кладём.
+*.xcodeproj
+build/
+DerivedData/
