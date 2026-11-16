@@ -234,6 +234,22 @@ function compactTaskDue(
   };
 }
 
+/** События календаря телефона в местном времени человека — для плана дня и свободных окон. */
+export function compactCalendar(events: NonNullable<PersonalContext["calendar_events"]>, timezone: string) {
+  return events.map((event) => {
+    const start = companionClock(timezone, new Date(event.starts_at));
+    const end = companionClock(timezone, new Date(event.ends_at));
+    return {
+      title: event.title,
+      date: start.date,
+      start: event.all_day ? null : start.time,
+      end: event.all_day ? null : end.time,
+      all_day: event.all_day,
+      ...(event.location ? { location: event.location } : {}),
+    };
+  });
+}
+
 export function toCompanionWorkspace(context: PersonalContext) {
   const focused = context.relevant_people.length
     ? context.relevant_people
@@ -332,6 +348,7 @@ export function toCompanionWorkspace(context: PersonalContext) {
       extra_spaces: 0,
     },
     upcoming_dates: context.upcoming_dates,
+    calendar: compactCalendar(context.calendar_events ?? [], timezone),
     mail: {
       accounts: context.mail_accounts.map((account) => ({
         id: account.id,

@@ -5,14 +5,13 @@ import SwiftUI
 struct EalzyApp: App {
     static let refreshTaskId = "ru.ealzy.app.refresh"
 
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var auth = AuthStore()
     @State private var tasks = TasksStore()
     @State private var chat = ChatStore()
+    @State private var calendar = PhoneCalendar()
+    @State private var router = AppRouter.shared
     @Environment(\.scenePhase) private var scenePhase
-
-    init() {
-        ReminderScheduler.shared.configure()
-    }
 
     var body: some Scene {
         WindowGroup {
@@ -20,7 +19,11 @@ struct EalzyApp: App {
                 .environment(auth)
                 .environment(tasks)
                 .environment(chat)
-                .onOpenURL { auth.handleCallback($0) }
+                .environment(calendar)
+                .environment(router)
+                .onOpenURL { url in
+                    if !router.handle(url) { auth.handleCallback(url) }
+                }
                 .onReceive(NotificationCenter.default.publisher(for: .ealzyTasksChanged)) { _ in
                     Task { await tasks.load() }
                 }
@@ -28,21 +31,27 @@ struct EalzyApp: App {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active where auth.isSignedIn:
-                Task { await tasks.load() }
+                Task { await refreshAll() }
             case .background:
                 Self.scheduleRefresh()
             default:
                 break
             }
         }
-        // Дела, записанные через Telegram или сайт, тоже должны звенеть вовремя:
-        // раз в какое-то время iOS будит приложение, и оно переставляет напоминания.
+        // Дела, записанные через Telegram или сайт, тоже должны звенеть вовремя, а Илзи —
+        // знать свежий календарь: время от времени iOS будит приложение в фоне.
         .backgroundTask(.appRefresh(Self.refreshTaskId)) {
             Self.scheduleRefresh()
-            guard Keychain.readToken() != nil,
-                  let list: [EalzyTask] = try? await APIClient.shared.get("/tasks") else { return }
-            await ReminderScheduler.shared.reschedule(for: list)
+            guard Keychain.readToken() != nil else { return }
+            await refreshAll()
         }
+    }
+
+    @MainActor
+    private func refreshAll() async {
+        await calendar.sync()
+        tasks.nextEvent = calendar.nextEventItem
+        await tasks.load()
     }
 
     static func scheduleRefresh() {
@@ -55,19 +64,30 @@ struct EalzyApp: App {
 struct RootView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(TasksStore.self) private var tasks
+    @Environment(PhoneCalendar.self) private var calendar
+    @Environment(AppRouter.self) private var router
 
     var body: some View {
+        @Bindable var router = router
         if auth.isSignedIn {
-            TabView {
+            TabView(selection: $router.tab) {
                 TodayView()
                     .tabItem { Label("Сегодня", systemImage: "sun.max") }
+                    .tag(AppRouter.Tab.today)
                 ChatView()
                     .tabItem { Label("Илзи", systemImage: "bubble.left.and.text.bubble.right") }
+                    .tag(AppRouter.Tab.chat)
+                SettingsView()
+                    .tabItem { Label("Ещё", systemImage: "gearshape") }
+                    .tag(AppRouter.Tab.settings)
             }
             .task {
                 await auth.refresh()
+                await calendar.sync()
+                tasks.nextEvent = calendar.nextEventItem
                 await tasks.load()
                 await ReminderScheduler.shared.requestPermission()
+                await AppDelegate.upload()
             }
         } else {
             LoginView()

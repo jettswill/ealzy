@@ -1627,6 +1627,7 @@ export class PersonalContextBuilder {
     spaces: 6,
     messages: 24,
     personMemories: 8,
+    calendar: 24,
     feedback: 8,
     experiences: 8,
     people: 30,
@@ -1656,6 +1657,7 @@ export class PersonalContextBuilder {
       mailMessages,
       mailDrafts,
       mailPlaybooks,
+      calendarEvents,
     ] = await Promise.all([
       this.repository.getProfile(ownerId),
       this.repository.getUser(ownerId),
@@ -1678,6 +1680,11 @@ export class PersonalContextBuilder {
       this.repository.listMailMessages(ownerId, PersonalContextBuilder.limits.mail),
       this.repository.listMailDrafts(ownerId),
       this.repository.listMailPlaybooks(ownerId),
+      this.repository.listCalendarEvents(
+        ownerId,
+        new Date(Date.now() - 3600_000).toISOString(),
+        new Date(Date.now() + 3 * 24 * 3600_000).toISOString(),
+      ),
     ]);
     if (!profile || !self) throw new Error("Personal context is not provisioned");
     const selfMemories = selectSelfTheses(
@@ -1857,6 +1864,7 @@ export class PersonalContextBuilder {
       mail_drafts: mailDrafts.slice(0, 8),
       mail_playbooks: mailPlaybooks.slice(0, 8),
       upcoming_dates: upcomingDates,
+      calendar_events: calendarEvents.slice(0, PersonalContextBuilder.limits.calendar),
       city,
       overflow: {
         extra_tasks: Math.max(0, openTasks.length - selectedTasks.length),

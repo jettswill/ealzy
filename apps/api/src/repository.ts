@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  CalendarEvent,
+  CalendarEventInput,
   Memory,
   Message,
   Person,
@@ -506,6 +508,12 @@ export interface AppRepository {
     ownerId: string,
     events: { name: string; properties?: Record<string, unknown> }[],
   ): Promise<void>;
+  replaceCalendarEvents(
+    ownerId: string,
+    input: { source: "ios"; from: string; to: string; events: CalendarEventInput[] },
+  ): Promise<number>;
+  listCalendarEvents(ownerId: string, from: string, to: string): Promise<CalendarEvent[]>;
+  listDevices(ownerId: string): Promise<Device[]>;
   createAppLoginRequest(nonce: string): Promise<void>;
   approveAppLoginRequest(nonce: string, ownerId: string): Promise<boolean>;
   consumeAppLoginRequest(nonce: string): Promise<AppLoginPoll>;
@@ -639,6 +647,7 @@ const publicMailAccount = (account: MailAccount): MailAccountPublic => {
 export class InMemoryRepository implements AppRepository {
   users: User[] = [];
   appLogins: AppLoginRow[] = [];
+  calendarEvents: CalendarEvent[] = [];
   devices: Device[] = [];
   people: Person[] = [];
   personLocations: PersonLocation[] = [];
@@ -1890,6 +1899,44 @@ export class InMemoryRepository implements AppRepository {
     if (this.betaMetrics.some((metric) => metric.owner_id === ownerId && metric.name === name))
       return;
     this.betaMetrics.push({ owner_id: ownerId, name, properties, created_at: now() });
+  }
+  async replaceCalendarEvents(
+    ownerId: string,
+    input: { source: "ios"; from: string; to: string; events: CalendarEventInput[] },
+  ) {
+    const from = Date.parse(input.from);
+    const to = Date.parse(input.to);
+    this.calendarEvents = this.calendarEvents.filter(
+      (x) =>
+        !(
+          x.owner_id === ownerId &&
+          x.source === input.source &&
+          Date.parse(x.starts_at) < to &&
+          Date.parse(x.ends_at) > from
+        ),
+    );
+    for (const event of input.events) {
+      this.calendarEvents.push({
+        ...event,
+        id: randomUUID(),
+        owner_id: ownerId,
+        source: input.source,
+        created_at: now(),
+      });
+    }
+    return input.events.length;
+  }
+  async listCalendarEvents(ownerId: string, from: string, to: string) {
+    const start = Date.parse(from);
+    const end = Date.parse(to);
+    return this.calendarEvents
+      .filter(
+        (x) => x.owner_id === ownerId && Date.parse(x.starts_at) < end && Date.parse(x.ends_at) > start,
+      )
+      .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  }
+  async listDevices(ownerId: string) {
+    return this.devices.filter((x) => x.owner_id === ownerId);
   }
   async createAppLoginRequest(nonce: string) {
     this.appLogins.push({ nonce, owner_id: null, created_at: now(), approved_at: null, consumed_at: null });
@@ -3550,6 +3597,45 @@ export class SupabaseRepository implements AppRepository {
           { onConflict: "owner_id,name", ignoreDuplicates: true },
         ),
     );
+  }
+  async replaceCalendarEvents(
+    ownerId: string,
+    input: { source: "ios"; from: string; to: string; events: CalendarEventInput[] },
+  ) {
+    await this.one(
+      this.db
+        .from("calendar_events")
+        .delete()
+        .eq("owner_id", ownerId)
+        .eq("source", input.source)
+        .lt("starts_at", input.to)
+        .gt("ends_at", input.from),
+    );
+    if (!input.events.length) return 0;
+    // Повторяющееся событие с тем же id и временем телефон может прислать дважды.
+    const unique = new Map(input.events.map((e) => [`${e.external_id}|${e.starts_at}`, e]));
+    await this.one(
+      this.db.from("calendar_events").upsert(
+        [...unique.values()].map((event) => ({ ...event, owner_id: ownerId, source: input.source })),
+        { onConflict: "owner_id,source,external_id,starts_at" },
+      ),
+    );
+    return unique.size;
+  }
+  async listCalendarEvents(ownerId: string, from: string, to: string) {
+    return this.many<CalendarEvent>(
+      this.db
+        .from("calendar_events")
+        .select("*")
+        .eq("owner_id", ownerId)
+        .lt("starts_at", to)
+        .gt("ends_at", from)
+        .order("starts_at", { ascending: true })
+        .limit(200),
+    );
+  }
+  async listDevices(ownerId: string) {
+    return this.many<Device>(this.db.from("devices").select("*").eq("owner_id", ownerId));
   }
   async createAppLoginRequest(nonce: string) {
     await this.one(this.db.from("app_login_requests").insert({ nonce }));

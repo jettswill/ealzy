@@ -38,6 +38,11 @@ export const EnvSchema = z.object({
   YANDEX_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
   YANDEX_OAUTH_REDIRECT_URI: z.string().url().optional(),
   MAIL_ENCRYPTION_KEY: z.string().min(32).optional(),
+  // Push в iOS-приложение (ключ .p8 из Apple Developer). Без них push просто выключен.
+  APNS_KEY_ID: z.string().min(1).optional(),
+  APNS_TEAM_ID: z.string().min(1).optional(),
+  APNS_PRIVATE_KEY: z.string().min(1).optional(),
+  APNS_BUNDLE_ID: z.string().min(1).optional(),
   TODOIST_CLIENT_ID: z.string().min(1).optional(),
   TODOIST_CLIENT_SECRET: z.string().min(1).optional(),
   TODOIST_REDIRECT_URI: z.string().url().optional(),

@@ -411,6 +411,23 @@ export interface MailPlaybook {
   updated_at: string;
 }
 
+export interface CalendarEvent {
+  id: string;
+  owner_id: string;
+  source: "ios";
+  external_id: string;
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  all_day: boolean;
+  location: string | null;
+  calendar_title: string | null;
+  created_at: string;
+}
+export type CalendarEventInput = Pick<
+  CalendarEvent,
+  "external_id" | "title" | "starts_at" | "ends_at" | "all_day" | "location" | "calendar_title"
+>;
 export interface PersonalContext {
   profile: Pick<
     UserProfile,
@@ -457,6 +474,8 @@ export interface PersonalContext {
   mail_messages: MailMessage[];
   mail_drafts: MailDraft[];
   mail_playbooks: MailPlaybook[];
+  /** События календаря с телефона на ближайшие дни; нет у тех, кто не подключал. */
+  calendar_events?: CalendarEvent[];
   upcoming_dates: {
     person: string | null;
     person_id?: string | null;
