@@ -52,7 +52,7 @@ struct IlziSheet: View {
                     .padding(.vertical, 16)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .defaultScrollAnchor(.bottom)
+                .defaultScrollAnchor(isHalf ? .top : .bottom)
                 .onChange(of: detent) {
                     guard let last = chat.messages.last?.id else { return }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { proxy.scrollTo(last, anchor: .bottom) }

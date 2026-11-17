@@ -75,7 +75,7 @@ struct TodayView: View {
                     .padding(.top, 28)
             }
             .padding(.horizontal, 24)
-            .padding(.top, 44) // место под «Ещё» справа вверху
+            .padding(.top, 4)
             .padding(.bottom, 120) // место под вкладками и кнопкой Илзи
         }
         .scrollDismissesKeyboard(.interactively)
@@ -103,7 +103,7 @@ struct TodayView: View {
                 Text(minutes > 0 ? "Между делом · \(minutes) мин" : "Между делом")
                 Spacer()
                 if !plan.reserve.isEmpty {
-                    Button("ещё \(plan.reserve.count) в запасе") { withAnimation { router.tab = .reserve } }
+                    Button("ещё \(plan.reserve.count) — во «Всех делах»") { withAnimation { router.tab = .reserve } }
                         .foregroundStyle(Palette.ink2)
                 }
             }

@@ -34,7 +34,7 @@ struct TodayPlanIntent: AppIntent {
         }
         let rest = plan.overdue.count + plan.today.count + plan.quick.count
         if rest > 0 { lines.append("Ещё на сегодня: \(rest).") }
-        if !plan.reserve.isEmpty { lines.append("В запасе \(plan.reserve.count), ничего не горит.") }
+        if !plan.reserve.isEmpty { lines.append("Остальные \(plan.reserve.count) — не на сегодня, ничего не горит.") }
         return .result(dialog: IntentDialog(stringLiteral: lines.joined(separator: " ")))
     }
 }

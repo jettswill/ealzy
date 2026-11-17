@@ -19,7 +19,7 @@ struct DayPlan: Equatable {
     var headline: String {
         switch (focus.count, reserve.count) {
         case (0, 0) where isEmpty: return "День свободен. Скажи Илзи, что висит в голове."
-        case (0, _) where isEmpty: return "На сегодня ничего не горит. Можно взять что-то из запаса."
+        case (0, _) where isEmpty: return "На сегодня ничего не горит. Можно взять что-то из всех дел."
         case (2, _): return "Сегодня два фокуса — иначе не успеть по срокам."
         case (1, _): return "Один фокус. Сделаешь его — день уже удался."
         default: return "Крупного на сегодня нет — хороший день, чтобы разгрести мелочи."

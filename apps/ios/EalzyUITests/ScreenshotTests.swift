@@ -28,7 +28,7 @@ final class ScreenshotTests: XCTestCase {
             sleep(1)
             snap("1-today-\(appearance)")
 
-            app.buttons["Запас"].tap()
+            app.buttons["Все дела"].tap()
             sleep(1)
             snap("2-reserve-\(appearance)")
             app.buttons["Сегодня"].tap()
@@ -41,7 +41,7 @@ final class ScreenshotTests: XCTestCase {
             app.otherElements.firstMatch.swipeDown(velocity: .fast)
             sleep(1)
 
-            app.buttons["Ещё"].tap()
+            app.buttons["Ещё"].firstMatch.tap()
             sleep(1)
             snap("4-settings-\(appearance)")
             app.buttons["Готово"].firstMatch.tap()

@@ -98,7 +98,7 @@ private struct SmallFocus: View {
             } else {
                 Text("Ничего не горит").font(Typeface.display(17)).foregroundStyle(Palette.ink).padding(.top, 4)
                 Spacer(minLength: 4)
-                Text("в запасе \(snapshot.reserveCount)").font(.caption).foregroundStyle(Palette.ink2)
+                Text("ещё \(snapshot.reserveCount) не на сегодня").font(.caption).foregroundStyle(Palette.ink2)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
