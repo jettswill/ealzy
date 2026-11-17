@@ -25,6 +25,7 @@ final class FocusSession {
             } else {
                 UserDefaults.standard.removeObject(forKey: Self.key)
             }
+            WidgetSnapshot.setFocusRun(widgetRun)
         }
     }
 
@@ -35,10 +36,25 @@ final class FocusSession {
     }
 
     var isRunning: Bool { state != nil }
+
+    /// Что показать в виджете: дело и когда выйдет время (или сколько осталось на паузе).
+    private var widgetRun: WidgetSnapshot.FocusRun? {
+        guard let state else { return nil }
+        let remaining = remaining()
+        return WidgetSnapshot.FocusRun(
+            taskId: state.taskId,
+            title: state.title,
+            endsAt: state.pausedAt == nil ? Date().addingTimeInterval(remaining) : nil,
+            pausedRemaining: state.pausedAt == nil ? nil : remaining
+        )
+    }
+    /// Экран фокуса открыт. Свернуть его — не значит остановить: таймер идёт дальше.
+    var isPresented = false
     var isPaused: Bool { state?.pausedAt != nil }
 
     func start(_ task: EalzyTask, minutes: Int) {
         state = State(taskId: task.id, title: task.title, plannedMinutes: minutes, startedAt: Date())
+        isPresented = true
     }
 
     func elapsed(at now: Date = Date()) -> TimeInterval {
@@ -65,6 +81,7 @@ final class FocusSession {
     }
 
     func finish() {
+        isPresented = false
         state = nil
     }
 }

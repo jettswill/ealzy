@@ -18,14 +18,24 @@ struct IlziSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.horizontal, 22)
-                .padding(.top, 20)
+                .padding(.top, 22)
+                .padding(.bottom, 4)
 
             ScrollViewReader { proxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        // В полэкрана — только последнее, полностью — весь разговор.
-                        ForEach(isHalf ? Array(chat.messages.suffix(1)) : chat.messages) { message in
-                            MessageBubble(message: message, showTime: isHalf).id(message.id)
+                    VStack(alignment: .leading, spacing: 18) {
+                        // В полэкрана — только последний ответ Илзи (коротко), полностью — весь разговор.
+                        if isHalf {
+                            if let last = chat.messages.last(where: { !$0.isUser }) ?? chat.messages.last {
+                                MessageBubble(message: last, showTime: true, lineLimit: 5) {
+                                    detent = .large
+                                }
+                                .id(last.id)
+                            }
+                        } else {
+                            ForEach(chat.messages) { message in
+                                MessageBubble(message: message).id(message.id)
+                            }
                         }
                         if chat.isSending {
                             HStack(spacing: 8) {
@@ -42,6 +52,11 @@ struct IlziSheet: View {
                     .padding(.vertical, 16)
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .defaultScrollAnchor(isHalf ? .top : .bottom)
+                .onChange(of: detent) {
+                    guard let last = chat.messages.last?.id else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { proxy.scrollTo(last, anchor: .bottom) }
+                }
                 .onChange(of: chat.messages.count) {
                     guard let last = chat.messages.last?.id else { return }
                     withAnimation { proxy.scrollTo(last, anchor: .bottom) }
@@ -69,9 +84,12 @@ struct IlziSheet: View {
         HStack(spacing: 10) {
             Image("IlziMark")
                 .resizable()
-                .frame(width: 30, height: 30)
+                .frame(width: 34, height: 34)
                 .foregroundStyle(Palette.goldText)
-            Text("Илзи").font(.headline).foregroundStyle(Palette.ink)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Илзи").font(.headline).foregroundStyle(Palette.ink)
+                Text(chat.isSending ? "думает…" : "на связи").font(.caption).foregroundStyle(Palette.ink3)
+            }
             Spacer()
         }
         .accessibilityElement(children: .combine)
@@ -167,36 +185,51 @@ struct IlziSheet: View {
 struct MessageBubble: View {
     let message: ChatMessage
     var showTime = false
+    var lineLimit: Int? = nil
+    var expand: (() -> Void)? = nil
 
     var body: some View {
         if message.isUser {
+            // Твои сообщения — справа, в золотистом пузыре.
             HStack {
-                Spacer(minLength: 48)
+                Spacer(minLength: 56)
                 Text(Self.render(message.content))
                     .font(.body)
                     .foregroundStyle(Palette.ink)
                     .textSelection(.enabled)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Palette.ground, in: UnevenRoundedRectangle(
-                        topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 4, topTrailingRadius: 18))
+                    .background(Palette.gold.opacity(0.22), in: UnevenRoundedRectangle(
+                        topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 5, topTrailingRadius: 18))
             }
         } else {
-            // Илзи говорит без пузыря — тонкая золотая черта, как на «Сегодня».
-            VStack(alignment: .leading, spacing: 4) {
-                if showTime, let date = message.createdAt {
-                    Text(date, format: .relative(presentation: .named))
-                        .font(.footnote)
-                        .foregroundStyle(Palette.ink3)
+            // Илзи — слева, со своим знаком, на «бумаге», без пузыря.
+            HStack(alignment: .top, spacing: 10) {
+                Image("IlziMark")
+                    .resizable()
+                    .frame(width: 20, height: 20)
+                    .foregroundStyle(Palette.goldText)
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 6) {
+                    if showTime, let date = message.createdAt {
+                        Text(date, format: .relative(presentation: .named))
+                            .font(.caption)
+                            .foregroundStyle(Palette.ink3)
+                    }
+                    Text(Self.render(message.content))
+                        .font(.body)
+                        .foregroundStyle(Palette.ink)
+                        .lineSpacing(2)
+                        .lineLimit(lineLimit)
+                        .textSelection(.enabled)
+                    if let expand, lineLimit != nil, message.content.count > 220 {
+                        Button("Показать полностью", action: expand)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Palette.goldText)
+                    }
                 }
-                Text(Self.render(message.content))
-                    .font(.body)
-                    .foregroundStyle(Palette.ink)
-                    .textSelection(.enabled)
+                Spacer(minLength: 24)
             }
-            .padding(.leading, 12)
-            .overlay(alignment: .leading) { Rectangle().fill(Palette.gold).frame(width: 2) }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

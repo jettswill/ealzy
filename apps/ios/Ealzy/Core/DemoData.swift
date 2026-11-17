@@ -22,7 +22,8 @@ enum DemoData {
                       kind: "task", assignee: assignee, completedAt: nil, createdAt: nil)
         }
         var list = [
-            task("f", "Дописать смету для «Северного двора»", due: tomorrowNoonish, estimate: 90, importance: 5, urgency: 5),
+            task("f", "Дописать смету для «Северного двора»", due: today, estimate: 90, importance: 5, urgency: 5),
+            task("t1", "Забрать костюм из химчистки", due: tomorrowNoonish),
             task("q1", "Оплатить интернет, 790 ₽", due: today, estimate: 5),
             task("q2", "Ответить Ире про субботу", due: today, estimate: 3),
             task("o1", "Вернуть книгу в библиотеку", due: cal.date(byAdding: .day, value: -2, to: today)),
@@ -34,6 +35,17 @@ enum DemoData {
                        "Выбрать подарок Паше", "Заказать фильтры для воды", "Разобрать фото"]
         for (i, title) in reserve.enumerated() {
             list.append(task("r\(i)", title, due: i < 4 ? cal.date(byAdding: .day, value: i + 2, to: today) : nil))
+        }
+        var done = task("d1", "Позвонить в банк про карту", due: today, estimate: 10)
+        done.status = "done"
+        done.completedAt = at(-90)
+        list.append(done)
+        // -EalzyDemoDone: всё, что было на сегодня, закрыто — экран похвалы.
+        if ProcessInfo.processInfo.arguments.contains("-EalzyDemoDone") {
+            for index in list.indices where list[index].dueAt.map(cal.isDateInToday) ?? false {
+                list[index].status = "done"
+                list[index].completedAt = at(-30)
+            }
         }
         return list
     }

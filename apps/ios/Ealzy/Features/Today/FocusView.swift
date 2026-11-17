@@ -4,6 +4,7 @@ import SwiftUI
 struct FocusView: View {
     @Environment(FocusSession.self) private var focus
     @Environment(TasksStore.self) private var tasks
+    @State private var confirmStop = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -62,21 +63,32 @@ struct FocusView: View {
                             .foregroundStyle(Palette.goldInk)
                     }
                 }
-                .padding(.bottom, 12)
+                Button("Остановить фокус") { confirmStop = true }
+                    .font(.footnote)
+                    .foregroundStyle(Palette.ink3)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 6)
+                    .padding(.bottom, 8)
             }
             .padding(.horizontal, 24)
         }
+        .confirmationDialog("Остановить фокус?", isPresented: $confirmStop, titleVisibility: .visible) {
+            Button("Остановить, дело не сделано", role: .destructive) { focus.finish() }
+        } message: {
+            Text("Таймер сбросится. Дело останется в списке.")
+        }
         .background { LampBackground(narrow: true) }
         .overlay(alignment: .topTrailing) {
+            // Свернуть, а не остановить: таймер тикает, на «Сегодня» видна полоска фокуса.
             Button {
-                focus.finish()
+                focus.isPresented = false
             } label: {
-                Image(systemName: "xmark")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Palette.ink3)
+                Image(systemName: "chevron.down")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Palette.ink2)
                     .frame(width: 44, height: 44)
             }
-            .accessibilityLabel("Выйти из фокуса")
+            .accessibilityLabel("Свернуть фокус")
             .padding(.trailing, 12)
         }
     }

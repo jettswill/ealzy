@@ -49,7 +49,7 @@ final class DayPlannerTests: XCTestCase {
     func testTwoFocusesOnlyWhenBothAreImportantAndDue() {
         let burning = DayPlanner.plan([
             task("Смета", importance: 5),
-            task("Презентация", dayOffset: -1, importance: 4),
+            task("Презентация", hour: 15, importance: 4),
         ], now: now, calendar: calendar)
         XCTAssertEqual(Set(burning.focus.map(\.title)), ["Смета", "Презентация"])
 
@@ -58,6 +58,26 @@ final class DayPlannerTests: XCTestCase {
             task("Разобрать почту", importance: 3),
         ], now: now, calendar: calendar)
         XCTAssertEqual(calm.focus.map(\.title), ["Смета"])
+    }
+
+    func testDayHoldsOnlyWhatIsPlannedForToday() {
+        var done = task("Позвонить в банк", estimate: 10, status: "done")
+        done.completedAt = calendar.date(byAdding: .hour, value: -1, to: now)
+        let plan = DayPlanner.plan([
+            task("Просроченное", dayOffset: -2, importance: 5, urgency: 5),
+            task("Горит, но без даты", dayOffset: nil, importance: 5, urgency: 5),
+            task("Отчёт", estimate: 60),
+            done,
+        ], now: now, calendar: calendar)
+        XCTAssertEqual(plan.focus.map(\.title), ["Отчёт"])
+        XCTAssertEqual(plan.overdue.map(\.title), ["Просроченное"])
+        XCTAssertEqual(plan.reserve.map(\.title), ["Горит, но без даты"])
+        XCTAssertEqual(plan.done.map(\.title), ["Позвонить в банк"])
+        XCTAssertFalse(plan.isDayDone)
+
+        let finished = DayPlanner.plan([done, task("Когда-нибудь", dayOffset: nil)], now: now, calendar: calendar)
+        XCTAssertTrue(finished.isDayDone)
+        XCTAssertTrue(finished.headline.hasPrefix("Всё на сегодня сделано"))
     }
 
     func testMeetingsAndQuickTasksNeverBecomeFocus() {
@@ -119,6 +139,7 @@ final class DayPlannerTests: XCTestCase {
         XCTAssertEqual(snapshot.focus.map(\.title), ["Смета"])
         XCTAssertEqual(snapshot.next.map(\.title), ["Оплатить интернет"])
         XCTAssertEqual(snapshot.reserveCount, 1)
+        snapshot.focusRun = .init(taskId: "Смета", title: "Смета", endsAt: now.addingTimeInterval(1800), pausedRemaining: nil)
         let data = try! JSONCoding.encoder.encode(snapshot)
         XCTAssertEqual(try! JSONCoding.decoder.decode(WidgetSnapshot.self, from: data), snapshot)
     }

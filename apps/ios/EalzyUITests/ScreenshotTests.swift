@@ -7,9 +7,9 @@ final class ScreenshotTests: XCTestCase {
         continueAfterFailure = true
     }
 
-    private func launch(_ appearance: String) -> XCUIApplication {
+    private func launch(_ appearance: String, extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-EalzyDemo", "-appearance", appearance, "-AppleLanguages", "(ru)", "-AppleLocale", "ru_RU"]
+        app.launchArguments = ["-EalzyDemo", "-appearance", appearance, "-AppleLanguages", "(ru)", "-AppleLocale", "ru_RU"] + extra
         app.launch()
         return app
     }
@@ -24,11 +24,11 @@ final class ScreenshotTests: XCTestCase {
     func testScreens() {
         for appearance in ["light", "dark"] {
             let app = launch(appearance)
-            XCTAssertTrue(app.buttons["Не сегодня"].waitForExistence(timeout: 15))
+            XCTAssertTrue(app.buttons["Сменить"].waitForExistence(timeout: 15))
             sleep(1)
             snap("1-today-\(appearance)")
 
-            app.buttons["Запас"].tap()
+            app.buttons["Все дела"].tap()
             sleep(1)
             snap("2-reserve-\(appearance)")
             app.buttons["Сегодня"].tap()
@@ -41,21 +41,46 @@ final class ScreenshotTests: XCTestCase {
             app.otherElements.firstMatch.swipeDown(velocity: .fast)
             sleep(1)
 
-            app.buttons["Ещё"].tap()
+            app.buttons["Ещё"].firstMatch.tap()
             sleep(1)
             snap("4-settings-\(appearance)")
             app.buttons["Готово"].firstMatch.tap()
             sleep(1)
 
+            if appearance == "dark" {
+                let title = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Северного'")).firstMatch
+                if title.waitForExistence(timeout: 5) {
+                    title.tap(); sleep(1); snap("6-task-detail-dark")
+                    app.buttons["Закрыть"].firstMatch.tap(); sleep(1)
+                }
+                let call = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Созвон'")).firstMatch
+                if call.waitForExistence(timeout: 5) {
+                    call.tap(); sleep(1); snap("7-event-dark")
+                    app.buttons["Закрыть"].firstMatch.tap(); sleep(1)
+                }
+                app.buttons["Сменить"].tap(); sleep(1); snap("8-change-focus-dark")
+                app.buttons["Отмена"].firstMatch.tap(); sleep(1)
+            }
             let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Начать'")).firstMatch
             if start.waitForExistence(timeout: 5) {
                 start.tap()
                 sleep(2)
                 snap("5-focus-\(appearance)")
-                app.buttons["Выйти из фокуса"].tap()
+                app.buttons["Свернуть фокус"].tap()
+                sleep(1)
+                snap("9-focus-minimized-\(appearance)")
             }
             app.terminate()
         }
+    }
+
+    func testDayDoneScreen() {
+        let app = launch("light", extra: ["-EalzyDemoDone"])
+        if app.buttons["Взять ещё"].waitForExistence(timeout: 15) {
+            sleep(1)
+            snap("10-day-done-light")
+        }
+        app.terminate()
     }
 
     func testLoginScreen() {

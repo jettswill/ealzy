@@ -1,26 +1,29 @@
 import SwiftUI
 
-/// «Запас»: всё, что не на сегодня. Ничего не горит — но и не теряется.
+/// «Все дела»: отсюда человек сам собирает день — солнышко справа ставит дело на сегодня.
+/// Сверху то, что уже на сегодня, потом просроченное, неделя, позже, когда-нибудь.
 struct ReserveView: View {
     @Environment(TasksStore.self) private var tasks
     @Environment(AppRouter.self) private var router
     @AppStorage("reserveReviewSnoozedUntil") private var snoozedUntil: Double = 0
 
     var body: some View {
-        let reserve = tasks.plan.reserve
-        let groups = Self.group(reserve)
+        let plan = tasks.plan
+        let reserve = plan.reserve
+        let today = plan.dayOpen
+        let groups = [Group(title: "На сегодня", tasks: today), Group(title: "Просрочено", tasks: plan.overdue)]
+            .filter { !$0.tasks.isEmpty } + Self.group(reserve)
+        let total = today.count + plan.overdue.count + reserve.count
         let stale = Self.stale(reserve)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Запас")
-                    .font(Typeface.display(34))
-                    .foregroundStyle(Palette.ink)
-                Text(reserve.isEmpty
-                     ? "Пусто. Всё, что не на сегодня, будет здесь."
-                     : "\(reserve.count) \(TodayView.plural(reserve.count, "дело", "дела", "дел")), ничего не горит")
+                ScreenHeader(title: "Все дела")
+                Text(total == 0
+                     ? "Пусто. Скажи Илзи, что висит в голове."
+                     : "\(total) \(TodayView.plural(total, "дело", "дела", "дел")) · на сегодня \(today.count). Нажми ☀︎, чтобы взять в день.")
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
-                    .padding(.top, 6)
+                    .padding(.top, 2)
 
                 if stale.count >= 3 && Date().timeIntervalSince1970 > snoozedUntil {
                     staleCard(stale)
@@ -39,7 +42,7 @@ struct ReserveView: View {
                         .padding(.bottom, 4)
                         ForEach(group.tasks) { task in
                             Divider().overlay(Palette.rule)
-                            TaskRow(task: task)
+                            TaskRow(task: task, showsDayToggle: true)
                         }
                     }
                     .padding(.top, 26)
@@ -60,7 +63,7 @@ struct ReserveView: View {
                 }
             }
             .padding(.horizontal, 24)
-            .padding(.top, 44)
+            .padding(.top, 4)
             .padding(.bottom, 120)
         }
         .refreshable { await tasks.load() }

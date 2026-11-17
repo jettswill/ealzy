@@ -90,19 +90,7 @@ struct RootView: View {
                 .background { LampBackground() } // свет лампы на весь экран, общий для обеих вкладок
                 .onChange(of: router.tab) { UISelectionFeedbackGenerator().selectionChanged() }
 
-                BottomBar(tab: $router.tab) { router.openIlzi() }
-            }
-            .overlay(alignment: .topTrailing) {
-                Button { router.showSettings = true } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3)
-                        .foregroundStyle(Palette.ink2)
-                        .frame(width: 44, height: 44)
-                        .floatingPanel()
-                }
-                .accessibilityLabel("Ещё")
-                .padding(.trailing, 16)
-                .padding(.top, 2)
+                BottomBar(tab: $router.tab, openIlzi: { router.openIlzi() })
             }
             .sheet(isPresented: $router.isIlziOpen) {
                 IlziSheet(detent: $ilziDetent)
@@ -126,7 +114,7 @@ struct RootView: View {
                 await AppDelegate.upload()
             }
             .sheet(isPresented: $showOnboarding) { OnboardingView() }
-            .fullScreenCover(isPresented: Binding(get: { focus.isRunning }, set: { if !$0 { focus.finish() } })) {
+            .fullScreenCover(isPresented: Binding(get: { focus.isRunning && focus.isPresented }, set: { focus.isPresented = $0 })) {
                 FocusView()
             }
         } else {
@@ -135,31 +123,56 @@ struct RootView: View {
     }
 }
 
-/// Нижняя панель: «Сегодня» и «Запас» слева, круглая золотая Илзи справа.
+/// Заголовок экрана: крупно слева, «Ещё» справа на той же линии.
+struct ScreenHeader: View {
+    @Environment(AppRouter.self) private var router
+    let title: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(title)
+                .font(Typeface.display(30))
+                .foregroundStyle(Palette.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Spacer(minLength: 0)
+            Button { router.showSettings = true } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(Palette.ink2)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Ещё")
+            .padding(.trailing, -10)
+        }
+    }
+}
+
+/// Нижняя панель: «Сегодня» и «Все дела» одной сеткой; Илзи — лёгкая круглая кнопка рядом.
 struct BottomBar: View {
     @Binding var tab: AppRouter.Tab
     let openIlzi: () -> Void
 
     var body: some View {
         HStack(alignment: .center) {
-            HStack(spacing: 0) {
-                item(.today, "Сегодня", "sun.max")
-                item(.reserve, "Запас", "tray")
+            HStack(spacing: 2) {
+                item("Сегодня", "sun.max", selected: tab == .today) { withAnimation(.snappy) { tab = .today } }
+                item("Все дела", "checklist", selected: tab == .reserve) { withAnimation(.snappy) { tab = .reserve } }
             }
             .padding(.horizontal, 6)
-            .frame(height: 64)
+            .frame(height: 62)
             .floatingPanel()
 
-            Spacer()
+            Spacer(minLength: 12)
 
             Button(action: openIlzi) {
                 Image("IlziMark")
                     .resizable()
-                    .frame(width: 30, height: 30)
-                    .foregroundStyle(Palette.goldInk)
-                    .frame(width: 64, height: 64)
-                    .background(Palette.gold, in: Circle())
-                    .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+                    .frame(width: 28, height: 28)
+                    .foregroundStyle(Palette.goldText)
+                    .frame(width: 58, height: 58)
+                    .floatingPanel()
+                    .overlay(Circle().strokeBorder(Palette.gold.opacity(0.55), lineWidth: 1))
             }
             .accessibilityLabel("Илзи")
         }
@@ -167,18 +180,23 @@ struct BottomBar: View {
         .padding(.bottom, 4)
     }
 
-    private func item(_ value: AppRouter.Tab, _ title: String, _ icon: String) -> some View {
-        Button {
-            withAnimation(.snappy) { tab = value }
-        } label: {
-            VStack(spacing: 3) {
-                Image(systemName: icon).font(.system(size: 20, weight: .regular))
-                Text(title).font(.system(size: 11, weight: .semibold))
+    /// Одна сетка для всех кнопок: иконка в одинаковой рамке, подпись на одной линии.
+    private func item(_ title: String, _ icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 19, weight: .regular))
+                    .frame(width: 28, height: 24, alignment: .center)
+                Text(title)
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(height: 13)
             }
-            .frame(width: 96, height: 56)
-            .foregroundStyle(tab == value ? Palette.goldText : Palette.ink3)
+            .frame(width: 80, height: 54)
+            .foregroundStyle(selected ? Palette.goldText : Palette.ink3)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
         .accessibilityLabel(title)
-        .accessibilityAddTraits(tab == value ? .isSelected : [])
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
