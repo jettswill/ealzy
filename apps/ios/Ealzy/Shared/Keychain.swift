@@ -7,6 +7,7 @@ import Security
 enum Keychain {
     private static let service = "ru.ealzy.app.session"
     private static let account = "token"
+    private static let snapshotAccount = "widget-snapshot"
 
     private static var sharedGroup: String? {
         guard let group = Bundle.main.object(forInfoDictionaryKey: "EalzyKeychainGroup") as? String,
@@ -15,24 +16,38 @@ enum Keychain {
     }
 
     static func readToken() -> String? {
+        readData(account: account).flatMap { String(data: $0, encoding: .utf8) }
+    }
+
+    static func saveToken(_ token: String) {
+        saveData(Data(token.utf8), account: account)
+    }
+
+    static func deleteToken() {
+        delete(account: account)
+    }
+
+    /// Снимок для виджета, если нет общей папки (бесплатная учётка Apple без групп приложений).
+    static func readSnapshot() -> Data? { readData(account: snapshotAccount) }
+    static func saveSnapshot(_ data: Data) { saveData(data, account: snapshotAccount) }
+    static func deleteSnapshot() { delete(account: snapshotAccount) }
+
+    private static func readData(account: String) -> Data? {
         for group in candidateGroups {
-            var query = baseQuery(group: group)
+            var query = baseQuery(group: group, account: account)
             query[kSecReturnData as String] = true
             query[kSecMatchLimit as String] = kSecMatchLimitOne
             var item: CFTypeRef?
-            if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-               let data = item as? Data,
-               let token = String(data: data, encoding: .utf8) {
-                return token
+            if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data {
+                return data
             }
         }
         return nil
     }
 
-    static func saveToken(_ token: String) {
-        let data = Data(token.utf8)
+    private static func saveData(_ data: Data, account: String) {
         for group in candidateGroups {
-            let query = baseQuery(group: group)
+            let query = baseQuery(group: group, account: account)
             let update = [kSecValueData as String: data]
             var status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
             if status == errSecItemNotFound {
@@ -45,9 +60,9 @@ enum Keychain {
         }
     }
 
-    static func deleteToken() {
+    private static func delete(account: String) {
         for group in candidateGroups {
-            SecItemDelete(baseQuery(group: group) as CFDictionary)
+            SecItemDelete(baseQuery(group: group, account: account) as CFDictionary)
         }
     }
 
@@ -56,7 +71,7 @@ enum Keychain {
         sharedGroup.map { [$0, nil] } ?? [nil]
     }
 
-    private static func baseQuery(group: String?) -> [String: Any] {
+    private static func baseQuery(group: String?, account: String) -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

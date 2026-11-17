@@ -10,6 +10,8 @@ settings:
     MARKETING_VERSION: "0.3.0"
     CURRENT_PROJECT_VERSION: "3"
     DEVELOPMENT_TEAM: ""
+    # Свой идентификатор можно подставить при сборке (бесплатная учётка Apple — scripts/install-on-iphone.command).
+    EALZY_BUNDLE_ID: ru.ealzy.app
     TARGETED_DEVICE_FAMILY: "1"
 targets:
   Ealzy:
@@ -52,7 +54,7 @@ targets:
         keychain-access-groups: [$(AppIdentifierPrefix)ru.ealzy.shared]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ru.ealzy.app
+        PRODUCT_BUNDLE_IDENTIFIER: $(EALZY_BUNDLE_ID)
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
 
@@ -76,7 +78,7 @@ targets:
         keychain-access-groups: [$(AppIdentifierPrefix)ru.ealzy.shared]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ru.ealzy.app.widget
+        PRODUCT_BUNDLE_IDENTIFIER: $(EALZY_BUNDLE_ID).widget
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SKIP_INSTALL: YES
 
@@ -105,7 +107,7 @@ targets:
         keychain-access-groups: [$(AppIdentifierPrefix)ru.ealzy.shared]
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: ru.ealzy.app.share
+        PRODUCT_BUNDLE_IDENTIFIER: $(EALZY_BUNDLE_ID).share
         SKIP_INSTALL: YES
 
   EalzyTests:
