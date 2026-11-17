@@ -372,8 +372,9 @@ struct TaskRow: View {
                         .labelStyle(.titleAndIcon)
                         .padding(.horizontal, 10)
                         .frame(height: 30)
-                        .foregroundStyle(onToday ? Palette.goldInk : Palette.ink2)
-                        .background(onToday ? Palette.gold : .clear, in: Capsule())
+                        // Уже на сегодня — спокойная золотая подпись; ещё нет — кнопка с рамкой.
+                        .foregroundStyle(onToday ? Palette.goldText : Palette.ink2)
+                        .background(onToday ? Palette.gold.opacity(0.16) : .clear, in: Capsule())
                         .overlay(Capsule().strokeBorder(onToday ? .clear : Palette.rule))
                         .fixedSize()
                 }

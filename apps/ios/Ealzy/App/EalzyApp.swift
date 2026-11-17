@@ -103,6 +103,7 @@ struct RootView: View {
                     }
 
                     BottomBar(tab: $router.tab, openIlzi: { router.openIlzi() })
+                        .ignoresSafeArea(.keyboard) // клавиатура закрывает панель, а не поднимает её
                 }
 
                 // Под шторкой Илзи день притемняется — шторка явно поверх, а не сливается с фоном.
