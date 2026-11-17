@@ -16,8 +16,8 @@ struct OnboardingView: View {
             List {
                 Section {
                     Text("Три шага — и Илзи держит твой день: звенит вовремя, знает расписание и забирает дела из Напоминаний.")
-                        .foregroundStyle(.secondary)
-                        .listRowBackground(Color.clear)
+                        .foregroundStyle(Palette.ink2)
+                        .lampRow()
                 }
                 Section {
                     step(
@@ -51,11 +51,14 @@ struct OnboardingView: View {
                 }
                 Section {
                     Label("Виджет «Записать» на экран блокировки — запись в одно касание.", systemImage: "square.grid.2x2")
+                        .lampRow()
                     Label("«Скажи Ealzy» — Siri передаст Илзи всё, что надиктуешь.", systemImage: "mic")
+                        .lampRow()
                 } header: {
                     Text("Потом, когда будет минута")
                 }
             }
+            .lampList()
             .navigationTitle("Настроим Илзи")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -84,11 +87,11 @@ struct OnboardingView: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: done ? "checkmark.circle.fill" : icon)
                 .font(.title3)
-                .foregroundStyle(done ? Color.green : Color.accentColor)
+                .foregroundStyle(done ? Palette.goldText : Palette.goldText)
                 .frame(width: 28)
             VStack(alignment: .leading, spacing: 4) {
                 Text(title).font(.headline)
-                Text(text).font(.footnote).foregroundStyle(.secondary)
+                Text(text).font(.footnote).foregroundStyle(Palette.ink2)
             }
             Spacer()
             if !done {
@@ -98,5 +101,6 @@ struct OnboardingView: View {
             }
         }
         .padding(.vertical, 4)
+        .lampRow()
     }
 }

@@ -5,16 +5,9 @@ import SwiftUI
 /// мелочи между делом, всё остальное — в запасе.
 struct TodayView: View {
     @Environment(TasksStore.self) private var tasks
-    @Environment(ChatStore.self) private var chat
     @Environment(PhoneCalendar.self) private var calendar
     @Environment(AppRouter.self) private var router
     @Environment(FocusSession.self) private var focus
-    @State private var showReserve = false
-    @State private var capture = ""
-    @State private var lastReply: String?
-    @State private var speech = SpeechInput()
-    @State private var spokenPrefix = ""
-    @FocusState private var captureFocused: Bool
 
     var body: some View {
         let plan = tasks.plan
@@ -38,11 +31,6 @@ struct TodayView: View {
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
                     .padding(.top, 18)
-
-                if let reply = lastReply {
-                    IlziReplyCard(text: reply) { lastReply = nil }
-                        .padding(.top, 14)
-                }
 
                 if let main {
                     FocusHeader(task: main, window: window, minutes: minutes) {
@@ -69,22 +57,18 @@ struct TodayView: View {
                     .padding(.top, 28)
             }
             .padding(.horizontal, 24)
-            .padding(.bottom, 24)
+            .padding(.top, 44) // место под «Ещё» справа вверху
+            .padding(.bottom, 120) // место под вкладками и кнопкой Илзи
         }
         .scrollDismissesKeyboard(.interactively)
-        .background { LampBackground() }
-        .safeAreaInset(edge: .bottom) { captureBar }
         .refreshable {
             await calendar.sync()
             tasks.nextEvent = calendar.nextEventItem
             await tasks.load()
         }
-        .onChange(of: router.captureRequest) { captureFocused = true }
-        .onAppear { if router.captureRequest > 0 { captureFocused = true } }
         .overlay {
             if tasks.isLoading && tasks.tasks.isEmpty { ProgressView() }
         }
-        .sheet(isPresented: $showReserve) { ReserveView(tasks: plan.reserve) }
     }
 
     // MARK: Между делом
@@ -98,7 +82,7 @@ struct TodayView: View {
                 Text(minutes > 0 ? "Между делом · \(minutes) мин" : "Между делом")
                 Spacer()
                 if !plan.reserve.isEmpty {
-                    Button("ещё \(plan.reserve.count) в запасе") { showReserve = true }
+                    Button("ещё \(plan.reserve.count) в запасе") { withAnimation { router.tab = .reserve } }
                         .foregroundStyle(Palette.ink2)
                 }
             }
@@ -152,65 +136,6 @@ struct TodayView: View {
         return parts.isEmpty ? plan.headline : parts.joined(separator: " ")
     }
 
-    // MARK: Скажи Илзи
-
-    private var captureBar: some View {
-        VStack(spacing: 4) {
-            if let error = speech.errorMessage {
-                Text(error).font(.footnote).foregroundStyle(.red)
-            }
-            HStack(spacing: 10) {
-                TextField("Скажи Илзи…", text: $capture, axis: .vertical)
-                    .lineLimit(1...4)
-                    .focused($captureFocused)
-                    .foregroundStyle(Palette.ink)
-                if chat.isSending {
-                    ProgressView().frame(width: 38, height: 38)
-                } else if !capture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !speech.isRecording {
-                    Button(action: sendCapture) {
-                        Image(systemName: "arrow.up")
-                            .font(.body.weight(.semibold))
-                            .frame(width: 38, height: 38)
-                            .background(Palette.gold, in: Circle())
-                            .foregroundStyle(Palette.goldInk)
-                    }
-                    .accessibilityLabel("Отправить")
-                } else {
-                    Button {
-                        spokenPrefix = capture.isEmpty ? "" : capture + " "
-                        Task { await speech.toggle { text in capture = spokenPrefix + text } }
-                    } label: {
-                        Image(systemName: speech.isRecording ? "stop.fill" : "mic.fill")
-                            .font(.body.weight(.semibold))
-                            .frame(width: 38, height: 38)
-                            .background(speech.isRecording ? Color.red : Palette.gold, in: Circle())
-                            .foregroundStyle(speech.isRecording ? Color.white : Palette.goldInk)
-                            .symbolEffect(.pulse, isActive: speech.isRecording)
-                    }
-                    .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Надиктовать")
-                }
-            }
-            .padding(.leading, 18)
-            .padding(.trailing, 7)
-            .padding(.vertical, 7)
-            .floatingPanel()
-        }
-        .padding(.horizontal, 16)
-        .padding(.bottom, 8)
-    }
-
-    private func sendCapture() {
-        speech.stop()
-        let text = capture
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        capture = ""
-        captureFocused = false
-        Task {
-            if let reply = await chat.capture(text) { lastReply = reply }
-            await tasks.load()
-        }
-    }
-
     // MARK: Форматирование
 
     /// «Вторник, 17 ноября» — с заглавной только первая буква.
@@ -234,28 +159,6 @@ struct TodayView: View {
         if mod10 == 1 && mod100 != 11 { return one }
         if (2...4).contains(mod10) && !(12...14).contains(mod100) { return few }
         return many
-    }
-}
-
-// MARK: - Свет лампы
-
-struct LampBackground: View {
-    var narrow = false
-
-    var body: some View {
-        ZStack(alignment: .top) {
-            Palette.ground
-            GeometryReader { proxy in
-                RadialGradient(
-                    colors: [Palette.pool, .clear],
-                    center: narrow ? UnitPoint(x: 0.5, y: 0.4) : UnitPoint(x: 0.22, y: 0.16),
-                    startRadius: 0,
-                    endRadius: proxy.size.width * (narrow ? 0.75 : 1.05)
-                )
-                .frame(height: proxy.size.height * 0.7)
-            }
-        }
-        .ignoresSafeArea()
     }
 }
 
@@ -329,30 +232,6 @@ struct FocusHeader: View {
     }
 }
 
-// MARK: - Ответ Илзи после «Скажи Илзи»
-
-struct IlziReplyCard: View {
-    let text: String
-    let close: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text(MessageBubble.render(text))
-                .font(.callout)
-                .foregroundStyle(Palette.ink)
-            Spacer(minLength: 0)
-            Button(action: close) {
-                Image(systemName: "xmark").font(.footnote.weight(.semibold)).foregroundStyle(Palette.ink3)
-            }
-            .accessibilityLabel("Скрыть")
-        }
-        .padding(.leading, 12)
-        .overlay(alignment: .leading) {
-            Rectangle().fill(Palette.gold).frame(width: 2)
-        }
-    }
-}
-
 // MARK: - Строка дела
 
 struct TaskRow: View {
@@ -400,32 +279,5 @@ struct TaskRow: View {
                 }
             }
         }
-    }
-}
-
-// MARK: - Запас
-
-struct ReserveView: View {
-    let tasks: [EalzyTask]
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Ничего не горит. Удерживай дело, чтобы перенести или поставить в календарь.")
-                        .font(.footnote)
-                        .foregroundStyle(Palette.ink2)
-                        .padding(.bottom, 10)
-                    ForEach(tasks) { TaskRow(task: $0) }
-                }
-                .padding(.horizontal, 24)
-            }
-            .background(Palette.ground.ignoresSafeArea())
-            .navigationTitle("В запасе \(tasks.count)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { dismiss() } } }
-        }
-        .presentationDetents([.medium, .large])
     }
 }

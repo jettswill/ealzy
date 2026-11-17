@@ -98,7 +98,7 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         guard let taskId = info["task_id"] as? String else {
             // Push от Илзи (утро, вечер, неделя) — открываем разговор с ней.
             if info["kind"] != nil {
-                await MainActor.run { AppRouter.shared.tab = .chat }
+                await MainActor.run { AppRouter.shared.openIlzi() }
             }
             return
         }

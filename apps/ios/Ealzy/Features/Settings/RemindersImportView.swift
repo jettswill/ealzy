@@ -26,6 +26,8 @@ struct RemindersImportView: View {
                 } else {
                     Section {
                         Toggle("Отметить перенесённые выполненными в Напоминаниях", isOn: $completeInReminders)
+                            .tint(Palette.gold)
+                            .lampRow()
                     } footer: {
                         Text("Так они не будут звенеть дважды — дальше напоминает Ealzy.")
                     }
@@ -36,17 +38,19 @@ struct RemindersImportView: View {
                             } label: {
                                 HStack(alignment: .firstTextBaseline) {
                                     Image(systemName: selected.contains(item.id) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(selected.contains(item.id) ? Color.accentColor : Color.secondary)
+                                        .foregroundStyle(selected.contains(item.id) ? Palette.goldText : Palette.ink3)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.title).foregroundStyle(.primary)
-                                        Text(subtitle(item)).font(.caption).foregroundStyle(.secondary)
+                                        Text(item.title).foregroundStyle(Palette.ink)
+                                        Text(subtitle(item)).font(.caption).foregroundStyle(Palette.ink2)
                                     }
                                 }
                             }
+                            .lampRow()
                         }
                     }
                 }
             }
+            .lampList()
             .navigationTitle("Из Напоминаний")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

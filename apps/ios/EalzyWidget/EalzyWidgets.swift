@@ -29,7 +29,7 @@ struct FocusWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "EalzyFocus", provider: SnapshotProvider()) { entry in
             FocusWidgetView(entry: entry)
-                .containerBackground(.fill.tertiary, for: .widget)
+                .containerBackground(for: .widget) { Palette.ground }
                 .widgetURL(URL(string: "ealzy://today"))
         }
         .configurationDisplayName("Фокус дня")
@@ -49,7 +49,7 @@ struct FocusWidgetView: View {
                 Text(snapshot.focus.first.map { "Фокус: \($0.title)" } ?? "Ealzy: ничего не горит")
             case .accessoryRectangular:
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Фокус").font(.caption2).foregroundStyle(.secondary)
+                    Text("Фокус").font(.caption2).foregroundStyle(Palette.ink2)
                     Text(snapshot.focus.first?.title ?? "Ничего не горит")
                         .font(.headline)
                         .lineLimit(2)
@@ -65,27 +65,27 @@ struct FocusWidgetView: View {
         } else {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Ealzy").font(.headline)
-                Text("Открой приложение, чтобы увидеть план дня.").font(.caption).foregroundStyle(.secondary)
+                Text("Открой приложение, чтобы увидеть план дня.").font(.caption).foregroundStyle(Palette.ink2)
             }
         }
     }
 
     private func smallBody(_ snapshot: WidgetSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Фокус").font(.caption).foregroundStyle(.secondary)
+            Text("Фокус").font(.caption).foregroundStyle(Palette.ink2)
             if let focus = snapshot.focus.first {
-                Text(focus.title).font(.headline).lineLimit(4)
+                Text(focus.title).font(Typeface.display(17)).foregroundStyle(Palette.ink).lineLimit(4)
                 Spacer(minLength: 0)
                 Button(intent: CompleteTaskIntent(taskId: focus.id)) {
                     Label("Готово", systemImage: "checkmark.circle")
                         .font(.caption.weight(.semibold))
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(Palette.goldText)
             } else {
                 Text("Ничего не горит").font(.headline)
                 Spacer(minLength: 0)
-                Text("В запасе \(snapshot.reserveCount)").font(.caption).foregroundStyle(.secondary)
+                Text("В запасе \(snapshot.reserveCount)").font(.caption).foregroundStyle(Palette.ink2)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -101,7 +101,7 @@ struct FocusWidgetView: View {
             }
             if let event = snapshot.nextEvent {
                 HStack(spacing: 6) {
-                    Image(systemName: "calendar").foregroundStyle(.secondary)
+                    Image(systemName: "calendar").foregroundStyle(Palette.ink2)
                     Text("\(event.meta ?? "") \(event.title)").font(.caption).lineLimit(1)
                 }
             }
@@ -111,7 +111,7 @@ struct FocusWidgetView: View {
             Spacer(minLength: 0)
             Text("В запасе \(snapshot.reserveCount) — ничего не горит")
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Palette.ink2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -127,13 +127,14 @@ private struct ItemLine: View {
                 Image(systemName: "circle")
             }
             .buttonStyle(.plain)
-            .foregroundStyle(emphasis ? Color.accentColor : Color.secondary)
+            .foregroundStyle(emphasis ? Palette.goldText : Palette.ink2)
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.title)
-                    .font(emphasis ? .subheadline.weight(.semibold) : .subheadline)
+                    .font(emphasis ? Typeface.display(15) : .subheadline)
+                    .foregroundStyle(Palette.ink)
                     .lineLimit(emphasis ? 2 : 1)
                 if let meta = item.meta {
-                    Text(meta).font(.caption2).foregroundStyle(.secondary)
+                    Text(meta).font(.caption2).foregroundStyle(Palette.ink2)
                 }
             }
         }
@@ -146,7 +147,7 @@ struct CaptureWidget: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "EalzyCapture", provider: SnapshotProvider()) { _ in
             CaptureWidgetView()
-                .containerBackground(.fill.tertiary, for: .widget)
+                .containerBackground(for: .widget) { Palette.ground }
                 .widgetURL(URL(string: "ealzy://capture"))
         }
         .configurationDisplayName("Записать")
@@ -168,10 +169,10 @@ struct CaptureWidgetView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Image(systemName: "square.and.pencil")
                     .font(.title)
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(Palette.goldText)
                 Spacer(minLength: 0)
                 Text("Скажи Илзи").font(.headline)
-                Text("дело, мысль, вопрос").font(.caption).foregroundStyle(.secondary)
+                Text("дело, мысль, вопрос").font(.caption).foregroundStyle(Palette.ink2)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
