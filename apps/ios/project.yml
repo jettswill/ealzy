@@ -5,9 +5,13 @@ options:
     iOS: "17.0"
   developmentLanguage: ru
 packages:
+  # 3.31.4 + mlx-swift 0.31.4 собираются в Xcode 26.3 (CI); версии новее требуют Swift 6.3.
   MLXSwiftLM:
     url: https://github.com/ml-explore/mlx-swift-lm
-    exactVersion: 3.32.3
+    exactVersion: 3.31.4
+  MLXSwift:
+    url: https://github.com/ml-explore/mlx-swift
+    exactVersion: 0.31.4
   SwiftTransformers:
     url: https://github.com/huggingface/swift-transformers
     from: 1.4.0
@@ -33,6 +37,8 @@ targets:
         product: MLXLLM
       - package: MLXSwiftLM
         product: MLXLMCommon
+      - package: MLXSwift
+        product: MLX
       - package: SwiftTransformers
         product: Tokenizers
     info:
