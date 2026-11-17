@@ -140,6 +140,12 @@ final class DayPlannerTests: XCTestCase {
         XCTAssertEqual(snapshot.next.map(\.title), ["Оплатить интернет"])
         XCTAssertEqual(snapshot.reserveCount, 1)
         snapshot.focusRun = .init(taskId: "Смета", title: "Смета", endsAt: now.addingTimeInterval(1800), pausedRemaining: nil)
+        // Снимок от прошлой версии (без новых полей) читается.
+        let old = #"{"updatedAt":"2026-11-16T09:00:00Z","headline":"h","focus":[],"next":[],"quickCount":0,"reserveCount":2}"#
+        let legacy = try! JSONCoding.decoder.decode(WidgetSnapshot.self, from: Data(old.utf8))
+        XCTAssertEqual(legacy.reserveCount, 2)
+        XCTAssertEqual(legacy.doneCount, 0)
+        XCTAssertTrue(legacy.tomorrow.isEmpty)
         let data = try! JSONCoding.encoder.encode(snapshot)
         XCTAssertEqual(try! JSONCoding.decoder.decode(WidgetSnapshot.self, from: data), snapshot)
     }

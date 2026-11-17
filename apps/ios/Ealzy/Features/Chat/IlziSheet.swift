@@ -15,11 +15,6 @@ struct IlziSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
-                .padding(.horizontal, 22)
-                .padding(.top, 22)
-                .padding(.bottom, 4)
-
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
@@ -35,22 +30,28 @@ struct IlziSheet: View {
                             MessageBubble(message: message).id(message.id)
                         }
                         if chat.isSending {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                Text("Илзи думает…").font(.footnote).foregroundStyle(Palette.ink3)
-                            }
-                            .id("typing")
+                            TypingDots().id("typing")
                         }
-                        if draft.isEmpty && !chat.isSending {
+                        if draft.isEmpty && !chat.isSending, !chips.isEmpty {
                             suggestions
                         }
                         Color.clear.frame(height: 1).id(Self.end)
                     }
                     .padding(.horizontal, 22)
-                    .padding(.vertical, 16)
+                    .padding(.top, 26)
+                    .padding(.bottom, 12)
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .defaultScrollAnchor(.bottom)
+                // Сверху разговор мягко уходит под край шторки, а не обрезается под «ручкой».
+                .mask {
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 36)
+                        Color.black
+                    }
+                }
+                .padding(.top, 20) // под «ручкой» шторки — пусто, текст начинается ниже
                 .onAppear { toEnd(proxy) }
                 .onChange(of: detent) { toEnd(proxy) }
                 .onChange(of: chat.messages.last?.id) { toEnd(proxy, animated: true) }
@@ -59,7 +60,7 @@ struct IlziSheet: View {
 
             inputBar
         }
-        .background(Palette.raised.ignoresSafeArea())
+        .background(Palette.sheet.ignoresSafeArea())
         .task { await chat.load() }
         .onChange(of: inputFocused) { if inputFocused { detent = .large } }
         .onChange(of: router.captureRequest) { inputFocused = true }
@@ -101,48 +102,40 @@ struct IlziSheet: View {
         return date.formatted(style.locale(Locale(identifier: "ru_RU")))
     }
 
-    private var header: some View {
-        HStack(spacing: 10) {
-            Image("IlziMark")
-                .resizable()
-                .frame(width: 34, height: 34)
-                .foregroundStyle(Palette.goldText)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Илзи").font(.headline).foregroundStyle(Palette.ink)
-                Text(chat.isSending ? "думает…" : "на связи").font(.caption).foregroundStyle(Palette.ink3)
-            }
-            Spacer()
+    /// Кнопки под разговором — только к месту:
+    /// Илзи спросила — быстрые ответы на её вопрос; разговор давно затих или пуст — с чего начать;
+    /// иначе ничего, чтобы не мешать.
+    private var chips: [(label: String, text: String?)] {
+        guard let last = chat.messages.last else { return Self.starters(focus: tasks.plan.focus.first) }
+        if !last.isUser, last.content.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?") {
+            return [("Да", "Да"), ("Нет, не надо", "Нет, не надо"), ("Позже", "Давай позже")]
         }
-        .accessibilityElement(children: .combine)
+        let quiet = last.createdAt.map { Date().timeIntervalSince($0) > 3 * 3600 } ?? true
+        return quiet ? Self.starters(focus: tasks.plan.focus.first) : []
     }
 
-    /// Подсказки по ситуации: что можно попросить прямо сейчас.
-    private var suggestions: some View {
-        let focus = tasks.plan.focus.first
-        let items = [
-            "Что у меня сегодня?",
-            focus.map { _ in "Главное — на вечер" },
-            "Выгрузить мысли",
+    private static func starters(focus: EalzyTask?) -> [(label: String, text: String?)] {
+        [
+            ("Что у меня сегодня?", "Что у меня сегодня?"),
+            focus.map { ("Главное — на вечер", "Перенеси «\($0.title)» на сегодня вечер") },
+            ("Выгрузить мысли", nil),
         ].compactMap { $0 }
-        return ScrollView(.horizontal, showsIndicators: false) {
-          HStack(spacing: 8) {
-            ForEach(items, id: \.self) { item in
-                Button(item) {
-                    if item == "Выгрузить мысли" {
-                        inputFocused = true
-                    } else if item == "Главное — на вечер", let focus {
-                        send("Перенеси «\(focus.title)» на сегодня вечер")
-                    } else {
-                        send(item)
+    }
+
+    private var suggestions: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(chips, id: \.label) { chip in
+                    Button(chip.label) {
+                        if let text = chip.text { send(text) } else { inputFocused = true }
                     }
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.ink)
+                    .padding(.horizontal, 14)
+                    .frame(height: 36)
+                    .overlay(Capsule().strokeBorder(Palette.rule))
                 }
-                .font(.subheadline)
-                .foregroundStyle(Palette.ink)
-                .padding(.horizontal, 14)
-                .frame(height: 36)
-                .overlay(Capsule().strokeBorder(Palette.rule))
             }
-          }
         }
         .padding(.top, 2)
     }
@@ -203,6 +196,24 @@ struct IlziSheet: View {
     }
 }
 
+/// «Илзи думает» — три точки, без лишних подписей.
+struct TypingDots: View {
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.35)) { context in
+            let step = Int(context.date.timeIntervalSinceReferenceDate / 0.35) % 3
+            HStack(spacing: 5) {
+                ForEach(0..<3) { index in
+                    Circle()
+                        .fill(Palette.ink3.opacity(index == step ? 1 : 0.35))
+                        .frame(width: 7, height: 7)
+                }
+            }
+            .padding(.vertical, 6)
+        }
+        .accessibilityLabel("Илзи думает")
+    }
+}
+
 struct MessageBubble: View {
     let message: ChatMessage
     var showTime = false
@@ -224,33 +235,27 @@ struct MessageBubble: View {
                         topLeadingRadius: 18, bottomLeadingRadius: 18, bottomTrailingRadius: 5, topTrailingRadius: 18))
             }
         } else {
-            // Илзи — слева, со своим знаком, на «бумаге», без пузыря.
-            HStack(alignment: .top, spacing: 10) {
-                Image("IlziMark")
-                    .resizable()
-                    .frame(width: 20, height: 20)
-                    .foregroundStyle(Palette.goldText)
-                    .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 6) {
-                    if showTime, let date = message.createdAt {
-                        Text(date, format: .relative(presentation: .named))
-                            .font(.caption)
-                            .foregroundStyle(Palette.ink3)
-                    }
-                    Text(Self.render(message.content))
-                        .font(.body)
-                        .foregroundStyle(Palette.ink)
-                        .lineSpacing(2)
-                        .lineLimit(lineLimit)
-                        .textSelection(.enabled)
-                    if let expand, lineLimit != nil, message.content.count > 220 {
-                        Button("Показать полностью", action: expand)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Palette.goldText)
-                    }
+            // Илзи — просто текст на всю ширину, без знака и пузыря: так читается как ответ.
+            VStack(alignment: .leading, spacing: 6) {
+                if showTime, let date = message.createdAt {
+                    Text(date, format: .relative(presentation: .named))
+                        .font(.caption)
+                        .foregroundStyle(Palette.ink3)
                 }
-                Spacer(minLength: 24)
+                Text(Self.render(message.content))
+                    .font(.body)
+                    .foregroundStyle(Palette.ink)
+                    .lineSpacing(3)
+                    .lineLimit(lineLimit)
+                    .textSelection(.enabled)
+                if let expand, lineLimit != nil, message.content.count > 220 {
+                    Button("Показать полностью", action: expand)
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Palette.goldText)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.trailing, 12)
         }
     }
 

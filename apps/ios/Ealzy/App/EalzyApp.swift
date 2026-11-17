@@ -91,15 +91,34 @@ struct RootView: View {
                 .onChange(of: router.tab) { UISelectionFeedbackGenerator().selectionChanged() }
 
                 BottomBar(tab: $router.tab, openIlzi: { router.openIlzi() })
+
+                // Под шторкой Илзи день притемняется — шторка явно поверх, а не сливается с фоном.
+                if router.isIlziOpen {
+                    Palette.scrim
+                        .ignoresSafeArea()
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
             }
+            .animation(.easeInOut(duration: 0.25), value: router.isIlziOpen)
             .sheet(isPresented: $router.isIlziOpen) {
                 IlziSheet(detent: $ilziDetent)
                     .presentationDetents([.medium, .large], selection: $ilziDetent)
                     .presentationDragIndicator(.visible)
                     .presentationCornerRadius(30)
-                    .presentationBackground(Palette.raised)
+                    .presentationBackground(Palette.sheet)
             }
             .onChange(of: router.isIlziOpen) { if router.isIlziOpen { ilziDetent = .medium } }
+            .onChange(of: router.focusRequest) {
+                router.isIlziOpen = false
+                if focus.isRunning { focus.isPresented = true }
+            }
+            .onChange(of: tasks.tasks) {
+                // Дело фокуса закрыли из виджета или уведомления — фокус заканчивается.
+                if let id = focus.state?.taskId, let task = tasks.tasks.first(where: { $0.id == id }), !task.isOpen {
+                    focus.finish()
+                }
+            }
             .sheet(isPresented: $router.showSettings) { SettingsView() }
             .task {
                 await auth.refresh()

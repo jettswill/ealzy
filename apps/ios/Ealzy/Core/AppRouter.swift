@@ -20,6 +20,8 @@ final class AppRouter {
     private(set) var captureRequest = 0
     /// Текст, который надо сразу отправить Илзи (например, «Разобрать» из запаса).
     var pendingMessage: String?
+    /// Открыть идущий фокус (из Dynamic Island, экрана блокировки, виджета).
+    private(set) var focusRequest = 0
 
     func openIlzi() {
         showSettings = false
@@ -36,12 +38,19 @@ final class AppRouter {
         openIlzi()
     }
 
-    /// ealzy://capture, ealzy://chat, ealzy://today, ealzy://reserve. true — если ссылка наша.
+    /// ealzy://capture, ealzy://chat[?text=…], ealzy://today, ealzy://reserve, ealzy://focus.
+    /// true — если ссылка наша.
     func handle(_ url: URL) -> Bool {
         guard url.scheme == "ealzy" else { return false }
         switch url.host {
         case "capture": openCapture()
-        case "chat": openIlzi()
+        case "chat":
+            let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "text" })?.value
+            if let text, !text.isEmpty { ask(text) } else { openIlzi() }
+        case "focus":
+            tab = .today
+            focusRequest += 1
         case "today": tab = .today
         case "reserve": tab = .reserve
         default: return false

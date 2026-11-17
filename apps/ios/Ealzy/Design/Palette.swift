@@ -6,6 +6,10 @@ import UIKit
 enum Palette {
     static let ground = dynamic(light: 0xECEAE4, dark: 0x191714)
     static let raised = dynamic(light: 0xF6F5F1, dark: 0x24211C)
+    /// Шторка Илзи: в тёмной теме заметно светлее фона, чтобы было видно, что она выехала.
+    static let sheet = dynamic(light: 0xF6F5F1, dark: 0x2F2A23)
+    /// Затемнение под шторкой.
+    static let scrim = dynamic(light: 0x000000, dark: 0x000000, alphaLight: 0.18, alphaDark: 0.6)
     static let ink = dynamic(light: 0x1A1814, dark: 0xF1EBDD)
     static let ink2 = dynamic(light: 0x4F4A40, dark: 0xC2B9A6)
     static let ink3 = dynamic(light: 0x6A6457, dark: 0xA39A88)

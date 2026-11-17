@@ -32,6 +32,40 @@ struct WidgetSnapshot: Codable, Equatable {
     var nextEvent: Item?
     var doneCount: Int = 0
     var focusRun: FocusRun?
+    /// Что на завтра — показать, когда сегодня свободно или всё сделано.
+    var tomorrow: [Item] = []
+    var overdueCount: Int = 0
+
+    init(updatedAt: Date, headline: String, focus: [Item], next: [Item], quickCount: Int, reserveCount: Int,
+         nextEvent: Item?, doneCount: Int = 0, focusRun: FocusRun? = nil, tomorrow: [Item] = [], overdueCount: Int = 0) {
+        self.updatedAt = updatedAt
+        self.headline = headline
+        self.focus = focus
+        self.next = next
+        self.quickCount = quickCount
+        self.reserveCount = reserveCount
+        self.nextEvent = nextEvent
+        self.doneCount = doneCount
+        self.focusRun = focusRun
+        self.tomorrow = tomorrow
+        self.overdueCount = overdueCount
+    }
+
+    /// Новые поля необязательны: снимок от старой версии приложения тоже читается.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        updatedAt = try c.decode(Date.self, forKey: .updatedAt)
+        headline = try c.decode(String.self, forKey: .headline)
+        focus = try c.decode([Item].self, forKey: .focus)
+        next = try c.decode([Item].self, forKey: .next)
+        quickCount = try c.decode(Int.self, forKey: .quickCount)
+        reserveCount = try c.decode(Int.self, forKey: .reserveCount)
+        nextEvent = try c.decodeIfPresent(Item.self, forKey: .nextEvent)
+        doneCount = try c.decodeIfPresent(Int.self, forKey: .doneCount) ?? 0
+        focusRun = try c.decodeIfPresent(FocusRun.self, forKey: .focusRun)
+        tomorrow = try c.decodeIfPresent([Item].self, forKey: .tomorrow) ?? []
+        overdueCount = try c.decodeIfPresent(Int.self, forKey: .overdueCount) ?? 0
+    }
 
     static let appGroup = "group.ru.ealzy.app"
     private static let fileName = "widget-snapshot.json"
@@ -83,7 +117,12 @@ struct WidgetSnapshot: Codable, Equatable {
             quickCount: plan.quick.count,
             reserveCount: plan.reserve.count + plan.overdue.count,
             nextEvent: nextEvent,
-            doneCount: plan.done.count
+            doneCount: plan.done.count,
+            tomorrow: plan.reserve
+                .filter { $0.dueAt.map(Calendar.current.isDateInTomorrow) ?? false }
+                .prefix(3)
+                .map { Item(id: $0.id, title: $0.title, meta: TaskMeta.text(for: $0)) },
+            overdueCount: plan.overdue.count
         )
     }
 

@@ -35,6 +35,7 @@ targets:
           UIColorName: LaunchBackground
           UIImageName: LaunchLogo
         UIApplicationSupportsIndirectInputEvents: true
+        NSSupportsLiveActivities: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIBackgroundModes: [fetch, remote-notification]
         BGTaskSchedulerPermittedIdentifiers: [ru.ealzy.app.refresh]
