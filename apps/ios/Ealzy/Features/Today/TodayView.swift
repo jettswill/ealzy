@@ -11,6 +11,7 @@ struct TodayView: View {
     @State private var openedEvent: OpenedEvent?
     @State private var openedTask: EalzyTask?
     @State private var pickingFocusFor: EalzyTask?
+    @State private var startingFocus: EalzyTask?
 
     var body: some View {
         let plan = tasks.plan
@@ -40,8 +41,7 @@ struct TodayView: View {
 
                 if let main {
                     FocusHeader(task: main, window: window, minutes: minutes) {
-                        focus.start(main, minutes: minutes)
-                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                        startingFocus = main
                     } change: {
                         pickingFocusFor = main
                     } open: {
@@ -77,6 +77,7 @@ struct TodayView: View {
         .sheet(item: $openedEvent) { EventDetailView(event: $0.event) }
         .sheet(item: $openedTask) { TaskDetailView(task: $0) }
         .sheet(item: $pickingFocusFor) { FocusPickerView(current: $0) }
+        .sheet(item: $startingFocus) { StartFocusSheet(task: $0) }
     }
 
     // MARK: Остальное на сегодня и сделанное
@@ -221,7 +222,6 @@ struct FocusHeader: View {
     let start: () -> Void
     let change: () -> Void
     @AppStorage(Pomodoro.enabledKey) private var pomodoroOn = false
-    @AppStorage(Pomodoro.formatKey) private var pomodoroFormat = Pomodoro.formats[1].key
     let open: () -> Void
 
     var body: some View {
@@ -239,10 +239,7 @@ struct FocusHeader: View {
                 .padding(.top, 12)
             HStack(spacing: 6) {
                 Button(action: start) {
-                    Label(pomodoroOn
-                          ? "Помодоро, \(Pomodoro.from(key: pomodoroFormat).workMinutes) мин"
-                          : "Начать, \(TodayView.duration(TimeInterval(minutes * 60)))",
-                          systemImage: "play.fill")
+                    Label(pomodoroOn ? "Начать помодоро" : "Начать", systemImage: "play.fill")
                         .font(.body.weight(.semibold))
                         .padding(.horizontal, 22)
                         .frame(height: 50)

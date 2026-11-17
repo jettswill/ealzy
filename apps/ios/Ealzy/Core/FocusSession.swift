@@ -50,15 +50,26 @@ final class FocusSession {
 
     private func schedulePomodoroAlerts() {
         if let state, let pomodoro = state.pomodoro, state.pausedAt == nil {
-            PomodoroAlerts.schedule(pomodoro, title: state.title, elapsed: elapsed())
+            PomodoroAlerts.schedule(pomodoro, title: state.title, elapsed: elapsed(),
+                                    until: TimeInterval(state.plannedMinutes * 60))
         } else {
             PomodoroAlerts.cancel()
         }
     }
 
     /// Текущая фаза помодоро (nil — обычный фокус).
+    /// Помодоро делит выбранное время на круги; когда время вышло — фаз больше нет, идёт «сверх».
     func phase(at now: Date = Date()) -> Pomodoro.Phase? {
-        state?.pomodoro?.phase(elapsed: elapsed(at: now))
+        guard let state, let pomodoro = state.pomodoro else { return nil }
+        let elapsed = elapsed(at: now)
+        let total = TimeInterval(state.plannedMinutes * 60)
+        guard elapsed < total else { return nil }
+        let phase = pomodoro.phase(elapsed: elapsed)
+        // Последняя фаза обрезается концом выбранного времени.
+        let untilEnd = total - elapsed
+        guard phase.remaining > untilEnd else { return phase }
+        return Pomodoro.Phase(isBreak: phase.isBreak, round: phase.round, remaining: untilEnd,
+                              length: phase.length - (phase.remaining - untilEnd))
     }
 
     /// Перерыв можно пропустить — сразу следующий помидор.

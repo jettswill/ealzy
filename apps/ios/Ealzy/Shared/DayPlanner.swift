@@ -161,3 +161,31 @@ extension DayPlanner {
         return hourStart.addingTimeInterval(TimeInterval(rounded * 60))
     }
 }
+
+/// Событие календаря для проверки «успею ли до встречи».
+struct CalendarSlot: Equatable {
+    let title: String
+    let start: Date
+    let hasLocation: Bool
+}
+
+/// Фокус не помещается до следующего события: что за событие и сколько можно взять.
+struct FocusConflict: Equatable {
+    let title: String
+    let start: Date
+    /// Запас перед событием: на дорогу, если у события есть место, иначе — чтобы переключиться.
+    let bufferMinutes: Int
+    /// Сколько минут фокуса помещается (кратно 5), 0 — не помещается ничего.
+    let fitMinutes: Int
+}
+
+extension DayPlanner {
+    static func focusConflict(minutes: Int, now: Date, events: [CalendarSlot]) -> FocusConflict? {
+        guard let next = events.filter({ $0.start > now }).min(by: { $0.start < $1.start }) else { return nil }
+        let buffer = next.hasLocation ? 30 : 10
+        let available = Int(next.start.timeIntervalSince(now) / 60) - buffer
+        guard minutes > available else { return nil }
+        return FocusConflict(title: next.title, start: next.start, bufferMinutes: buffer,
+                             fitMinutes: max(0, available / 5 * 5))
+    }
+}

@@ -64,6 +64,10 @@ final class ScreenshotTests: XCTestCase {
             let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Начать'")).firstMatch
             if start.waitForExistence(timeout: 5) {
                 start.tap()
+                sleep(1)
+                snap("14-start-focus-\(appearance)")
+                app.buttons["Плюс 5 минут"].tap()
+                app.buttons["Начать фокус"].firstMatch.tap()
                 sleep(2)
                 snap("5-focus-\(appearance)")
                 app.buttons["Выйти из фокуса"].tap()
@@ -88,13 +92,18 @@ final class ScreenshotTests: XCTestCase {
     /// Помодоро включён: экран фокуса показывает помидор и формат.
     func testPomodoroFocus() {
         let app = launch("dark", extra: ["-pomodoroEnabled", "YES", "-pomodoroFormat", "30/10"])
-        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Помодоро'")).firstMatch
+        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Начать'")).firstMatch
         if start.waitForExistence(timeout: 15) {
             snap("11-today-pomodoro-dark")
             app.buttons["Ещё"].firstMatch.tap(); sleep(1)
             snap("13-settings-pomodoro-dark")
             app.buttons["Готово"].firstMatch.tap(); sleep(1)
             start.tap()
+            sleep(1)
+            app.buttons["90 минут"].tap()
+            sleep(1)
+            snap("15-start-conflict-dark")
+            app.buttons["Начать фокус"].firstMatch.tap()
             sleep(2)
             snap("12-focus-pomodoro-dark")
         }
