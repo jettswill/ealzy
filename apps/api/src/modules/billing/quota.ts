@@ -125,13 +125,16 @@ export async function loadQuota(
   ownerId: string,
   at = new Date(),
 ): Promise<QuotaStatus> {
-  const [plans, userPlan, enforced] = await Promise.all([
+  const [plans, userPlan, enforced, isAdmin] = await Promise.all([
     repository.listQuotaPlans(),
     repository.getUserPlan(ownerId),
     repository.getQuotaEnforced(),
+    repository.isAdmin(ownerId),
   ]);
-  const active =
-    userPlan && (!userPlan.plan_until || Date.parse(userPlan.plan_until) > at.getTime())
+  // Администратор пользуется без лимитов, что бы ни стояло в его тарифе.
+  const active = isAdmin
+    ? { plan: "unlimited", plan_until: null }
+    : userPlan && (!userPlan.plan_until || Date.parse(userPlan.plan_until) > at.getTime())
       ? userPlan
       : null;
   const plan =

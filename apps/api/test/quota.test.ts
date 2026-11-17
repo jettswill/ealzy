@@ -202,6 +202,9 @@ describe("cloud quota", () => {
       5000,
     );
 
+    const own = await request(app).get("/api/billing/quota").set(adminAuth);
+    expect(own.body.data).toMatchObject({ plan: "unlimited", state: "ok" });
+
     const upgraded = await request(app)
       .put("/api/admin/users/@ira/plan")
       .set(adminAuth)
