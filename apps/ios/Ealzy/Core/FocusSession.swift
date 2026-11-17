@@ -26,6 +26,7 @@ final class FocusSession {
                 UserDefaults.standard.removeObject(forKey: Self.key)
             }
             WidgetSnapshot.setFocusRun(widgetRun)
+            FocusLiveActivity.sync(state, remaining: remaining())
         }
     }
 
@@ -33,6 +34,8 @@ final class FocusSession {
         if let data = UserDefaults.standard.data(forKey: Self.key) {
             state = try? JSONDecoder().decode(State.self, from: data)
         }
+        // Приложение перезапустили: активность в Dynamic Island должна совпадать с тем, что идёт.
+        FocusLiveActivity.sync(state, remaining: remaining())
     }
 
     var isRunning: Bool { state != nil }

@@ -100,6 +100,16 @@ struct RootView: View {
                     .presentationBackground(Palette.raised)
             }
             .onChange(of: router.isIlziOpen) { if router.isIlziOpen { ilziDetent = .medium } }
+            .onChange(of: router.focusRequest) {
+                router.isIlziOpen = false
+                if focus.isRunning { focus.isPresented = true }
+            }
+            .onChange(of: tasks.tasks) {
+                // Дело фокуса закрыли из виджета или уведомления — фокус заканчивается.
+                if let id = focus.state?.taskId, let task = tasks.tasks.first(where: { $0.id == id }), !task.isOpen {
+                    focus.finish()
+                }
+            }
             .sheet(isPresented: $router.showSettings) { SettingsView() }
             .task {
                 await auth.refresh()

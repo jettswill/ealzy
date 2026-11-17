@@ -23,7 +23,8 @@ struct TodayView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ScreenHeader(title: Self.dayTitle(now))
-                if focus.isRunning && !focus.isPresented {
+                // Плашка нужна, только если в фокусе не главное дело — иначе фокус виден ниже, на самом деле.
+                if focus.isRunning && !focus.isPresented && focus.state?.taskId != main?.id {
                     FocusBanner().padding(.top, 6)
                 }
 
@@ -42,7 +43,8 @@ struct TodayView: View {
                     .padding(.top, 18)
 
                 if let main {
-                    FocusHeader(task: main, window: window, minutes: minutes) {
+                    FocusHeader(task: main, window: window, minutes: minutes,
+                                running: focus.isRunning && focus.state?.taskId == main.id) {
                         if focus.isRunning, focus.state?.taskId == main.id {
                             focus.isPresented = true
                         } else {
@@ -225,6 +227,8 @@ struct FocusHeader: View {
     let task: EalzyTask
     let window: TimeSpan?
     let minutes: Int
+    /// Это дело уже в фокусе: вместо «Начать» — сколько осталось и «Вернуться».
+    var running = false
     let start: () -> Void
     let change: () -> Void
     let open: () -> Void
@@ -242,21 +246,26 @@ struct FocusHeader: View {
                 .font(.subheadline)
                 .foregroundStyle(Palette.ink2)
                 .padding(.top, 12)
-            HStack(spacing: 6) {
-                Button(action: start) {
-                    Label("Начать, \(TodayView.duration(TimeInterval(minutes * 60)))", systemImage: "play.fill")
-                        .font(.body.weight(.semibold))
-                        .padding(.horizontal, 22)
+            if running {
+                RunningFocusButton(open: start)
+                    .padding(.top, 18)
+            } else {
+                HStack(spacing: 6) {
+                    Button(action: start) {
+                        Label("Начать, \(TodayView.duration(TimeInterval(minutes * 60)))", systemImage: "play.fill")
+                            .font(.body.weight(.semibold))
+                            .padding(.horizontal, 22)
+                            .frame(height: 50)
+                            .background(Palette.gold, in: Capsule())
+                            .foregroundStyle(Palette.goldInk)
+                    }
+                    Button("Сменить", action: change)
+                        .padding(.horizontal, 14)
                         .frame(height: 50)
-                        .background(Palette.gold, in: Capsule())
-                        .foregroundStyle(Palette.goldInk)
+                        .foregroundStyle(Palette.ink2)
                 }
-                Button("Сменить", action: change)
-                    .padding(.horizontal, 14)
-                    .frame(height: 50)
-                    .foregroundStyle(Palette.ink2)
+                .padding(.top, 18)
             }
-            .padding(.top, 18)
         }
     }
 
@@ -292,6 +301,48 @@ struct FocusHeader: View {
         return Text(before).font(font).foregroundColor(Palette.ink)
             + Text(quoted).font(font).italic().foregroundColor(Palette.goldText)
             + Text(after).font(font).foregroundColor(Palette.ink)
+    }
+}
+
+/// Дело уже идёт: живой отсчёт и полоска прогресса вместо «Начать». Нажатие — обратно в фокус.
+struct RunningFocusButton: View {
+    @Environment(FocusSession.self) private var focus
+    let open: () -> Void
+
+    var body: some View {
+        Button(action: open) {
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let remaining = focus.remaining(at: context.date)
+                let total = Double((focus.state?.plannedMinutes ?? 60) * 60)
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        Image(systemName: focus.isPaused ? "pause.fill" : "timer")
+                            .symbolEffect(.pulse, isActive: !focus.isPaused)
+                        Text(focus.isPaused ? "На паузе" : (remaining >= 0 ? "Идёт фокус" : "Время вышло"))
+                            .font(.body.weight(.semibold))
+                        Spacer(minLength: 8)
+                        Text(remaining >= 0 ? "осталось \(FocusView.clock(remaining))" : FocusView.clock(remaining))
+                            .font(.body.weight(.semibold))
+                            .monospacedDigit()
+                        Image(systemName: "chevron.up").font(.footnote.weight(.semibold))
+                    }
+                    GeometryReader { proxy in
+                        Capsule().fill(Palette.goldInk.opacity(0.18))
+                            .overlay(alignment: .leading) {
+                                Capsule().fill(Palette.goldInk.opacity(0.75))
+                                    .frame(width: proxy.size.width * max(0, min(1, 1 - remaining / max(total, 1))))
+                            }
+                    }
+                    .frame(height: 4)
+                }
+                .foregroundStyle(Palette.goldInk)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 14)
+                .background(Palette.gold, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Вернуться к фокусу")
     }
 }
 
