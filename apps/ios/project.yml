@@ -120,12 +120,25 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+  EalzyUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - EalzyUITests
+    dependencies:
+      - target: Ealzy
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Ealzy
 schemes:
   Ealzy:
     build:
       targets:
         Ealzy: all
         EalzyTests: [test]
+        EalzyUITests: [test]
     test:
       targets:
         - EalzyTests
+        - EalzyUITests

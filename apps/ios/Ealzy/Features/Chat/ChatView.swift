@@ -44,6 +44,7 @@ struct ChatView: View {
                     if let last = chat.messages.last?.id { proxy.scrollTo(last, anchor: .bottom) }
                 }
             }
+            .background(Palette.ground.ignoresSafeArea())
             .safeAreaInset(edge: .bottom) { inputBar }
             .navigationTitle("Илзи")
             .navigationBarTitleDisplayMode(.inline)
@@ -89,7 +90,7 @@ struct ChatView: View {
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
-        .background(.bar)
+        .background(Palette.ground.opacity(0.92))
     }
 }
 
@@ -103,10 +104,15 @@ struct MessageBubble: View {
                 .textSelection(.enabled)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
+                .foregroundStyle(Palette.ink)
                 .background(
-                    message.isUser ? Color.accentColor.opacity(0.18) : Color(.secondarySystemBackground),
+                    message.isUser ? Palette.raised : Color.clear,
                     in: RoundedRectangle(cornerRadius: 18)
                 )
+                .overlay(alignment: .leading) {
+                    // Илзи говорит без пузыря — тонкая золотая черта, как в «Лампе».
+                    if !message.isUser { Rectangle().fill(Palette.gold).frame(width: 2) }
+                }
             if !message.isUser { Spacer(minLength: 40) }
         }
         .padding(.horizontal)

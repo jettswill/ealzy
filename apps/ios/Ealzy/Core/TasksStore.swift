@@ -22,6 +22,10 @@ final class TasksStore {
     }
 
     func load() async {
+        if DemoData.isOn {
+            tasks = DemoData.tasks
+            return
+        }
         isLoading = true
         defer { isLoading = false }
         do {

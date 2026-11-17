@@ -66,6 +66,8 @@ struct LoginView: View {
                 .padding(.horizontal, 32)
                 .padding(.bottom, 24)
         }
+        .background { LampBackground() }
+        .foregroundStyle(Palette.ink)
     }
 
     private func signInWithGoogle() async {

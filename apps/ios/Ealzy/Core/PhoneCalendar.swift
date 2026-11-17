@@ -70,6 +70,10 @@ final class PhoneCalendar {
 
     /// Сегодня + 7 дней: на экран «Сегодня» и Илзи на сервер.
     func sync() async {
+        if DemoData.isOn {
+            todayEvents = DemoData.events(store: store)
+            return
+        }
         guard isSyncEnabled, hasCalendarAccess else { return }
         let calendar = Calendar.current
         let start = calendar.startOfDay(for: Date())

@@ -40,12 +40,25 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
+            -resultBundlePath build/Tests.xcresult \
             -project Ealzy.xcodeproj \
             -scheme Ealzy \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             CODE_SIGNING_ALLOWED=NO \
             | tee build.log | grep -E "error:|warning: .*Ealzy/|Test Case|TEST (SUCCEEDED|FAILED)|\*\* " || true
           grep -q "TEST SUCCEEDED" build.log
+      - name: Скриншоты экранов (демо-данные)
+        if: always()
+        run: |
+          mkdir -p build/screens
+          xcrun xcresulttool export attachments --path build/Tests.xcresult --output-path build/screens || true
+          ls build/screens | head -20
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screens
+          path: apps/ios/build/screens
+          if-no-files-found: ignore
       - name: Report compiler errors
         if: failure()
         # Логи запусков из сессии Claude не скачиваются — выводим ошибки аннотациями.

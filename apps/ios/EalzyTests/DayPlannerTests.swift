@@ -132,4 +132,35 @@ final class DayPlannerTests: XCTestCase {
         XCTAssertEqual(content["type"] as? String, "doc")
         XCTAssertEqual((content["content"] as! [Any]).count, 3)
     }
+
+    private func at(_ hour: Int, _ minute: Int = 0) -> Date {
+        calendar.date(bySettingHour: hour, minute: minute, second: 0, of: now)!
+    }
+
+    func testFocusWindowFindsTheGapBetweenEvents() {
+        // 10:47, бокс прошёл, созвон в 14:00 — 90 минут встают с 11:00.
+        let busy = [TimeSpan(start: at(9), end: at(10, 30)), TimeSpan(start: at(14), end: at(14, 45))]
+        let window = DayPlanner.focusWindow(minutes: 90, busy: busy, now: at(10, 47), dayEnd: at(22), calendar: calendar)
+        XCTAssertEqual(window, TimeSpan(start: at(11), end: at(12, 30)))
+    }
+
+    func testFocusWindowSkipsATooShortGap() {
+        // До созвона в 11:30 только 30 минут — окно на 2 часа после него.
+        let busy = [TimeSpan(start: at(11, 30), end: at(12, 15))]
+        let window = DayPlanner.focusWindow(minutes: 120, busy: busy, now: at(10, 50), dayEnd: at(22), calendar: calendar)
+        XCTAssertEqual(window, TimeSpan(start: at(12, 15), end: at(14, 15)))
+        XCTAssertNil(DayPlanner.focusWindow(minutes: 120, busy: [], now: at(21), dayEnd: at(22), calendar: calendar))
+    }
+
+    func testDayTitleAndPlural() {
+        XCTAssertEqual(TodayView.plural(1, "дело", "дела", "дел"), "дело")
+        XCTAssertEqual(TodayView.plural(3, "дело", "дела", "дел"), "дела")
+        XCTAssertEqual(TodayView.plural(11, "дело", "дела", "дел"), "дел")
+        XCTAssertEqual(TodayView.duration(3 * 3600 + 13 * 60), "3 ч 13 мин")
+        let title = TodayView.dayTitle(now)
+        XCTAssertTrue(title.hasPrefix("Понедельник"))
+        XCTAssertTrue(title.contains("ноября"), title)
+        XCTAssertEqual(FocusView.clock(68 * 60 + 12), "1:08:12")
+        XCTAssertEqual(FocusView.clock(-65), "+1:05")
+    }
 }

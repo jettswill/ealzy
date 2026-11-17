@@ -43,6 +43,10 @@ final class ChatStore {
     private var lastError: Error?
 
     func load() async {
+        if DemoData.isOn {
+            messages = DemoData.messages
+            return
+        }
         do {
             if conversationId == nil {
                 let conversation: Conversation = try await APIClient.shared.get("/conversations/primary")

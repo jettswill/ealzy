@@ -1,12 +1,14 @@
 import EventKit
 import SwiftUI
 
-/// Главный экран: день, а не база дел.
+/// Главный экран «Лампа»: лента дня, одно главное дело под светом лампы,
+/// мелочи между делом, всё остальное — в запасе.
 struct TodayView: View {
     @Environment(TasksStore.self) private var tasks
     @Environment(ChatStore.self) private var chat
     @Environment(PhoneCalendar.self) private var calendar
     @Environment(AppRouter.self) private var router
+    @Environment(FocusSession.self) private var focus
     @State private var showReserve = false
     @State private var capture = ""
     @State private var lastReply: String?
@@ -16,127 +18,185 @@ struct TodayView: View {
 
     var body: some View {
         let plan = tasks.plan
-        NavigationStack {
-            List {
-                Section {
-                    Text(plan.headline)
-                        .font(.headline)
-                        .listRowBackground(Color.clear)
-                }
+        let now = Date()
+        let busy = busySpans
+        let main = plan.focus.first
+        let minutes = main?.estimateMinutes ?? 60
+        let window = DayPlanner.focusWindow(minutes: minutes, busy: busy, now: now, dayEnd: dayEnd(now))
+
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(Self.dayTitle(now))
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.ink2)
+                    .padding(.top, 8)
+
+                DayRibbon(events: ribbonEvents(now: now), focus: main == nil ? nil : window, now: now)
+                    .padding(.top, 14)
+
+                Text(note(plan: plan, busy: busy, now: now))
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.ink2)
+                    .padding(.top, 18)
 
                 if let reply = lastReply {
-                    Section {
-                        HStack(alignment: .top) {
-                            Text(MessageBubble.render(reply)).font(.callout)
-                            Spacer()
-                            Button { lastReply = nil } label: {
-                                Image(systemName: "xmark").foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    } header: { Text("Илзи") }
+                    IlziReplyCard(text: reply) { lastReply = nil }
+                        .padding(.top, 14)
                 }
 
-                if !calendar.todayEvents.isEmpty {
-                    Section("Расписание") {
-                        // У повторяющихся событий один идентификатор на все повторы — берём порядок.
-                        ForEach(Array(calendar.todayEvents.enumerated()), id: \.offset) { EventRow(event: $0.element) }
+                if let main {
+                    FocusHeader(task: main, window: window, minutes: minutes) {
+                        focus.start(main, minutes: minutes)
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    } later: {
+                        Task { await tasks.moveToTomorrow(main) }
                     }
+                    .padding(.top, 8)
+                    if plan.focus.count > 1 {
+                        Text("Ещё в фокусе сегодня: \(plan.focus[1].title)")
+                            .font(.footnote)
+                            .foregroundStyle(Palette.ink2)
+                            .padding(.top, 14)
+                    }
+                } else {
+                    Text(plan.headline)
+                        .font(Typeface.display(28))
+                        .foregroundStyle(Palette.ink)
+                        .padding(.top, 10)
                 }
 
-                if !plan.focus.isEmpty {
-                    Section("Фокус") {
-                        ForEach(plan.focus) { TaskRow(task: $0, emphasis: true) }
-                    }
-                }
-                if !plan.overdue.isEmpty {
-                    Section("Просрочено") {
-                        ForEach(plan.overdue) { TaskRow(task: $0) }
-                    }
-                }
-                if !plan.today.isEmpty {
-                    Section("Сегодня") {
-                        ForEach(plan.today) { TaskRow(task: $0) }
-                    }
-                }
-                if !plan.quick.isEmpty {
-                    Section("Мелочи — в перерывах") {
-                        ForEach(plan.quick) { TaskRow(task: $0) }
-                    }
-                }
-                if !plan.forIlzi.isEmpty {
-                    Section("Илзи делает сама") {
-                        ForEach(plan.forIlzi) { TaskRow(task: $0, canComplete: false) }
-                    }
-                }
+                betweenTasks(plan)
+                    .padding(.top, 28)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .background { LampBackground() }
+        .safeAreaInset(edge: .bottom) { captureBar }
+        .refreshable {
+            await calendar.sync()
+            tasks.nextEvent = calendar.nextEventItem
+            await tasks.load()
+        }
+        .onChange(of: router.captureRequest) { captureFocused = true }
+        .onAppear { if router.captureRequest > 0 { captureFocused = true } }
+        .overlay {
+            if tasks.isLoading && tasks.tasks.isEmpty { ProgressView() }
+        }
+        .sheet(isPresented: $showReserve) { ReserveView(tasks: plan.reserve) }
+    }
+
+    // MARK: Между делом
+
+    @ViewBuilder
+    private func betweenTasks(_ plan: DayPlan) -> some View {
+        let items = plan.overdue + plan.today + plan.quick
+        let minutes = items.compactMap(\.estimateMinutes).reduce(0, +)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(minutes > 0 ? "Между делом · \(minutes) мин" : "Между делом")
+                Spacer()
                 if !plan.reserve.isEmpty {
-                    Section {
-                        DisclosureGroup(isExpanded: $showReserve) {
-                            ForEach(plan.reserve) { TaskRow(task: $0) }
-                        } label: {
-                            Text("В запасе \(plan.reserve.count) — ничего не горит")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                if let error = tasks.errorMessage {
-                    Section { Text(error).foregroundStyle(.red).font(.footnote) }
+                    Button("ещё \(plan.reserve.count) в запасе") { showReserve = true }
+                        .foregroundStyle(Palette.ink2)
                 }
             }
-            .listStyle(.insetGrouped)
-            .navigationTitle(Self.dayTitle(Date()))
-            .refreshable {
-                await calendar.sync()
-                tasks.nextEvent = calendar.nextEventItem
-                await tasks.load()
+            .font(.footnote)
+            .foregroundStyle(Palette.ink2)
+            .padding(.bottom, 6)
+
+            if items.isEmpty {
+                Text("Мелочей на сегодня нет.")
+                    .font(.subheadline)
+                    .foregroundStyle(Palette.ink3)
+                    .padding(.vertical, 6)
             }
-            .onChange(of: router.captureRequest) { captureFocused = true }
-            .onAppear { if router.captureRequest > 0 { captureFocused = true } }
-            .safeAreaInset(edge: .bottom) { captureBar }
-            .overlay {
-                if tasks.isLoading && tasks.tasks.isEmpty { ProgressView() }
+            ForEach(items) { TaskRow(task: $0) }
+            if let error = tasks.errorMessage {
+                Text(error).font(.footnote).foregroundStyle(.red).padding(.top, 8)
             }
         }
     }
 
-    /// Быстрая запись: всё уходит Илзи — она сама поймёт дату, время и что это вообще.
+    // MARK: Календарь → лента
+
+    private var busySpans: [TimeSpan] {
+        calendar.todayEvents
+            .filter { !$0.isAllDay }
+            .map { TimeSpan(start: $0.startDate, end: $0.endDate) }
+    }
+
+    private func ribbonEvents(now: Date) -> [DayRibbon.Event] {
+        calendar.todayEvents.filter { !$0.isAllDay }.map {
+            DayRibbon.Event(title: $0.title ?? "Событие", start: $0.startDate, end: $0.endDate, isPast: $0.endDate <= now)
+        }
+    }
+
+    private func dayEnd(_ now: Date) -> Date {
+        Calendar.current.date(bySettingHour: 22, minute: 0, second: 0, of: now) ?? now
+    }
+
+    /// Одна фраза Илзи: сколько свободно до следующего события и что она делает сама.
+    private func note(plan: DayPlan, busy: [TimeSpan], now: Date) -> String {
+        var parts: [String] = []
+        if let next = DayPlanner.nextBusy(after: now, busy: busy) {
+            let time = next.start.formatted(date: .omitted, time: .shortened)
+            parts.append("Свободно до \(time) — \(Self.duration(next.start.timeIntervalSince(now))).")
+        } else if calendar.isSyncEnabled {
+            parts.append("Встреч до вечера больше нет.")
+        }
+        if !plan.forIlzi.isEmpty {
+            parts.append("\(plan.forIlzi.count) \(Self.plural(plan.forIlzi.count, "дело", "дела", "дел")) делаю сама.")
+        }
+        return parts.isEmpty ? plan.headline : parts.joined(separator: " ")
+    }
+
+    // MARK: Скажи Илзи
+
     private var captureBar: some View {
         VStack(spacing: 4) {
             if let error = speech.errorMessage {
                 Text(error).font(.footnote).foregroundStyle(.red)
             }
-            HStack(spacing: 8) {
-                Button {
-                    spokenPrefix = capture.isEmpty ? "" : capture + " "
-                    Task {
-                        await speech.toggle { text in capture = spokenPrefix + text }
-                    }
-                } label: {
-                    Image(systemName: speech.isRecording ? "stop.circle.fill" : "mic.circle.fill")
-                        .font(.system(size: 34))
-                        .foregroundStyle(speech.isRecording ? Color.red : Color.accentColor)
-                        .symbolEffect(.pulse, isActive: speech.isRecording)
-                }
-                .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Надиктовать")
-                TextField("Скажи Илзи: «позвонить маме завтра в 19»", text: $capture, axis: .vertical)
+            HStack(spacing: 10) {
+                TextField("Скажи Илзи…", text: $capture, axis: .vertical)
                     .lineLimit(1...4)
                     .focused($captureFocused)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                    .foregroundStyle(Palette.ink)
                 if chat.isSending {
-                    ProgressView().frame(width: 34)
-                } else {
+                    ProgressView().frame(width: 38, height: 38)
+                } else if !capture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !speech.isRecording {
                     Button(action: sendCapture) {
-                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 34))
+                        Image(systemName: "arrow.up")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 38, height: 38)
+                            .background(Palette.gold, in: Circle())
+                            .foregroundStyle(Palette.goldInk)
                     }
-                    .disabled(capture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .accessibilityLabel("Отправить")
+                } else {
+                    Button {
+                        spokenPrefix = capture.isEmpty ? "" : capture + " "
+                        Task { await speech.toggle { text in capture = spokenPrefix + text } }
+                    } label: {
+                        Image(systemName: speech.isRecording ? "stop.fill" : "mic.fill")
+                            .font(.body.weight(.semibold))
+                            .frame(width: 38, height: 38)
+                            .background(speech.isRecording ? Color.red : Palette.gold, in: Circle())
+                            .foregroundStyle(speech.isRecording ? Color.white : Palette.goldInk)
+                            .symbolEffect(.pulse, isActive: speech.isRecording)
+                    }
+                    .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Надиктовать")
                 }
             }
+            .padding(.leading, 18)
+            .padding(.trailing, 7)
+            .padding(.vertical, 7)
+            .floatingPanel()
         }
-        .padding(.horizontal)
-        .padding(.vertical, 8)
-        .background(.bar)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 8)
     }
 
     private func sendCapture() {
@@ -151,78 +211,221 @@ struct TodayView: View {
         }
     }
 
+    // MARK: Форматирование
+
+    /// «Вторник, 17 ноября» — с заглавной только первая буква.
     static func dayTitle(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "ru_RU")
         formatter.setLocalizedDateFormatFromTemplate("EEEE d MMMM")
-        return formatter.string(from: date).capitalized(with: Locale(identifier: "ru_RU"))
+        let text = formatter.string(from: date)
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    static func duration(_ seconds: TimeInterval) -> String {
+        let minutes = max(Int(seconds / 60), 0)
+        let h = minutes / 60, m = minutes % 60
+        if h == 0 { return "\(m) мин" }
+        return m == 0 ? "\(h) ч" : "\(h) ч \(m) мин"
+    }
+
+    static func plural(_ n: Int, _ one: String, _ few: String, _ many: String) -> String {
+        let mod10 = n % 10, mod100 = n % 100
+        if mod10 == 1 && mod100 != 11 { return one }
+        if (2...4).contains(mod10) && !(12...14).contains(mod100) { return few }
+        return many
     }
 }
 
-struct EventRow: View {
-    let event: EKEvent
+// MARK: - Свет лампы
+
+struct LampBackground: View {
+    var narrow = false
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(event.isAllDay ? "весь день" : event.startDate.formatted(date: .omitted, time: .shortened))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(minWidth: 52, alignment: .leading)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(event.title ?? "Событие")
-                if let location = event.location, !location.isEmpty {
-                    Text(location).font(.caption).foregroundStyle(.secondary)
-                }
+        ZStack(alignment: .top) {
+            Palette.ground
+            GeometryReader { proxy in
+                RadialGradient(
+                    colors: [Palette.pool, .clear],
+                    center: narrow ? UnitPoint(x: 0.5, y: 0.4) : UnitPoint(x: 0.22, y: 0.16),
+                    startRadius: 0,
+                    endRadius: proxy.size.width * (narrow ? 0.75 : 1.05)
+                )
+                .frame(height: proxy.size.height * 0.7)
             }
+        }
+        .ignoresSafeArea()
+    }
+}
+
+// MARK: - Главное дело
+
+struct FocusHeader: View {
+    let task: EalzyTask
+    let window: TimeSpan?
+    let minutes: Int
+    let start: () -> Void
+    let later: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Self.title(task.title, size: 38)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(meta)
+                .font(.subheadline)
+                .foregroundStyle(Palette.ink2)
+                .padding(.top, 12)
+            HStack(spacing: 6) {
+                Button(action: start) {
+                    Label("Начать, \(TodayView.duration(TimeInterval(minutes * 60)))", systemImage: "play.fill")
+                        .font(.body.weight(.semibold))
+                        .padding(.horizontal, 22)
+                        .frame(height: 50)
+                        .background(Palette.gold, in: Capsule())
+                        .foregroundStyle(Palette.goldInk)
+                }
+                Button("Не сегодня", action: later)
+                    .padding(.horizontal, 14)
+                    .frame(height: 50)
+                    .foregroundStyle(Palette.ink2)
+            }
+            .padding(.top, 18)
+        }
+    }
+
+    private var meta: AttributedString {
+        var parts: [String] = []
+        if let window {
+            let f = { (d: Date) in d.formatted(date: .omitted, time: .shortened) }
+            parts.append("\(f(window.start))–\(f(window.end))")
+        }
+        var dueCopy = task
+        dueCopy.estimateMinutes = nil
+        if let when = TaskMeta.text(for: dueCopy), !when.isEmpty {
+            parts.append(when == "просрочено" ? when : "срок: \(when)")
+        }
+        var text = AttributedString(parts.joined(separator: " · "))
+        if window != nil, let first = parts.first, let range = text.range(of: first) {
+            text[range].foregroundColor = Palette.ink
+            text[range].font = .subheadline.weight(.semibold)
+        }
+        return text
+    }
+
+    /// Название дела крупно, а то, что в «ёлочках», — курсивом и золотом.
+    static func title(_ title: String, size: CGFloat) -> Text {
+        let font = Typeface.display(size)
+        guard let open = title.firstIndex(of: "«"),
+              let close = title[open...].firstIndex(of: "»") else {
+            return Text(title).font(font).foregroundColor(Palette.ink)
+        }
+        let before = String(title[..<open])
+        let quoted = String(title[open...close])
+        let after = String(title[title.index(after: close)...])
+        return Text(before).font(font).foregroundColor(Palette.ink)
+            + Text(quoted).font(font).italic().foregroundColor(Palette.goldText)
+            + Text(after).font(font).foregroundColor(Palette.ink)
+    }
+}
+
+// MARK: - Ответ Илзи после «Скажи Илзи»
+
+struct IlziReplyCard: View {
+    let text: String
+    let close: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Text(MessageBubble.render(text))
+                .font(.callout)
+                .foregroundStyle(Palette.ink)
+            Spacer(minLength: 0)
+            Button(action: close) {
+                Image(systemName: "xmark").font(.footnote.weight(.semibold)).foregroundStyle(Palette.ink3)
+            }
+            .accessibilityLabel("Скрыть")
+        }
+        .padding(.leading, 12)
+        .overlay(alignment: .leading) {
+            Rectangle().fill(Palette.gold).frame(width: 2)
         }
     }
 }
+
+// MARK: - Строка дела
 
 struct TaskRow: View {
     @Environment(TasksStore.self) private var tasks
     @Environment(PhoneCalendar.self) private var calendar
     let task: EalzyTask
-    var emphasis = false
     var canComplete = true
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
+        HStack(alignment: .center, spacing: 12) {
             if canComplete {
                 Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     Task { await tasks.complete(task) }
                 } label: {
                     Image(systemName: task.isOpen ? "circle" : "checkmark.circle.fill")
                         .font(.title3)
-                        .foregroundStyle(task.isOpen ? Color.secondary : Color.accentColor)
+                        .foregroundStyle(task.isOpen ? Palette.ink3 : Palette.goldText)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Готово")
             } else {
-                Image(systemName: "sparkles").foregroundStyle(Color.accentColor)
+                Image(systemName: "hourglass").foregroundStyle(Palette.goldText).frame(width: 22)
             }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(task.title)
-                    .font(emphasis ? .body.weight(.semibold) : .body)
-                    .strikethrough(!task.isOpen)
-                if let meta = meta { Text(meta).font(.caption).foregroundStyle(.secondary) }
+            Text(task.title)
+                .font(.subheadline)
+                .foregroundStyle(Palette.ink)
+                .strikethrough(!task.isOpen)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            if let meta = TaskMeta.text(for: task) {
+                Text(meta).font(.footnote).foregroundStyle(Palette.ink2).lineLimit(1)
             }
         }
-        .swipeActions(edge: .trailing) {
+        .padding(.vertical, 7)
+        .contentShape(Rectangle())
+        .contextMenu {
             if canComplete {
-                Button("Готово") { Task { await tasks.complete(task) } }.tint(.green)
-                Button("Завтра") { Task { await tasks.moveToTomorrow(task) } }.tint(.orange)
+                Button { Task { await tasks.complete(task) } } label: { Label("Готово", systemImage: "checkmark") }
+                Button { Task { await tasks.moveToTomorrow(task) } } label: { Label("На завтра", systemImage: "arrow.right") }
             }
-        }
-        .swipeActions(edge: .leading) {
             if task.dueAt != nil {
-                Button {
-                    Task { _ = await calendar.addToCalendar(task) }
-                } label: {
+                Button { Task { _ = await calendar.addToCalendar(task) } } label: {
                     Label("В календарь", systemImage: "calendar.badge.plus")
                 }
-                .tint(.blue)
             }
         }
     }
+}
 
-    private var meta: String? { TaskMeta.text(for: task) }
+// MARK: - Запас
+
+struct ReserveView: View {
+    let tasks: [EalzyTask]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Ничего не горит. Удерживай дело, чтобы перенести или поставить в календарь.")
+                        .font(.footnote)
+                        .foregroundStyle(Palette.ink2)
+                        .padding(.bottom, 10)
+                    ForEach(tasks) { TaskRow(task: $0) }
+                }
+                .padding(.horizontal, 24)
+            }
+            .background(Palette.ground.ignoresSafeArea())
+            .navigationTitle("В запасе \(tasks.count)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Готово") { dismiss() } } }
+        }
+        .presentationDetents([.medium, .large])
+    }
 }
