@@ -57,4 +57,17 @@ final class ScreenshotTests: XCTestCase {
             app.terminate()
         }
     }
+
+    func testLoginScreen() {
+        for appearance in ["light", "dark"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["-appearance", appearance, "-AppleLanguages", "(ru)", "-AppleLocale", "ru_RU"]
+            app.launch()
+            if app.buttons["Войти через Telegram"].waitForExistence(timeout: 15) {
+                sleep(1)
+                snap("0-login-\(appearance)")
+            }
+            app.terminate()
+        }
+    }
 }

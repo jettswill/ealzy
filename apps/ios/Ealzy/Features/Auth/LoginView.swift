@@ -8,13 +8,22 @@ struct LoginView: View {
     var body: some View {
         VStack(spacing: 24) {
             Spacer()
-            VStack(spacing: 12) {
-                Text("Илзи")
-                    .font(.system(size: 44, weight: .bold, design: .rounded))
-                Text("Отдай голову — я держу в фокусе то, что важно сегодня.")
-                    .font(.title3)
-                    .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
+            VStack(spacing: 28) {
+                Image("EalzyLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 200)
+                    .foregroundStyle(Palette.goldText)
+                    .accessibilityLabel("Ealzy")
+                VStack(spacing: 10) {
+                    Text("Освободи голову")
+                        .font(Typeface.display(34))
+                        .foregroundStyle(Palette.ink)
+                    Text("Дела, мысли и планы держу я. Подскажу, напомню и буду рядом.")
+                        .font(.title3)
+                        .foregroundStyle(Palette.ink2)
+                }
+                .multilineTextAlignment(.center)
             }
             .padding(.horizontal, 32)
             Spacer()
@@ -38,6 +47,8 @@ struct LoginView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.borderedProminent)
+                    .tint(Palette.gold)
+                    .foregroundStyle(Palette.goldInk)
                     .controlSize(.large)
 
                     Button {
