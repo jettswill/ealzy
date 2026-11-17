@@ -14,11 +14,12 @@ struct FocusView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let remaining = focus.remaining(at: context.date)
-            let planned = TimeInterval((focus.state?.plannedMinutes ?? 60) * 60)
+            let phase = focus.phase(at: context.date)
+            let planned = phase?.length ?? TimeInterval((focus.state?.plannedMinutes ?? 60) * 60)
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 6) {
-                    Circle().fill(Palette.gold).frame(width: 7, height: 7)
-                    Text(focus.isPaused ? "ФОКУС НА ПАУЗЕ" : "РЕЖИМ ФОКУСА")
+                    Circle().fill(phase?.isBreak == true ? Palette.ink3 : Palette.gold).frame(width: 7, height: 7)
+                    Text(headerText(phase))
                         .font(.caption.weight(.semibold))
                         .tracking(0.6)
                         .foregroundStyle(Palette.goldText)
@@ -47,16 +48,23 @@ struct FocusView: View {
                     .font(.system(size: 76, weight: .light))
                     .monospacedDigit()
                     .tracking(-2)
-                    .foregroundStyle(remaining >= 0 ? Palette.ink : Palette.goldText)
+                    .foregroundStyle(remaining < 0 ? Palette.goldText : (phase?.isBreak == true ? Palette.ink2 : Palette.ink))
                     .minimumScaleFactor(0.6)
                     .lineLimit(1)
                     .contentTransition(.numericText(countsDown: true))
                     .padding(.top, 18)
-                Text(remaining >= 0
-                     ? "осталось из \(TodayView.duration(planned))"
-                     : "время вышло — закончи или продолжай")
+                Text(subtitle(phase: phase, remaining: remaining, planned: planned))
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink3)
+                if phase?.isBreak == true {
+                    Button("Пропустить перерыв") {
+                        focus.skipBreak()
+                        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Palette.goldText)
+                    .padding(.top, 8)
+                }
 
                 ProgressView(value: min(max(1 - remaining / max(planned, 1), 0), 1))
                     .tint(Palette.gold)
@@ -94,6 +102,11 @@ struct FocusView: View {
                 .padding(.bottom, 6)
             }
             .padding(.horizontal, 24)
+            .onChange(of: phase.map { "\($0.round)-\($0.isBreak)" }) {
+                // Сменилась фаза помодоро: тактильно отметить и обновить виджет и Dynamic Island.
+                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                focus.refreshExternal()
+            }
         }
         .background { LampBackground(narrow: true) }
         .confirmationDialog("Выйти из фокуса?", isPresented: $confirmExit, titleVisibility: .visible) {
@@ -103,6 +116,28 @@ struct FocusView: View {
             Text("Таймер сбросится.")
         }
         .sheet(item: $openedEvent) { EventDetailView(event: $0.event) }
+    }
+
+    private func headerText(_ phase: Pomodoro.Phase?) -> String {
+        if focus.isPaused { return "ФОКУС НА ПАУЗЕ" }
+        guard let phase else { return "РЕЖИМ ФОКУСА" }
+        if phase.isBreak { return "ПЕРЕРЫВ" }
+        let estimate = tasks.tasks.first(where: { $0.id == focus.state?.taskId })?.estimateMinutes
+        if let total = focus.state?.pomodoro?.rounds(forEstimate: estimate), total >= phase.round {
+            return "ПОМИДОР \(phase.round) ИЗ \(total)"
+        }
+        return "ПОМИДОР \(phase.round)"
+    }
+
+    private func subtitle(phase: Pomodoro.Phase?, remaining: TimeInterval, planned: TimeInterval) -> String {
+        if let phase, let pomodoro = focus.state?.pomodoro {
+            return phase.isBreak
+                ? "перерыв — встань, разомнись, отойди от экрана"
+                : "работа \(pomodoro.workMinutes) мин · потом перерыв \(pomodoro.breakMinutes)"
+        }
+        return remaining >= 0
+            ? "осталось из \(TodayView.duration(planned))"
+            : "время вышло — закончи или продолжай"
     }
 
     /// Кнопка второго ряда: иконка над подписью, как в нижней панели.
@@ -146,8 +181,8 @@ struct FocusView: View {
     }
 
     private var endText: String {
-        guard let state = focus.state else { return "" }
-        let end = state.startedAt.addingTimeInterval(TimeInterval(state.plannedMinutes * 60) - state.banked)
+        guard focus.state != nil else { return "" }
+        let end = Date().addingTimeInterval(max(focus.remaining(), 0))
         return "до \(end.formatted(date: .omitted, time: .shortened))"
     }
 

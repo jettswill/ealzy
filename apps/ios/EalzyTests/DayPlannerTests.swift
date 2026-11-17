@@ -80,6 +80,23 @@ final class DayPlannerTests: XCTestCase {
         XCTAssertTrue(finished.headline.hasPrefix("Всё на сегодня сделано"))
     }
 
+    func testPomodoroPhasesGoInCircles() {
+        let pomodoro = Pomodoro(workMinutes: 30, breakMinutes: 10)
+        let start = pomodoro.phase(elapsed: 0)
+        XCTAssertEqual(start, Pomodoro.Phase(isBreak: false, round: 1, remaining: 1800, length: 1800))
+        let rest = pomodoro.phase(elapsed: 31 * 60)
+        XCTAssertTrue(rest.isBreak)
+        XCTAssertEqual(rest.round, 1)
+        XCTAssertEqual(rest.remaining, 9 * 60)
+        let second = pomodoro.phase(elapsed: 41 * 60)
+        XCTAssertFalse(second.isBreak)
+        XCTAssertEqual(second.round, 2)
+        XCTAssertEqual(second.remaining, 29 * 60)
+        XCTAssertEqual(pomodoro.rounds(forEstimate: 90), 3)
+        XCTAssertEqual(pomodoro.rounds(forEstimate: 20), 1)
+        XCTAssertEqual(Pomodoro.from(key: "45/15"), Pomodoro(workMinutes: 45, breakMinutes: 15))
+    }
+
     func testMeetingsAndQuickTasksNeverBecomeFocus() {
         let plan = DayPlanner.plan([
             task("Встреча с Петей", hour: 14, importance: 5, kind: "meeting"),

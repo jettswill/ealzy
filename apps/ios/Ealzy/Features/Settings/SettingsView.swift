@@ -10,6 +10,8 @@ struct SettingsView: View {
     @State private var showReminders = false
     @State private var confirmDelete = false
     @AppStorage(Appearance.storageKey) private var appearance = Appearance.system.rawValue
+    @AppStorage(Pomodoro.enabledKey) private var pomodoroOn = false
+    @AppStorage(Pomodoro.formatKey) private var pomodoroFormat = Pomodoro.formats[1].key
 
     var body: some View {
         NavigationStack {
@@ -24,6 +26,22 @@ struct SettingsView: View {
                         note(appearance == Appearance.system.rawValue
                              ? "Ealzy светлеет и темнеет вместе с iPhone."
                              : "Тема не зависит от настроек iPhone.")
+                    }
+
+                    section("Фокус") {
+                        row {
+                            Toggle(isOn: $pomodoroOn) { label("Помодоро", "timer") }
+                                .tint(Palette.gold)
+                        }
+                        if pomodoroOn {
+                            PomodoroPicker(selection: $pomodoroFormat)
+                                .padding(.top, 4)
+                            let format = Pomodoro.from(key: pomodoroFormat)
+                            note("Дело идёт кругами: \(format.workMinutes) минут работы, \(format.breakMinutes) — перерыв. "
+                                 + "О смене напомнит уведомление, перерыв можно пропустить.")
+                        } else {
+                            note("Фокус идёт одним куском — по оценке дела. Включи, чтобы работать с перерывами.")
+                        }
                     }
 
                     section("Подключено") {
@@ -155,6 +173,45 @@ struct SettingsView: View {
             }
             .padding(.vertical, 12)
         }
+    }
+}
+
+/// Формат помодоро: «25/5», «30/10», «45/15», «50/10» — та же дорожка, что у темы.
+struct PomodoroPicker: View {
+    @Binding var selection: String
+    @Namespace private var pill
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Pomodoro.formats, id: \.key) { format in
+                let on = selection == format.key
+                Button {
+                    withAnimation(.snappy) { selection = format.key }
+                } label: {
+                    VStack(spacing: 1) {
+                        Text("\(format.workMinutes) мин")
+                            .font(.subheadline.weight(on ? .semibold : .regular))
+                            .foregroundStyle(on ? Palette.ink : Palette.ink2)
+                        Text("перерыв \(format.breakMinutes)")
+                            .font(.caption2)
+                            .foregroundStyle(Palette.ink3)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 46)
+                    .background {
+                        if on {
+                            RoundedRectangle(cornerRadius: 9)
+                                .fill(Palette.raised)
+                                .shadow(color: .black.opacity(0.08), radius: 2, y: 1)
+                                .matchedGeometryEffect(id: "pill", in: pill)
+                        }
+                    }
+                }
+                .accessibilityLabel("\(format.workMinutes) минут работы, \(format.breakMinutes) перерыв")
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Palette.track, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 

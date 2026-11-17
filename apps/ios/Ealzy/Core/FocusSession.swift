@@ -16,6 +16,8 @@ final class FocusSession {
         /// Сколько секунд уже отработано до последней паузы.
         var banked: TimeInterval = 0
         var pausedAt: Date?
+        /// Если включён помодоро — работа/перерыв по кругу; отсчёт идёт по фазе.
+        var pomodoro: Pomodoro?
     }
 
     private(set) var state: State? {
@@ -25,8 +27,8 @@ final class FocusSession {
             } else {
                 UserDefaults.standard.removeObject(forKey: Self.key)
             }
-            WidgetSnapshot.setFocusRun(widgetRun)
-            FocusLiveActivity.sync(state, remaining: remaining())
+            refreshExternal()
+            schedulePomodoroAlerts()
         }
     }
 
@@ -37,7 +39,33 @@ final class FocusSession {
             state = try? JSONDecoder().decode(State.self, from: data)
         }
         // Приложение перезапустили: активность в Dynamic Island должна совпадать с тем, что идёт.
-        FocusLiveActivity.sync(state, remaining: remaining())
+        refreshExternal()
+    }
+
+    /// Виджет и Dynamic Island показывают то же, что приложение (вызывать и при смене фазы помодоро).
+    func refreshExternal() {
+        WidgetSnapshot.setFocusRun(widgetRun)
+        FocusLiveActivity.sync(state, remaining: remaining(), phase: phase())
+    }
+
+    private func schedulePomodoroAlerts() {
+        if let state, let pomodoro = state.pomodoro, state.pausedAt == nil {
+            PomodoroAlerts.schedule(pomodoro, title: state.title, elapsed: elapsed())
+        } else {
+            PomodoroAlerts.cancel()
+        }
+    }
+
+    /// Текущая фаза помодоро (nil — обычный фокус).
+    func phase(at now: Date = Date()) -> Pomodoro.Phase? {
+        state?.pomodoro?.phase(elapsed: elapsed(at: now))
+    }
+
+    /// Перерыв можно пропустить — сразу следующий помидор.
+    func skipBreak() {
+        guard var current = state, let phase = phase(), phase.isBreak else { return }
+        current.banked += phase.remaining
+        state = current
     }
 
     var isRunning: Bool { state != nil }
@@ -48,7 +76,7 @@ final class FocusSession {
         let remaining = remaining()
         return WidgetSnapshot.FocusRun(
             taskId: state.taskId,
-            title: state.title,
+            title: phase()?.isBreak == true ? "Перерыв · \(state.title)" : state.title,
             endsAt: state.pausedAt == nil ? Date().addingTimeInterval(remaining) : nil,
             pausedRemaining: state.pausedAt == nil ? nil : remaining
         )
@@ -58,7 +86,8 @@ final class FocusSession {
     var isPaused: Bool { state?.pausedAt != nil }
 
     func start(_ task: EalzyTask, minutes: Int) {
-        state = State(taskId: task.id, title: task.title, plannedMinutes: minutes, startedAt: Date())
+        state = State(taskId: task.id, title: task.title, plannedMinutes: minutes, startedAt: Date(),
+                      pomodoro: Pomodoro.current)
         isPresented = true
     }
 
@@ -70,6 +99,7 @@ final class FocusSession {
 
     func remaining(at now: Date = Date()) -> TimeInterval {
         guard let state else { return 0 }
+        if let phase = phase(at: now) { return phase.remaining }
         return TimeInterval(state.plannedMinutes * 60) - elapsed(at: now)
     }
 

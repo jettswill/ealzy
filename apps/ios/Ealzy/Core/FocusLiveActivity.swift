@@ -4,7 +4,7 @@ import Foundation
 /// Запуск, обновление и завершение живой активности фокуса.
 @MainActor
 enum FocusLiveActivity {
-    static func sync(_ state: FocusSession.State?, remaining: TimeInterval) {
+    static func sync(_ state: FocusSession.State?, remaining: TimeInterval, phase: Pomodoro.Phase? = nil) {
         let current = Activity<FocusActivityAttributes>.activities
         guard let state else {
             end(current)
@@ -12,7 +12,10 @@ enum FocusLiveActivity {
         }
         let content = FocusActivityAttributes.ContentState(
             endsAt: state.pausedAt == nil ? Date().addingTimeInterval(remaining) : nil,
-            pausedRemaining: state.pausedAt == nil ? nil : remaining
+            pausedRemaining: state.pausedAt == nil ? nil : remaining,
+            isBreak: phase?.isBreak,
+            phaseLength: phase?.length,
+            round: phase?.round
         )
         let stale = content.endsAt?.addingTimeInterval(15 * 60)
         if let activity = current.first(where: { $0.attributes.taskId == state.taskId }) {
