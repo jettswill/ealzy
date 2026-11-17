@@ -43,6 +43,14 @@ struct IlziSheet: View {
                 }
                 .scrollDismissesKeyboard(.interactively)
                 .defaultScrollAnchor(.bottom)
+                // Сверху разговор мягко уходит под край шторки, а не обрезается под «ручкой».
+                .mask {
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 36)
+                        Color.black
+                    }
+                }
                 .onAppear { toEnd(proxy) }
                 .onChange(of: detent) { toEnd(proxy) }
                 .onChange(of: chat.messages.last?.id) { toEnd(proxy, animated: true) }

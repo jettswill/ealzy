@@ -321,9 +321,11 @@ struct RunningFocusButton: View {
                         Text(focus.isPaused ? "На паузе" : (remaining >= 0 ? "Идёт фокус" : "Время вышло"))
                             .font(.body.weight(.semibold))
                         Spacer(minLength: 8)
-                        Text(remaining >= 0 ? "осталось \(FocusView.clock(remaining))" : FocusView.clock(remaining))
-                            .font(.body.weight(.semibold))
+                        Text(FocusView.clock(remaining))
+                            .font(.title3.weight(.semibold))
                             .monospacedDigit()
+                            .lineLimit(1)
+                            .fixedSize()
                         Image(systemName: "chevron.up").font(.footnote.weight(.semibold))
                     }
                     GeometryReader { proxy in
