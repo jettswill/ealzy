@@ -53,7 +53,20 @@ import {
   refreshPortrait,
   withAddressForm,
 } from "./personal-model.js";
-import { applyGoalActions, applyGoalPlan, continuedGoalWriteIntent, explicitGoalWriteIntent, focusedGoalFromConversation, focusedGoalFromText, goalCheckInIntent, goalDiscussIntent, goalRefineIntent, goalSyncDueOn, isGoalSyncTurn, titleNumbersConflict } from "./goal-plan.js";
+import {
+  applyGoalActions,
+  applyGoalPlan,
+  continuedGoalWriteIntent,
+  explicitGoalWriteIntent,
+  focusedGoalFromConversation,
+  focusedGoalFromText,
+  goalCheckInIntent,
+  goalDiscussIntent,
+  goalRefineIntent,
+  goalSyncDueOn,
+  isGoalSyncTurn,
+  titleNumbersConflict,
+} from "./goal-plan.js";
 import {
   applyCompanionMailActions,
   CompanionMailActionSchema,
@@ -122,10 +135,9 @@ export const CompanionTaskActionSchema = z.object({
   title: z.preprocess(emptyToNull, z.string().trim().max(300).nullable()),
   description: z.preprocess(emptyToNull, z.string().trim().max(4000).nullable()).optional(),
   due_at: z.preprocess(emptyToNull, z.string().trim().max(40).nullable()),
-  estimate_minutes: z.preprocess(
-    emptyToNull,
-    z.coerce.number().int().min(1).max(480).nullable().catch(null),
-  ).optional(),
+  estimate_minutes: z
+    .preprocess(emptyToNull, z.coerce.number().int().min(1).max(480).nullable().catch(null))
+    .optional(),
   goal_id: z
     .preprocess(emptyToNull, z.string().uuid().nullable().catch(null))
     .optional()
@@ -224,10 +236,7 @@ export const CompanionResponseSchema = z.object({
               .default(null),
             title: z.preprocess(emptyToNull, z.string().trim().max(300).nullable()),
             description: z.preprocess(emptyToNull, z.string().trim().max(4000).nullable()),
-            status: z
-              .enum(["active", "paused", "completed", "cancelled"])
-              .optional()
-              .nullable(),
+            status: z.enum(["active", "paused", "completed", "cancelled"]).optional().nullable(),
             horizon: z.enum(["short", "medium", "long"]).optional().nullable(),
             current_plan: z.preprocess(emptyToNull, z.string().trim().max(4000).nullable()),
             tasks: z
@@ -394,6 +403,58 @@ export function parseEstimateMinutes(blob: string): number | null {
   return null;
 }
 
+function lastDayOfMonth(year: number, month: number) {
+  const day = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+// «до конца декабря» — это 31 декабря, «до конца месяца» — последний день
+// текущего месяца, «до конца года» — 31 декабря. Срок назван человеком, просто
+// не числом; раньше модель подставляла сюда случайный день.
+function endOfNamedPeriod(blob: string, todayKey: string) {
+  const year = Number(todayKey.slice(0, 4));
+  const currentMonth = Number(todayKey.slice(5, 7));
+  const named = blob.match(
+    new RegExp(`(?:конц\\S*|исход\\S*|end\\s+of)\\s+(${MONTH_NAMES})`, "iu"),
+  );
+  if (named?.[1]) {
+    const month = monthNumber(named[1]);
+    if (month) return lastDayOfMonth(month < currentMonth ? year + 1 : year, month);
+  }
+  if (/(?:конц\S*|исход\S*)\s+(?:этого\s+)?месяц|end of (?:the |this )?month/iu.test(blob))
+    return lastDayOfMonth(year, currentMonth);
+  if (/(?:конц\S*|исход\S*)\s+(?:этого\s+)?год|end of (?:the |this )?year/iu.test(blob))
+    return `${year}-12-31`;
+  return null;
+}
+
+// Срок задачи — то, что назвал человек, а не то, что придумала модель.
+// Если ни в этом сообщении, ни в недавних нет никакой привязки ко времени
+// (дата, день недели, «завтра», «к выходным», «до конца декабря», время),
+// due_at от модели отбрасываем: «просто сделать дело» остаётся без срока.
+const DATE_CUE = new RegExp(
+  [
+    "сегодн|завтра|послезавтра|вчера",
+    "понедельник|вторник|сред[уаые]|четверг|пятниц|суббот|воскресен|выходн|будн",
+    "недел|месяц|год[ауе]?(?!\\p{L})|квартал",
+    "утр|вечер|днём|днем|ночью|полдень|полночь",
+    "через\\s+\\d|через\\s+(?:час|пару|несколько|день|два|три)",
+    "срок|дедлайн|до\\s+конца|к\\s+концу|в\\s+течение|срочн|прямо\\s+сейчас|не\\s+позже|не\\s+позднее",
+    "числ[ауо]|\\d{1,2}[./]\\d{1,2}|\\d{1,2}:\\d{2}|(?:^|\\s)(?:в|к|до|на)\\s*\\d{1,2}(?!\\d)",
+    "ко?\\s+(?:дн[юя]\\s+рожд|празд|нов(?:ому|ым)\\s+год|отпуск|поездк|встреч|приезд|свадьб)",
+    "напомни\\S*\\s+(?:про|о|об|за)\\s",
+    MONTH_NAMES,
+    "today|tomorrow|tonight|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday|weekend|week|month|year|deadline|due|by\\s+\\w|until|before|asap|urgent|morning|evening|noon|midnight|\\d\\s*(?:am|pm)",
+  ]
+    .map((cue) => `(?<!\\p{L})(?:${cue})`)
+    .join("|"),
+  "iu",
+);
+
+export function mentionsDueDate(texts: string[]) {
+  return texts.some((text) => DATE_CUE.test(text));
+}
+
 function parseRelativeDue(blob: string, todayKey: string) {
   if (!blob.trim()) return null;
   if (
@@ -410,6 +471,8 @@ function parseRelativeDue(blob: string, todayKey: string) {
   if (/(?:до\s+)?конц\S*\s+(?:этой\s+)?недел|this week|на этой неделе/iu.test(blob))
     return endOfIsoWeek(todayKey, 0);
   if (/через\s+недел|in a week/iu.test(blob)) return addCalendarDays(todayKey, 7);
+  const monthEnd = endOfNamedPeriod(blob, todayKey);
+  if (monthEnd) return monthEnd;
   const dated = blob.match(new RegExp(`(\\d{1,2})\\s+(${MONTH_NAMES})`, "iu"));
   if (dated?.[1] && dated[2]) {
     const month = monthNumber(dated[2]);
@@ -437,7 +500,7 @@ export function resolveCompanionDueAt(
     /(?:^|\s)(?:в|к|at)\s*\d{1,2}(?::\d{2})?(?:\s*(?:am|pm|утра|дня|вечера|ночи))?(?:\s|$|[.,!?])|(?:^|\s)на\s*\d{1,2}:\d{2}(?:\s|$|[.,!?])|полдень|полночь|noon|midnight/iu.test(
       userText,
     );
-  if (explicitTime && dueAt) {
+  if (explicitTime && dueAt && !/^\d{4}-\d{2}-\d{2}$/.test(dueAt)) {
     const parsed = Date.parse(dueAt);
     if (!Number.isNaN(parsed)) {
       const key = dateKeyInZone(new Date(parsed), timezone);
@@ -452,6 +515,7 @@ export function resolveCompanionDueAt(
     const relative = parseRelativeDue(text, todayKey);
     if (relative) return localMidday(relative, timezone);
   }
+  if (!mentionsDueDate([userText, ...recent])) return null;
   const fromDue = parseRelativeDue(dueAt ?? "", todayKey);
   if (fromDue) return localMidday(fromDue, timezone);
 
@@ -562,6 +626,47 @@ function hasTaskCaptureIntent(text: string) {
   ERRAND_VERB_RE.lastIndex = 0;
   const at = trimmed.search(ERRAND_VERB_RE);
   return at >= 0 && at < 24;
+}
+
+// Голосом человек говорит «Илзи, добавь, пожалуйста, задачу купить молоко»,
+// и модель (или разбор без модели) иногда переносила в название всю команду —
+// в списке появлялось дело «Добавь задачу…». Название — это само действие:
+// снимаем обращение, вежливые слова и служебную команду «добавь задачу /
+// поставь дело / запиши в список», если за глаголом идёт слово про задачу.
+// «Поставить счётчики» или «Запиши сына в секцию» не трогаем — там глагол и
+// есть дело.
+const TITLE_ADDRESS_RE =
+  /^(?:илзи|ealzy|ilzi|эй|слушай|короче|так|ну|ок(?:ей)?|давай(?:те)?)[,!.\s]+/iu;
+const TITLE_POLITE_RE =
+  /^(?:пожалуйста|плиз|please|pls|можешь|можете|можно|ты\s+можешь|не\s+мог(?:ла|ли)?\s+бы\s+ты)[,!.\s]+/iu;
+const TITLE_COMMAND_RE = new RegExp(
+  "^(?:добав(?:ь|ьте|ить|ляй)|постав(?:ь|ьте|ить)|созда(?:й|йте|ть)|запиш(?:и|ите)|записать|внес(?:и|ите|ти)|закин(?:ь|уть)|кин(?:ь|уть)|сдела(?:й|ть)|заведи|завести|add|create|make|put)" +
+    "(?:[,\\s]+(?:мне|пожалуйста|плиз|please|ещ[её]|одн[уо]|нов(?:ую|ое)|a|an|the|new))*" +
+    "[,\\s]+(?:в\\s+(?:мой\\s+|мои\\s+)?(?:список(?:\\s+(?:дел|задач)\\p{L}*)?|задачи|дела|планы|туду|todo)|задач(?:у|ей|и|а)?|дел(?:о|а|ом)|пункт|task|todo|to-?do)" +
+    "(?:[,\\s]+(?:в\\s+(?:список(?:\\s+(?:дел|задач)\\p{L}*)?|задачи|дела|планы)|пожалуйста|мне))*" +
+    "(?:[,\\s]+на\\s+(?:сегодня|завтра|послезавтра|today|tomorrow|понедельник|вторник|среду|четверг|пятницу|субботу|воскресенье))?" +
+    "(?:[,\\s]*[:—–-]|[,\\s]+(?:что(?:бы)?|о\\s+том,?\\s+что(?:бы)?|про|about|to|that))?[,\\s]*",
+  "iu",
+);
+const TITLE_TRAILING_COMMAND_RE =
+  /[,.\s]+(?:добавь(?:те)?|запиши(?:те)?|поставь(?:те)?|внеси(?:те)?|закинь)(?:\s+(?:это|его|пожалуйста))*(?:\s+(?:в\s+(?:список(?:\s+(?:дел|задач))?|задачи|дела|планы)|задачей|делом))?\s*[.!]*$/iu;
+
+export function normalizeTaskTitle(value: string | null | undefined) {
+  let title = (value ?? "").replace(/\s+/g, " ").trim();
+  for (let pass = 0; pass < 4; pass += 1) {
+    const before = title;
+    title = title.replace(TITLE_ADDRESS_RE, "").replace(TITLE_POLITE_RE, "");
+    title = title.replace(TITLE_COMMAND_RE, "");
+    title = title.replace(NEED_PREFIX_RE, "");
+    if (title === before) break;
+  }
+  title = title
+    .replace(TITLE_TRAILING_COMMAND_RE, "")
+    .replace(/^[«"„“']+|[»"”']+$/gu, "")
+    .replace(/[,;:\s]+$/u, "")
+    .trim();
+  if (!title) return "";
+  return title.charAt(0).toLocaleUpperCase() + title.slice(1);
 }
 
 function cleanCaptureTitle(value: string) {
@@ -730,7 +835,8 @@ export function inferCompanionTaskActions(
   CAPTURE_PREFIX_RE.lastIndex = 0;
   const stripped = trimmed.replace(CAPTURE_PREFIX_RE, " ").replace(/\s+/g, " ").trim();
   const fromVerbs = extractErrandTitles(stripped || trimmed, explicit);
-  if (fromVerbs.length) return fromVerbs.slice(0, MAX_NEW_TASKS).map((title) => captureAction(title, trimmed));
+  if (fromVerbs.length)
+    return fromVerbs.slice(0, MAX_NEW_TASKS).map((title) => captureAction(title, trimmed));
   const listed = splitListItems(stripped || trimmed).filter((item) =>
     looksLikeCapturedAction(item, explicit),
   );
@@ -842,17 +948,15 @@ export function extractDescriptionFromAnswer(answer: string) {
   return best.map((item) => `• ${item}`).join("\n");
 }
 
-export function resolveDescriptionTarget(
-  text: string,
-  tasks: DescriptionTaskRef[],
-  quoted = "",
-) {
+export function resolveDescriptionTarget(text: string, tasks: DescriptionTaskRef[], quoted = "") {
   const open = tasks.filter((task) => task.status !== "done" && task.status !== "cancelled");
   if (!open.length) return null;
   const named = titleFromQuotedMessage(quoted);
   if (named) {
     const byName = open.find(
-      (task) => similarTaskTitles(task.title, named) || normalizeTitle(named).includes(normalizeTitle(task.title)),
+      (task) =>
+        similarTaskTitles(task.title, named) ||
+        normalizeTitle(named).includes(normalizeTitle(task.title)),
     );
     if (byName) return byName;
   }
@@ -1035,17 +1139,11 @@ function taskEntity(task: Task, op: NonNullable<CompanionEntity["op"]>): Compani
 
 export function omitEalzyQueueMutations<
   T extends { op: string; task_id?: string | null; title?: string | null },
->(
-  actions: T[],
-  tasks: { id?: string; title?: string; assignee?: string | null }[],
-): T[] {
+>(actions: T[], tasks: { id?: string; title?: string; assignee?: string | null }[]): T[] {
   const blocked = tasks.filter((task) => (task.assignee ?? "user") === "ealzy");
   if (!blocked.length) return actions;
   const personOwned = tasks.filter((task) => (task.assignee ?? "user") !== "ealzy");
-  const sameWork = (
-    action: T,
-    task: { id?: string; title?: string },
-  ) => {
+  const sameWork = (action: T, task: { id?: string; title?: string }) => {
     if (action.task_id && task.id && action.task_id === task.id) return true;
     const left = action.title?.trim().toLocaleLowerCase();
     const right = task.title?.trim().toLocaleLowerCase();
@@ -1114,7 +1212,6 @@ async function inferTaskLinks(
   return { personId };
 }
 
-
 export function capGoalNextSteps(
   actions: CompanionTaskAction[],
   userText: string,
@@ -1144,7 +1241,7 @@ export async function applyCompanionTaskActions(
     : { personId: null };
   for (const action of actions) {
     if (action.op === "create" || action.op === "update") {
-      const title = action.title?.trim();
+      const title = normalizeTaskTitle(action.title) || undefined;
       const matches = title ? similarOpenTasks(tasks, title, action.goal_id) : [];
       const kept = findTask(tasks, action) ?? (matches.length ? pickKeptTask(matches) : null);
       const dueAt = resolveCompanionDueAt(
@@ -1169,7 +1266,11 @@ export async function applyCompanionTaskActions(
         if (estimateMinutes && estimateMinutes !== kept.estimate_minutes) {
           patch.estimate_minutes = estimateMinutes;
         }
-        if (action.goal_id && !kept.goal_id && (await repository.getGoal(ownerId, action.goal_id))) {
+        if (
+          action.goal_id &&
+          !kept.goal_id &&
+          (await repository.getGoal(ownerId, action.goal_id))
+        ) {
           patch.goal_id = action.goal_id;
         }
         if (action.importance && action.importance !== kept.importance) {
@@ -1296,7 +1397,6 @@ export function dueDayMonth(dueAt: string, timezone: string) {
   return { day: day ?? 0, month: month ?? 0 };
 }
 
-
 // Модель любит закончить разговорный ответ фразой «собрала план на неделю»,
 // даже когда никакой записи не произошло: цель не создана, план не обновлён.
 // Для продукта, который держится на доверии к своей памяти, это худший вид
@@ -1384,7 +1484,12 @@ export function groundCompanionTaskAnswer(
   const unnamedProjects = entities.filter(
     (entity) => entity.type === "project" && !answer.includes(entity.label),
   );
-  if (!unnamedTasks.length && !unnamedGoals.length && !unnamedProjects.length && !misdatedTasks.length)
+  if (
+    !unnamedTasks.length &&
+    !unnamedGoals.length &&
+    !unnamedProjects.length &&
+    !misdatedTasks.length
+  )
     return answer;
   return `${answer.trim()}\n\n${recap}`;
 }
@@ -1395,12 +1500,7 @@ function agendaLine(
   ru: boolean,
 ) {
   const time = task.due_time ? (ru ? ` — к ${task.due_time}` : ` — by ${task.due_time}`) : "";
-  const repeating =
-    task.recurrence === "daily"
-      ? ru
-        ? " — регулярно"
-        : " — repeating"
-      : "";
+  const repeating = task.recurrence === "daily" ? (ru ? " — регулярно" : " — repeating") : "";
   return `${index}. ${task.title}${time}${repeating}`;
 }
 
@@ -1427,7 +1527,9 @@ export function formatAgendaAnswer(
   const items = open.filter((task) => task.when === day);
   if (!items.length && !overdue.length) {
     if (ru) return day === "today" ? "На сегодня дел нет." : "На завтра дел нет.";
-    return day === "today" ? "Nothing is scheduled for today." : "Nothing is scheduled for tomorrow.";
+    return day === "today"
+      ? "Nothing is scheduled for today."
+      : "Nothing is scheduled for tomorrow.";
   }
   const lines: string[] = [];
   if (overdue.length) {
@@ -1435,7 +1537,15 @@ export function formatAgendaAnswer(
     overdue.forEach((task, index) => lines.push(agendaLine(task, index + 1, ru)));
     lines.push("");
   }
-  lines.push(ru ? (day === "today" ? "**На сегодня**" : "**На завтра**") : day === "today" ? "**Today**" : "**Tomorrow**");
+  lines.push(
+    ru
+      ? day === "today"
+        ? "**На сегодня**"
+        : "**На завтра**"
+      : day === "today"
+        ? "**Today**"
+        : "**Tomorrow**",
+  );
   if (!items.length) {
     lines.push(ru ? "Запланированных дел нет." : "Nothing else is dated for that day.");
   } else {
@@ -1535,7 +1645,10 @@ function companionWriteRecap(
 function mergeCompanionEntities(...lists: CompanionEntity[][]) {
   const map = new Map<string, CompanionEntity>();
   for (const entity of lists.flat()) {
-    map.set(`${entity.type}:${entity.id}`, { ...map.get(`${entity.type}:${entity.id}`), ...entity });
+    map.set(`${entity.type}:${entity.id}`, {
+      ...map.get(`${entity.type}:${entity.id}`),
+      ...entity,
+    });
   }
   return [...map.values()];
 }
@@ -1578,9 +1691,7 @@ export function isAiUnavailableAssistant(
   if (!message || message.role !== "assistant") return false;
   if (message.metadata?.ai_unavailable === true) return true;
   const content = message.content.trim();
-  return (
-    content.includes("не удалось связаться с AI") || content.includes("Couldn't reach the AI")
-  );
+  return content.includes("не удалось связаться с AI") || content.includes("Couldn't reach the AI");
 }
 
 export function failedCompanionRetryTarget(messages: Message[]) {
@@ -2019,9 +2130,10 @@ export class CompanionService {
       const explicitDiscovery = isExplicitDiscoveryRequest(text);
       // Совет о подарке не ищем по тексту вопроса: карточки даёт только модель.
       const giftAdvice = isGiftAdviceQuestion(text);
-      const searchPromise = explicitDiscovery && !giftAdvice && inferDiscoveryIntent(text, city)
-        ? this.collectSearchHits(searchText, city, [], true, context.profile.locale)
-        : Promise.resolve([] as DiscoveryHit[]);
+      const searchPromise =
+        explicitDiscovery && !giftAdvice && inferDiscoveryIntent(text, city)
+          ? this.collectSearchHits(searchText, city, [], true, context.profile.locale)
+          : Promise.resolve([] as DiscoveryHit[]);
       let usedAi = false;
       let response: CompanionResponse = fallbackCompanionResponse();
       const generate = this.ai?.companionStream ?? this.ai?.companion;
@@ -2282,7 +2394,9 @@ export class CompanionService {
                   assignee: task.assignee,
                 })),
                 ...extraTasks.map((action) =>
-                  bindOrphans && (action.op === "create" || action.op === "update") && !action.goal_id
+                  bindOrphans &&
+                  (action.op === "create" || action.op === "update") &&
+                  !action.goal_id
                     ? { ...action, goal_id: bindGoalId }
                     : action,
                 ),
@@ -2321,18 +2435,23 @@ export class CompanionService {
       }));
       let taskEntities: CompanionEntity[] = [];
       try {
-        taskEntities = await applyCompanionTaskActions(this.repository, ownerId, cappedTaskActions, {
-          timezone: context.profile.timezone || "Europe/Moscow",
-          userText: text,
-          recentUserTexts: [
-            ...(quoted ? [quoted] : []),
-            ...context.recent_messages
-              .filter((message) => message.role === "user")
-              .map((message) => message.content)
-              .slice(-4)
-              .reverse(),
-          ],
-        });
+        taskEntities = await applyCompanionTaskActions(
+          this.repository,
+          ownerId,
+          cappedTaskActions,
+          {
+            timezone: context.profile.timezone || "Europe/Moscow",
+            userText: text,
+            recentUserTexts: [
+              ...(quoted ? [quoted] : []),
+              ...context.recent_messages
+                .filter((message) => message.role === "user")
+                .map((message) => message.content)
+                .slice(-4)
+                .reverse(),
+            ],
+          },
+        );
       } catch (error) {
         console.error(
           JSON.stringify({
@@ -2351,7 +2470,9 @@ export class CompanionService {
           this.repository,
           ownerId,
           allowGoalWrites ? plan : null,
-          new Set(taskEntities.filter((entity) => entity.type === "task").map((entity) => entity.id)),
+          new Set(
+            taskEntities.filter((entity) => entity.type === "task").map((entity) => entity.id),
+          ),
         );
       } catch (error) {
         console.error(

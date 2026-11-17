@@ -8,6 +8,7 @@ import {
   groundCompanionAgendaAnswer,
   groundRejectedGoalWriteAnswer,
   resolveCompanionDueAt,
+  normalizeTaskTitle,
   parseEstimateMinutes,
   similarTaskTitles,
   agendaQueryDay,
@@ -23,7 +24,14 @@ import {
   conversationTurns,
   type CompanionTaskAction,
 } from "../src/modules/assistant/companion.js";
-import { continuedGoalWriteIntent, goalRefineIntent, goalSyncAllowsCreate, isGoalTopicShift, shouldReplaceGoalTitle, similarGoalTitles } from "../src/modules/assistant/goal-plan.js";
+import {
+  continuedGoalWriteIntent,
+  goalRefineIntent,
+  goalSyncAllowsCreate,
+  isGoalTopicShift,
+  shouldReplaceGoalTitle,
+  similarGoalTitles,
+} from "../src/modules/assistant/goal-plan.js";
 
 const friday = new Date("2026-08-28T12:00:00.000Z");
 
@@ -51,9 +59,9 @@ describe("resolveCompanionDueAt", () => {
   });
 
   it("stores a date without a user-specified time as local noon", () => {
-    expect(
-      resolveCompanionDueAt("2026-08-28", "Europe/Moscow", "перенеси на завтра", now),
-    ).toBe("2026-08-28T09:00:00.000Z");
+    expect(resolveCompanionDueAt("2026-08-28", "Europe/Moscow", "перенеси на завтра", now)).toBe(
+      "2026-08-28T09:00:00.000Z",
+    );
   });
 
   it("keeps the time when the user explicitly specifies it", () => {
@@ -67,18 +75,41 @@ describe("resolveCompanionDueAt", () => {
     ).toBe("2026-08-28T15:30:00.000Z");
   });
 
-  it("accepts today/tomorrow tokens from the model", () => {
-    expect(resolveCompanionDueAt("today", "UTC", "remind me", now)).toBe(
+  it("accepts today/tomorrow tokens from the model when the user named a day", () => {
+    expect(resolveCompanionDueAt("today", "UTC", "remind me today", now)).toBe(
       "2026-08-27T12:00:00.000Z",
     );
-    expect(resolveCompanionDueAt("завтра", "UTC", "позвони маме", now)).toBe(
+    expect(resolveCompanionDueAt("завтра", "UTC", "позвони маме завтра", now)).toBe(
       "2026-08-28T12:00:00.000Z",
     );
   });
 
-  it("keeps a future ISO date", () => {
-    expect(resolveCompanionDueAt("2026-12-01", "UTC", "купи билеты", now)).toBe(
+  it("keeps a future ISO date the user named", () => {
+    expect(resolveCompanionDueAt("2026-12-01", "UTC", "купи билеты до 1 декабря", now)).toBe(
       "2026-12-01T12:00:00.000Z",
+    );
+    expect(resolveCompanionDueAt("2026-12-01", "UTC", "купи билеты к 1.12", now)).toBe(
+      "2026-12-01T12:00:00.000Z",
+    );
+  });
+
+  it("drops a date the model invented when the user named none", () => {
+    expect(resolveCompanionDueAt("2026-12-01", "UTC", "купи билеты", now)).toBeNull();
+    expect(resolveCompanionDueAt("tomorrow", "UTC", "позвони маме", now)).toBeNull();
+    expect(
+      resolveCompanionDueAt("2026-09-12", "UTC", "Нужно разобрать внутренние документы", now),
+    ).toBeNull();
+  });
+
+  it("maps «до конца декабря» to December 31 regardless of the model's guess", () => {
+    expect(
+      resolveCompanionDueAt("2026-11-29", "UTC", "Надо сделать отчёт до конца декабря", now),
+    ).toBe("2026-12-31T12:00:00.000Z");
+    expect(resolveCompanionDueAt(null, "UTC", "закрыть долги до конца месяца", now)).toBe(
+      "2026-08-31T12:00:00.000Z",
+    );
+    expect(resolveCompanionDueAt(null, "UTC", "к концу года выучить испанский", now)).toBe(
+      "2026-12-31T12:00:00.000Z",
     );
   });
 
@@ -378,7 +409,11 @@ describe("applyCompanionTaskActions", () => {
     const userText =
       "добавь в описание задачи необходимые лекасртва для поездки с ребенком 5 лет заграницу";
     const actions = normalizeDescriptionEdits(
-      [createAction("в описание задачи необходимые лекасртва для поездки с ребенком 5 лет заграницу")],
+      [
+        createAction(
+          "в описание задачи необходимые лекасртва для поездки с ребенком 5 лет заграницу",
+        ),
+      ],
       userText,
       [existing],
       [
@@ -576,21 +611,27 @@ describe("groundRejectedGoalWriteAnswer", () => {
 
 describe("companion agenda packing", () => {
   it("hides the local-noon sentinel so Moscow 09:00 UTC is not a clock time", () => {
-    expect(packCompanionTaskDue("2026-09-09T09:00:00.000Z", "Europe/Moscow", "2026-09-09")).toEqual({
-      due_on: "2026-09-09",
-      due_time: null,
-      when: "today",
-    });
-    expect(packCompanionTaskDue("2026-09-10T09:00:00.000Z", "Europe/Moscow", "2026-09-09")).toEqual({
-      due_on: "2026-09-10",
-      due_time: null,
-      when: "tomorrow",
-    });
-    expect(packCompanionTaskDue("2026-09-09T06:00:00.000Z", "Europe/Moscow", "2026-09-09")).toEqual({
-      due_on: "2026-09-09",
-      due_time: "09:00",
-      when: "today",
-    });
+    expect(packCompanionTaskDue("2026-09-09T09:00:00.000Z", "Europe/Moscow", "2026-09-09")).toEqual(
+      {
+        due_on: "2026-09-09",
+        due_time: null,
+        when: "today",
+      },
+    );
+    expect(packCompanionTaskDue("2026-09-10T09:00:00.000Z", "Europe/Moscow", "2026-09-09")).toEqual(
+      {
+        due_on: "2026-09-10",
+        due_time: null,
+        when: "tomorrow",
+      },
+    );
+    expect(packCompanionTaskDue("2026-09-09T06:00:00.000Z", "Europe/Moscow", "2026-09-09")).toEqual(
+      {
+        due_on: "2026-09-09",
+        due_time: "09:00",
+        when: "today",
+      },
+    );
   });
 
   it("detects today/tomorrow agenda questions and ignores capture phrasing", () => {
@@ -650,9 +691,9 @@ describe("companion agenda packing", () => {
 
 describe("inferCompanionTaskActions", () => {
   it("still captures a single explicit add", () => {
-    expect(inferCompanionTaskActions("добавь задачу Позвонить в банк").map((item) => item.title)).toEqual([
-      "Позвонить в банк",
-    ]);
+    expect(
+      inferCompanionTaskActions("добавь задачу Позвонить в банк").map((item) => item.title),
+    ).toEqual(["Позвонить в банк"]);
   });
 
   it("splits a spoken dump of several errands", () => {
@@ -664,10 +705,9 @@ describe("inferCompanionTaskActions", () => {
   });
 
   it("splits two captures joined with и", () => {
-    expect(inferCompanionTaskActions("добавь купить молоко и позвонить маме").map((item) => item.title)).toEqual([
-      "Купить молоко",
-      "Позвонить маме",
-    ]);
+    expect(
+      inferCompanionTaskActions("добавь купить молоко и позвонить маме").map((item) => item.title),
+    ).toEqual(["Купить молоко", "Позвонить маме"]);
   });
 
   it("does not turn a deadline follow-up or a question into tasks", () => {
@@ -678,9 +718,9 @@ describe("inferCompanionTaskActions", () => {
   });
 
   it("keeps a grocery list as one task when there is a single verb", () => {
-    expect(inferCompanionTaskActions("надо купить хлеб и молоко").map((item) => item.title)).toEqual([
-      "Купить хлеб и молоко",
-    ]);
+    expect(
+      inferCompanionTaskActions("надо купить хлеб и молоко").map((item) => item.title),
+    ).toEqual(["Купить хлеб и молоко"]);
   });
 
   it("still completes a named task", () => {
@@ -736,10 +776,9 @@ describe("mergeCompanionTaskActions", () => {
       "надо купить молоко, позвонить в банк, записаться к врачу и отправить документы",
     );
     expect(
-      mergeCompanionTaskActions(
-        [createAction("Купить молоко")],
-        inferred,
-      ).map((item) => item.title),
+      mergeCompanionTaskActions([createAction("Купить молоко")], inferred).map(
+        (item) => item.title,
+      ),
     ).toEqual(["Купить молоко", "Позвонить в банк", "Записаться к врачу", "Отправить документы"]);
     expect(
       mergeCompanionTaskActions(
@@ -770,11 +809,10 @@ describe("normalizeDescriptionEdits", () => {
 
   it("rewrites a leftover create into an update of the open task", () => {
     const actions = normalizeDescriptionEdits(
-      mergeCompanionTaskActions(
-        [],
-        inferCompanionTaskActions(userText),
-      ).concat([
-        createAction("в описание задачи необходимые лекасртва для поездки с ребенком 5 лет заграницу"),
+      mergeCompanionTaskActions([], inferCompanionTaskActions(userText)).concat([
+        createAction(
+          "в описание задачи необходимые лекасртва для поездки с ребенком 5 лет заграницу",
+        ),
       ]),
       userText,
       [meds],
@@ -807,15 +845,15 @@ describe("normalizeDescriptionEdits", () => {
       op: "update",
       description: "• парацетамол\n• антигистамин",
     });
-    expect(
-      normalizeDescriptionEdits(parsed.task_actions, userText, [meds], parsed.answer),
-    ).toEqual([
-      expect.objectContaining({
-        op: "update",
-        task_id: meds.id,
-        description: "• парацетамол\n• антигистамин",
-      }),
-    ]);
+    expect(normalizeDescriptionEdits(parsed.task_actions, userText, [meds], parsed.answer)).toEqual(
+      [
+        expect.objectContaining({
+          op: "update",
+          task_id: meds.id,
+          description: "• парацетамол\n• антигистамин",
+        }),
+      ],
+    );
   });
 });
 
@@ -884,5 +922,75 @@ describe("telegram reply context", () => {
       content: expect.stringContaining("Купить лекарства"),
     });
     expect(turns[0]?.content).toMatch(/replied-to/);
+  });
+});
+
+describe("normalizeTaskTitle", () => {
+  it("strips the spoken command wrapper and keeps the action", () => {
+    expect(normalizeTaskTitle("Добавь задачу купить молоко")).toBe("Купить молоко");
+    expect(normalizeTaskTitle("Илзи, добавь, пожалуйста, задачу: позвонить маме")).toBe(
+      "Позвонить маме",
+    );
+    expect(normalizeTaskTitle("Добавь в список задачу — оплатить интернет")).toBe(
+      "Оплатить интернет",
+    );
+    expect(normalizeTaskTitle("Поставь задачу, что надо продлить страховку")).toBe(
+      "Продлить страховку",
+    );
+    expect(normalizeTaskTitle("Купить хлеб, добавь в список")).toBe("Купить хлеб");
+    expect(normalizeTaskTitle("добавь задачу")).toBe("");
+  });
+
+  it("leaves real actions that start with the same verbs alone", () => {
+    expect(normalizeTaskTitle("Поставить счётчики")).toBe("Поставить счётчики");
+    expect(normalizeTaskTitle("Запиши сына в секцию")).toBe("Запиши сына в секцию");
+  });
+});
+
+describe("applyCompanionTaskActions titles", () => {
+  it("never saves «Добавь задачу» as the task title", async () => {
+    const repository = new InMemoryRepository();
+    const user = await repository.upsertTelegramUser({ telegram_id: 991, name: "A" });
+    await applyCompanionTaskActions(
+      repository,
+      user.id,
+      [
+        {
+          op: "create",
+          task_id: null,
+          title: "Добавь задачу изучить курсы Вани",
+          due_at: null,
+          estimate_minutes: null,
+          goal_id: null,
+          project_id: null,
+          kind: "task",
+          importance: null,
+          urgency: null,
+          assignee: "user",
+        },
+        {
+          op: "create",
+          task_id: null,
+          title: "Добавь задачу",
+          due_at: "2026-11-29",
+          estimate_minutes: null,
+          goal_id: null,
+          project_id: null,
+          kind: "task",
+          importance: null,
+          urgency: null,
+          assignee: "user",
+        },
+      ],
+      {
+        timezone: "UTC",
+        userText: "добавь задачу изучить курсы Вани",
+        now: new Date("2026-11-17T10:00:00Z"),
+      },
+    );
+    const tasks = await repository.listTasks(user.id);
+    expect(tasks.map((task) => [task.title, task.due_at ?? null])).toEqual([
+      ["Изучить курсы Вани", null],
+    ]);
   });
 });
