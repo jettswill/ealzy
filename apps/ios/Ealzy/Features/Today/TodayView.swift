@@ -61,7 +61,6 @@ struct TodayView: View {
             .padding(.bottom, 120) // место под вкладками и кнопкой Илзи
         }
         .scrollDismissesKeyboard(.interactively)
-        .background { LampBackground() }
         .refreshable {
             await calendar.sync()
             tasks.nextEvent = calendar.nextEventItem

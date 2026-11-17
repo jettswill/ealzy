@@ -87,7 +87,7 @@ struct RootView: View {
                     ReserveView().tag(AppRouter.Tab.reserve)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
-                .background(Palette.ground.ignoresSafeArea())
+                .background { LampBackground() } // свет лампы на весь экран, общий для обеих вкладок
                 .onChange(of: router.tab) { UISelectionFeedbackGenerator().selectionChanged() }
 
                 BottomBar(tab: $router.tab) { router.openIlzi() }

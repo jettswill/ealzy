@@ -63,7 +63,6 @@ struct ReserveView: View {
             .padding(.top, 44)
             .padding(.bottom, 120)
         }
-        .background { LampBackground() }
         .refreshable { await tasks.load() }
     }
 

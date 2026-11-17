@@ -82,14 +82,17 @@ struct IlziSheet: View {
         let focus = tasks.plan.focus.first
         let items = [
             "Что у меня сегодня?",
-            focus.map { "«\(String($0.title.prefix(18)))» — на вечер" },
+            focus.map { _ in "Главное — на вечер" },
             "Выгрузить мысли",
         ].compactMap { $0 }
-        return FlowRow(spacing: 8) {
+        return ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 8) {
             ForEach(items, id: \.self) { item in
                 Button(item) {
                     if item == "Выгрузить мысли" {
                         inputFocused = true
+                    } else if item == "Главное — на вечер", let focus {
+                        send("Перенеси «\(focus.title)» на сегодня вечер")
                     } else {
                         send(item)
                     }
@@ -100,6 +103,7 @@ struct IlziSheet: View {
                 .frame(height: 36)
                 .overlay(Capsule().strokeBorder(Palette.rule))
             }
+          }
         }
         .padding(.top, 2)
     }
