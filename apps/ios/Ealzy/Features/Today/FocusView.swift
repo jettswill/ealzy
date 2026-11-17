@@ -148,7 +148,7 @@ struct FocusView: View {
     private var endText: String {
         guard let state = focus.state else { return "" }
         let end = state.startedAt.addingTimeInterval(TimeInterval(state.plannedMinutes * 60) - state.banked)
-        return "Фокус до \(end.formatted(date: .omitted, time: .shortened))"
+        return "до \(end.formatted(date: .omitted, time: .shortened))"
     }
 
     private func finish() {
