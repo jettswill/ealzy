@@ -26,22 +26,32 @@ final class ScreenshotTests: XCTestCase {
             let app = launch(appearance)
             XCTAssertTrue(app.buttons["Не сегодня"].waitForExistence(timeout: 15))
             sleep(1)
-            snap("today-\(appearance)")
+            snap("1-today-\(appearance)")
 
-            app.tabBars.buttons["Илзи"].tap()
+            app.buttons["Запас"].tap()
             sleep(1)
-            snap("chat-\(appearance)")
-
-            app.tabBars.buttons["Ещё"].tap()
+            snap("2-reserve-\(appearance)")
+            app.buttons["Сегодня"].tap()
             sleep(1)
-            snap("settings-\(appearance)")
 
-            app.tabBars.buttons["Сегодня"].tap()
+            app.buttons["Илзи"].tap()
+            sleep(2)
+            snap("3-ilzi-half-\(appearance)")
+            // Закрыть шторку — свайпом вниз, без крестика.
+            app.otherElements.firstMatch.swipeDown(velocity: .fast)
+            sleep(1)
+
+            app.buttons["Ещё"].tap()
+            sleep(1)
+            snap("4-settings-\(appearance)")
+            app.buttons["Готово"].firstMatch.tap()
+            sleep(1)
+
             let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Начать'")).firstMatch
             if start.waitForExistence(timeout: 5) {
                 start.tap()
                 sleep(2)
-                snap("focus-\(appearance)")
+                snap("5-focus-\(appearance)")
                 app.buttons["Выйти из фокуса"].tap()
             }
             app.terminate()

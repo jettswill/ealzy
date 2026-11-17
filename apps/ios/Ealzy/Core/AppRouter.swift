@@ -1,32 +1,49 @@
 import Foundation
 import Observation
 
-/// Куда открыть приложение: виджет «Записать», кнопка действия, ссылки ealzy://.
+/// Навигация: две вкладки («Сегодня», «Запас»), шторка Илзи и «Ещё».
+/// Сюда же ведут виджет «Записать», кнопка действия, push и ссылки ealzy://.
 @MainActor
 @Observable
 final class AppRouter {
     static let shared = AppRouter()
 
     enum Tab: Hashable {
-        case today, chat, settings
+        case today, reserve
     }
 
     var tab: Tab = .today
-    /// Счётчик запросов «открой запись» — экран «Сегодня» ставит курсор в поле.
+    /// Шторка Илзи (полэкрана, во весь — когда печатаешь).
+    var isIlziOpen = false
+    var showSettings = false
+    /// Счётчик «сразу печатать/говорить» — шторка ставит курсор в поле.
     private(set) var captureRequest = 0
+    /// Текст, который надо сразу отправить Илзи (например, «Разобрать» из запаса).
+    var pendingMessage: String?
+
+    func openIlzi() {
+        showSettings = false
+        isIlziOpen = true
+    }
 
     func openCapture() {
-        tab = .today
+        openIlzi()
         captureRequest += 1
     }
 
-    /// ealzy://capture, ealzy://chat, ealzy://today. Возвращает true, если ссылка наша.
+    func ask(_ text: String) {
+        pendingMessage = text
+        openIlzi()
+    }
+
+    /// ealzy://capture, ealzy://chat, ealzy://today, ealzy://reserve. true — если ссылка наша.
     func handle(_ url: URL) -> Bool {
         guard url.scheme == "ealzy" else { return false }
         switch url.host {
         case "capture": openCapture()
-        case "chat": tab = .chat
+        case "chat": openIlzi()
         case "today": tab = .today
+        case "reserve": tab = .reserve
         default: return false
         }
         return true

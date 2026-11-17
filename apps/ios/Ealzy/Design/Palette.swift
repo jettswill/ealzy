@@ -102,3 +102,50 @@ struct FloatingPanel: ViewModifier {
 extension View {
     func floatingPanel() -> some View { modifier(FloatingPanel()) }
 }
+
+/// Списки в духе «Лампы»: строки на бумаге, без белых карточек.
+struct LampList: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background { LampBackground() }
+            .foregroundStyle(Palette.ink)
+    }
+}
+
+struct LampRow: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .listRowBackground(Color.clear)
+            .listRowSeparatorTint(Palette.rule)
+    }
+}
+
+extension View {
+    func lampList() -> some View { modifier(LampList()) }
+    func lampRow() -> some View { modifier(LampRow()) }
+}
+
+// MARK: - Свет лампы
+
+struct LampBackground: View {
+    var narrow = false
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Palette.ground
+            GeometryReader { proxy in
+                RadialGradient(
+                    colors: [Palette.pool, .clear],
+                    center: narrow ? UnitPoint(x: 0.5, y: 0.4) : UnitPoint(x: 0.22, y: 0.16),
+                    startRadius: 0,
+                    endRadius: proxy.size.width * (narrow ? 0.75 : 1.05)
+                )
+                .frame(height: proxy.size.height * 0.7)
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+

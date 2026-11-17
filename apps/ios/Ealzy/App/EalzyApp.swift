@@ -75,21 +75,44 @@ struct RootView: View {
     @Environment(ChatStore.self) private var chat
     @Environment(FocusSession.self) private var focus
     @State private var showOnboarding = !DemoData.isOn && !UserDefaults.standard.bool(forKey: OnboardingView.doneKey)
+    @State private var ilziDetent: PresentationDetent = .medium
 
     var body: some View {
         @Bindable var router = router
         if auth.isSignedIn {
-            TabView(selection: $router.tab) {
-                TodayView()
-                    .tabItem { Label("Сегодня", systemImage: "sun.max") }
-                    .tag(AppRouter.Tab.today)
-                ChatView()
-                    .tabItem { Label("Илзи", systemImage: "bubble.left") }
-                    .tag(AppRouter.Tab.chat)
-                SettingsView()
-                    .tabItem { Label("Ещё", systemImage: "ellipsis.circle") }
-                    .tag(AppRouter.Tab.settings)
+            ZStack(alignment: .bottom) {
+                // «Сегодня» ⇄ «Запас» — и вкладками, и свайпом влево-вправо.
+                TabView(selection: $router.tab) {
+                    TodayView().tag(AppRouter.Tab.today)
+                    ReserveView().tag(AppRouter.Tab.reserve)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .background(Palette.ground.ignoresSafeArea())
+                .onChange(of: router.tab) { UISelectionFeedbackGenerator().selectionChanged() }
+
+                BottomBar(tab: $router.tab) { router.openIlzi() }
             }
+            .overlay(alignment: .topTrailing) {
+                Button { router.showSettings = true } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3)
+                        .foregroundStyle(Palette.ink2)
+                        .frame(width: 44, height: 44)
+                        .floatingPanel()
+                }
+                .accessibilityLabel("Ещё")
+                .padding(.trailing, 16)
+                .padding(.top, 2)
+            }
+            .sheet(isPresented: $router.isIlziOpen) {
+                IlziSheet(detent: $ilziDetent)
+                    .presentationDetents([.medium, .large], selection: $ilziDetent)
+                    .presentationDragIndicator(.visible)
+                    .presentationCornerRadius(30)
+                    .presentationBackground(Palette.raised)
+            }
+            .onChange(of: router.isIlziOpen) { if router.isIlziOpen { ilziDetent = .medium } }
+            .sheet(isPresented: $router.showSettings) { SettingsView() }
             .task {
                 await auth.refresh()
                 await chat.flushQueue()
@@ -109,5 +132,53 @@ struct RootView: View {
         } else {
             LoginView()
         }
+    }
+}
+
+/// Нижняя панель: «Сегодня» и «Запас» слева, круглая золотая Илзи справа.
+struct BottomBar: View {
+    @Binding var tab: AppRouter.Tab
+    let openIlzi: () -> Void
+
+    var body: some View {
+        HStack(alignment: .center) {
+            HStack(spacing: 0) {
+                item(.today, "Сегодня", "sun.max")
+                item(.reserve, "Запас", "tray")
+            }
+            .padding(.horizontal, 6)
+            .frame(height: 64)
+            .floatingPanel()
+
+            Spacer()
+
+            Button(action: openIlzi) {
+                Image("IlziMark")
+                    .resizable()
+                    .frame(width: 30, height: 30)
+                    .foregroundStyle(Palette.goldInk)
+                    .frame(width: 64, height: 64)
+                    .background(Palette.gold, in: Circle())
+                    .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+            }
+            .accessibilityLabel("Илзи")
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 4)
+    }
+
+    private func item(_ value: AppRouter.Tab, _ title: String, _ icon: String) -> some View {
+        Button {
+            withAnimation(.snappy) { tab = value }
+        } label: {
+            VStack(spacing: 3) {
+                Image(systemName: icon).font(.system(size: 20, weight: .regular))
+                Text(title).font(.system(size: 11, weight: .semibold))
+            }
+            .frame(width: 96, height: 56)
+            .foregroundStyle(tab == value ? Palette.goldText : Palette.ink3)
+        }
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(tab == value ? .isSelected : [])
     }
 }
