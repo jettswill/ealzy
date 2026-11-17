@@ -31,6 +31,17 @@ final class ScreenshotTests: XCTestCase {
             app.buttons["Все дела"].tap()
             sleep(1)
             snap("2-reserve-\(appearance)")
+            if appearance == "light" {
+                // Отметил — зачёркнуто и ждёт, можно передумать.
+                let check = app.buttons.matching(NSPredicate(format: "label == 'Отметить сделанным'")).element(boundBy: 3)
+                if check.exists { check.tap(); usleep(500_000); snap("2b-reserve-checked-light") }
+                let field = app.textFields["Новое дело"]
+                if field.exists {
+                    field.tap(); field.typeText("Купить батарейки")
+                    snap("2c-reserve-new-task-light")
+                    app.buttons["Добавить дело"].tap(); sleep(1)
+                }
+            }
             app.buttons["Сегодня"].tap()
             sleep(1)
 

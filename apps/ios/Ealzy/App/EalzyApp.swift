@@ -39,6 +39,7 @@ struct EalzyApp: App {
                 focus.refreshExternal() // фаза помодоро могла смениться, пока приложение было закрыто
                 Task { await refreshAll() }
             case .background:
+                tasks.commitPending()
                 Self.scheduleRefresh()
             default:
                 break
@@ -96,7 +97,10 @@ struct RootView: View {
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
                     .background { LampBackground() } // свет лампы на весь экран, общий для обеих вкладок
-                    .onChange(of: router.tab) { UISelectionFeedbackGenerator().selectionChanged() }
+                    .onChange(of: router.tab) {
+                        UISelectionFeedbackGenerator().selectionChanged()
+                        tasks.commitPending() // перешёл на другую вкладку — отмеченное уходит
+                    }
 
                     BottomBar(tab: $router.tab, openIlzi: { router.openIlzi() })
                 }

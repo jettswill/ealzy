@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 
 /// Илзи — шторка поверх дня, всегда открыта на последнем сообщении. В полэкрана, во весь — когда печатаешь
@@ -11,6 +12,10 @@ struct IlziSheet: View {
     @State private var speech = SpeechInput()
     @State private var spokenPrefix = ""
     @FocusState private var inputFocused: Bool
+    /// Голосовой разговор: слушаем, по паузе отправляем, ответ Илзи читаем вслух.
+    @State private var voiceMode = false
+    @State private var lastSpeech = Date()
+    @State private var voice = VoiceReply()
 
 
     var body: some View {
@@ -32,6 +37,9 @@ struct IlziSheet: View {
                                     .padding(.top, index > 0 ? 6 : 0)
                             }
                             MessageBubble(message: message).id(message.id)
+                        }
+                        if voiceMode && speech.isRecording {
+                            ListeningView(text: draft).id("listening")
                         }
                         if chat.isSending {
                             TypingDots().id("typing")
@@ -68,10 +76,37 @@ struct IlziSheet: View {
         .task { await chat.load() }
         .onChange(of: inputFocused) { if inputFocused { detent = .large } }
         .onChange(of: router.captureRequest) { inputFocused = true }
+        .onChange(of: router.voicePending) { if router.voicePending { startVoice() } }
         .onAppear {
             if let text = router.pendingMessage {
                 router.pendingMessage = nil
                 send(text)
+            }
+            if router.voicePending { startVoice() }
+        }
+        .onDisappear {
+            voiceMode = false
+            speech.stop()
+            voice.stop()
+        }
+        .task(id: voiceMode) {
+            // Пауза в речи 1,6 с — фраза закончена, отправляем; тишина 8 с с самого начала — выключаем.
+            guard voiceMode else { return }
+            let started = Date()
+            while voiceMode && !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard speech.isRecording else { continue }
+                let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !text.isEmpty && Date().timeIntervalSince(lastSpeech) > 1.6 {
+                    speech.stop()
+                    send(text, speakReply: true)
+                    return
+                }
+                if text.isEmpty && Date().timeIntervalSince(started) > 8 {
+                    speech.stop()
+                    voiceMode = false
+                    return
+                }
             }
         }
     }
@@ -167,6 +202,7 @@ struct IlziSheet: View {
                 } else {
                     Button {
                         spokenPrefix = draft.isEmpty ? "" : draft + " "
+                        voiceMode = false
                         Task { await speech.toggle { text in draft = spokenPrefix + text } }
                     } label: {
                         Image(systemName: speech.isRecording ? "stop.fill" : "mic.fill")
@@ -188,15 +224,81 @@ struct IlziSheet: View {
         .padding(.bottom, 10)
     }
 
-    private func send(_ text: String) {
+    private func send(_ text: String, speakReply: Bool = false) {
         speech.stop()
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         draft = ""
         Task {
-            _ = await chat.capture(trimmed)
+            let reply = await chat.capture(trimmed)
+            if speakReply, let reply { voice.speak(reply) }
+            voiceMode = false
             await tasks.load() // Илзи могла записать или поменять дела
         }
+    }
+
+    /// Как в Shazam: открыл — и уже слушаю.
+    private func startVoice() {
+        router.voicePending = false
+        voice.stop()
+        draft = ""
+        lastSpeech = Date()
+        voiceMode = true
+        Task {
+            await speech.start { text in
+                draft = text
+                lastSpeech = Date()
+            }
+            if !speech.isRecording { voiceMode = false }
+        }
+    }
+}
+
+/// Илзи слушает: пульсирующий круг и то, что уже расслышала.
+struct ListeningView: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 14) {
+            ZStack {
+                Circle().fill(Palette.gold.opacity(0.25)).frame(width: 52, height: 52)
+                    .phaseAnimator([false, true]) { view, on in
+                        view.scaleEffect(on ? 1.15 : 0.9)
+                    } animation: { _ in .easeInOut(duration: 0.8) }
+                Circle().fill(Palette.gold).frame(width: 38, height: 38)
+                Image(systemName: "mic.fill").foregroundStyle(Palette.goldInk)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Слушаю…").font(.footnote.weight(.semibold)).foregroundStyle(Palette.goldText)
+                Text(text.isEmpty ? "Говори — сделаю паузу и отвечу" : text)
+                    .font(.subheadline)
+                    .foregroundStyle(text.isEmpty ? Palette.ink3 : Palette.ink)
+                    .lineLimit(3)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Ответ Илзи вслух в голосовом разговоре.
+@MainActor
+@Observable
+final class VoiceReply {
+    private let synthesizer = AVSpeechSynthesizer()
+
+    func speak(_ text: String) {
+        let plain = text.replacingOccurrences(of: "**", with: "").replacingOccurrences(of: "*", with: "")
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: .duckOthers)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        let utterance = AVSpeechUtterance(string: plain)
+        utterance.voice = AVSpeechSynthesisVoice(language: "ru-RU")
+        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 1.05
+        synthesizer.speak(utterance)
+    }
+
+    func stop() {
+        if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
     }
 }
 

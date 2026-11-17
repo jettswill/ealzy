@@ -48,11 +48,18 @@ struct FocusWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: SnapshotEntry
 
+    private var pages: Bool { family == .systemMedium || family == .systemLarge }
+    private var pager: AnyView? { pages ? AnyView(PagerDots(page: WidgetPage.current)) : nil }
+
     var body: some View {
         if let snapshot = entry.snapshot, let run = snapshot.focusRun {
             FocusRunView(run: run, now: entry.date, family: family)
+        } else if pages, let snapshot = entry.snapshot, WidgetPage.current == 1 {
+            FreeDayView(snapshot: snapshot, family: family, mode: .ahead, accessory: pager)
+        } else if pages, WidgetPage.current == 2 {
+            IlziPage(family: family, accessory: pager)
         } else if let snapshot = entry.snapshot, snapshot.focus.isEmpty && snapshot.next.isEmpty {
-            FreeDayView(snapshot: snapshot, family: family)
+            FreeDayView(snapshot: snapshot, family: family, accessory: pager)
         } else if let snapshot = entry.snapshot {
             switch family {
             case .accessoryInline:
@@ -70,9 +77,9 @@ struct FocusWidgetView: View {
             case .systemSmall:
                 SmallFocus(snapshot: snapshot)
             case .systemLarge:
-                DayList(snapshot: snapshot, titleLines: 3, rows: 6, showEvent: true)
+                DayList(snapshot: snapshot, titleLines: 3, rows: 6, showEvent: true, accessory: pager)
             default:
-                DayList(snapshot: snapshot, titleLines: 2, rows: 2, showEvent: false)
+                DayList(snapshot: snapshot, titleLines: 2, rows: 2, showEvent: false, accessory: pager)
             }
         } else {
             VStack(alignment: .leading, spacing: 6) {
@@ -219,6 +226,7 @@ private struct DayList: View {
     let titleLines: Int
     let rows: Int
     let showEvent: Bool
+    var accessory: AnyView? = nil
 
     var body: some View {
         let next = Array(snapshot.next.prefix(rows))
@@ -263,12 +271,16 @@ private struct DayList: View {
                 .padding(.top, 10)
             }
             Spacer(minLength: 0)
-            if hidden > 0 || snapshot.doneCount > 0 {
-                Text([hidden > 0 ? "ещё \(hidden) на сегодня" : nil,
-                      snapshot.doneCount > 0 ? "сделано \(snapshot.doneCount)" : nil]
-                    .compactMap { $0 }.joined(separator: " · "))
-                    .font(.caption2)
-                    .foregroundStyle(Palette.ink3)
+            HStack(alignment: .center) {
+                if hidden > 0 || snapshot.doneCount > 0 {
+                    Text([hidden > 0 ? "ещё \(hidden) на сегодня" : nil,
+                          snapshot.doneCount > 0 ? "сделано \(snapshot.doneCount)" : nil]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption2)
+                        .foregroundStyle(Palette.ink3)
+                }
+                Spacer(minLength: 0)
+                if let accessory { accessory }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -310,6 +322,147 @@ private struct Row: View {
                     .lineLimit(1)
                     .layoutPriority(1)
             }
+        }
+    }
+}
+
+// MARK: Карусель
+
+/// Страницы виджета: 0 — день, 1 — «Впереди», 2 — Илзи. Листаются кнопкой с точками
+/// (виджеты iOS не прокручиваются, но кнопки в них работают).
+enum WidgetPage {
+    static let count = 3
+    static let key = "widgetPage"
+    static var current: Int { UserDefaults.standard.integer(forKey: key) % count }
+}
+
+struct NextWidgetPageIntent: AppIntent {
+    static var title: LocalizedStringResource = "Следующая страница"
+    static var isDiscoverable = false
+
+    func perform() async throws -> some IntentResult {
+        UserDefaults.standard.set((WidgetPage.current + 1) % WidgetPage.count, forKey: WidgetPage.key)
+        return .result()
+    }
+}
+
+/// Точки страниц + стрелка: нажал — следующая страница.
+private struct PagerDots: View {
+    let page: Int
+
+    var body: some View {
+        Button(intent: NextWidgetPageIntent()) {
+            HStack(spacing: 4) {
+                ForEach(0..<WidgetPage.count, id: \.self) { index in
+                    Circle()
+                        .fill(index == page ? Palette.goldText : Palette.ink3.opacity(0.4))
+                        .frame(width: 5, height: 5)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Palette.ink3)
+                    .padding(.leading, 2)
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(Palette.rule.opacity(0.5), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Следующая страница виджета")
+    }
+}
+
+/// Страница «Илзи»: большая кнопка — сразу говорить, и пара быстрых вопросов.
+private struct IlziPage: View {
+    let family: WidgetFamily
+    let accessory: AnyView?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 14) {
+                Link(destination: URL(string: "ealzy://voice")!) {
+                    ZStack {
+                        Circle().fill(Palette.gold)
+                        Image(systemName: "mic.fill")
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(Palette.goldInk)
+                    }
+                    .frame(width: 72, height: 72)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Скажи Илзи")
+                        .font(Typeface.display(18))
+                        .foregroundStyle(Palette.ink)
+                    Text("Дело, мысль, вопрос — нажми и говори, я разберусь.")
+                        .font(.caption)
+                        .foregroundStyle(Palette.ink2)
+                        .lineLimit(2)
+                }
+            }
+            Spacer(minLength: 6)
+            HStack(spacing: 6) {
+                chip("Что завтра?", FreeDayView.ask("Что у меня завтра? Календарь и дела"))
+                chip("Спланируй неделю", FreeDayView.ask("Давай спланируем неделю"))
+                Spacer(minLength: 0)
+                if let accessory { accessory }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func chip(_ title: String, _ url: URL) -> some View {
+        Link(destination: url) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .foregroundStyle(Palette.ink)
+                .background(Palette.rule.opacity(0.6), in: Capsule())
+        }
+    }
+}
+
+// MARK: Голос — как Shazam: одна большая кнопка
+
+struct VoiceWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "EalzyVoice", provider: SnapshotProvider()) { _ in
+            VoiceWidgetView()
+                .containerBackground(for: .widget) { Palette.ground }
+                .widgetURL(URL(string: "ealzy://voice"))
+        }
+        .configurationDisplayName("Илзи — голосом")
+        .description("Одно касание — и говоришь с Илзи: записать дело, спросить, попросить.")
+        .supportedFamilies([.systemSmall, .accessoryCircular])
+    }
+}
+
+struct VoiceWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+
+    var body: some View {
+        if family == .accessoryCircular {
+            ZStack {
+                AccessoryWidgetBackground()
+                Image(systemName: "mic.fill").font(.title2)
+            }
+            .accessibilityLabel("Сказать Илзи")
+        } else {
+            VStack(spacing: 10) {
+                ZStack {
+                    Circle().fill(Palette.gold.opacity(0.22)).frame(width: 104, height: 104)
+                    Circle().fill(Palette.gold).frame(width: 80, height: 80)
+                    Image("IlziMark")
+                        .resizable()
+                        .frame(width: 40, height: 40)
+                        .foregroundStyle(Palette.goldInk)
+                }
+                Text("Скажи Илзи")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.ink)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 }
@@ -356,6 +509,7 @@ struct CaptureWidgetView: View {
 struct EalzyWidgetBundle: WidgetBundle {
     var body: some Widget {
         FocusWidget()
+        VoiceWidget()
         CaptureWidget()
         FocusLiveActivityWidget()
     }
