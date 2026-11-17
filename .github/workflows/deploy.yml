@@ -2,9 +2,15 @@ name: Deploy
 
 # Выкладка в прод: при пуше в main и по кнопке «Run workflow».
 # Сначала типы, тесты и сборка; сервер трогаем только если они прошли.
+# Изменения только в iOS и документации сайт не меняют — сервер не трогаем.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "apps/ios/**"
+      - "docs/**"
+      - "**/*.md"
+      - ".github/workflows/ios*.yml"
   workflow_dispatch:
 
 concurrency:

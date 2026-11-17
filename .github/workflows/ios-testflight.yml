@@ -2,12 +2,8 @@ name: iOS TestFlight
 
 # Сборка с подписью и выкладка в TestFlight. Спит, пока в секретах GitHub нет ключей
 # Apple: APPLE_TEAM_ID, ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (содержимое .p8 целиком).
+# Только по кнопке «Run workflow»: каждый запуск идёт на macOS и дорого стоит лимиту.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "apps/ios/**"
-      - ".github/workflows/ios-testflight.yml"
   workflow_dispatch:
 
 concurrency:
