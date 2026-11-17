@@ -8,10 +8,26 @@ struct SettingsView: View {
     @State private var notificationsOn = true
     @State private var showReminders = false
     @State private var confirmDelete = false
+    @AppStorage(Appearance.storageKey) private var appearance = Appearance.system.rawValue
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Picker("Оформление", selection: $appearance) {
+                        ForEach(Appearance.allCases) { Text($0.title).tag($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                } header: {
+                    Text("Оформление")
+                } footer: {
+                    Text(appearance == Appearance.system.rawValue
+                         ? "Ealzy светлеет и темнеет вместе с iPhone."
+                         : "Тема не зависит от настроек iPhone.")
+                }
+
                 Section {
                     Toggle(isOn: Binding(
                         get: { calendar.isSyncEnabled },
@@ -102,6 +118,8 @@ struct SettingsView: View {
                     Text("Удаление стирает дела, людей, заметки и память Илзи на всех устройствах, в Telegram и на сайте.")
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(Palette.ground.ignoresSafeArea())
             .navigationTitle("Ещё")
             .task { notificationsOn = await ReminderScheduler.shared.isAuthorized() }
             .sheet(isPresented: $showReminders) {

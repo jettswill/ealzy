@@ -97,3 +97,41 @@ enum DayPlanner {
         (lhs.dueAt ?? .distantFuture) < (rhs.dueAt ?? .distantFuture)
     }
 }
+
+/// Отрезок времени: встреча, тренировка, окно для фокуса.
+struct TimeSpan: Equatable {
+    let start: Date
+    let end: Date
+}
+
+extension DayPlanner {
+    /// Первое свободное окно не короче `minutes`: начиная с ближайшей четверти часа,
+    /// между событиями календаря, не позже `dayEnd`. Это «окно для фокуса» на ленте дня.
+    static func focusWindow(
+        minutes: Int, busy: [TimeSpan], now: Date, dayEnd: Date, calendar: Calendar = .current
+    ) -> TimeSpan? {
+        let duration = TimeInterval(max(minutes, 15) * 60)
+        var start = roundUp(now, toMinutes: 15, calendar: calendar)
+        for span in busy.sorted(by: { $0.start < $1.start }) where span.end > start {
+            if span.start >= start.addingTimeInterval(duration) { break }
+            start = max(start, span.end)
+        }
+        let end = start.addingTimeInterval(duration)
+        return end <= dayEnd ? TimeSpan(start: start, end: end) : nil
+    }
+
+    /// Ближайшее событие, которое ещё не началось.
+    static func nextBusy(after now: Date, busy: [TimeSpan]) -> TimeSpan? {
+        busy.filter { $0.start > now }.min { $0.start < $1.start }
+    }
+
+    static func roundUp(_ date: Date, toMinutes step: Int, calendar: Calendar = .current) -> Date {
+        let parts = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: date)
+        let minute = parts.minute ?? 0
+        let rounded = Int((Double(minute) / Double(step)).rounded(.up)) * step
+        var base = parts
+        base.minute = 0
+        let hourStart = calendar.date(from: base) ?? date
+        return hourStart.addingTimeInterval(TimeInterval(rounded * 60))
+    }
+}

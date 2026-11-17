@@ -11,6 +11,8 @@ struct EalzyApp: App {
     @State private var chat = ChatStore()
     @State private var calendar = PhoneCalendar()
     @State private var router = AppRouter.shared
+    @State private var focus = FocusSession()
+    @AppStorage(Appearance.storageKey) private var appearance = Appearance.system.rawValue
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -21,6 +23,9 @@ struct EalzyApp: App {
                 .environment(chat)
                 .environment(calendar)
                 .environment(router)
+                .environment(focus)
+                .tint(Palette.goldText)
+                .preferredColorScheme(Appearance(rawValue: appearance)?.colorScheme)
                 .onOpenURL { url in
                     if !router.handle(url) { auth.handleCallback(url) }
                 }
@@ -68,6 +73,7 @@ struct RootView: View {
     @Environment(PhoneCalendar.self) private var calendar
     @Environment(AppRouter.self) private var router
     @Environment(ChatStore.self) private var chat
+    @Environment(FocusSession.self) private var focus
     @State private var showOnboarding = !UserDefaults.standard.bool(forKey: OnboardingView.doneKey)
 
     var body: some View {
@@ -78,10 +84,10 @@ struct RootView: View {
                     .tabItem { Label("Сегодня", systemImage: "sun.max") }
                     .tag(AppRouter.Tab.today)
                 ChatView()
-                    .tabItem { Label("Илзи", systemImage: "bubble.left.and.text.bubble.right") }
+                    .tabItem { Label("Илзи", systemImage: "bubble.left") }
                     .tag(AppRouter.Tab.chat)
                 SettingsView()
-                    .tabItem { Label("Ещё", systemImage: "gearshape") }
+                    .tabItem { Label("Ещё", systemImage: "ellipsis.circle") }
                     .tag(AppRouter.Tab.settings)
             }
             .task {
@@ -97,6 +103,9 @@ struct RootView: View {
                 await AppDelegate.upload()
             }
             .sheet(isPresented: $showOnboarding) { OnboardingView() }
+            .fullScreenCover(isPresented: Binding(get: { focus.isRunning }, set: { if !$0 { focus.finish() } })) {
+                FocusView()
+            }
         } else {
             LoginView()
         }
