@@ -557,3 +557,35 @@ export interface MailPlaybook {
 }
 
 export type ApiEnvelope<T> = T | { data: T };
+
+export type QuotaPlan = {
+  plan: string;
+  title: string;
+  period: "week" | "month";
+  period_tokens: number;
+  window_hours: number;
+  window_tokens: number;
+  updated_at: string;
+};
+
+export type QuotaStatus = {
+  plan: string;
+  plan_title: string;
+  plan_until: string | null;
+  enforced: boolean;
+  state: "ok" | "low" | "exhausted";
+  period: { kind: "week" | "month"; limit: number; used: number; resets_at: string };
+  window: { hours: number; limit: number; used: number; resets_at: string | null };
+  available_at: string | null;
+};
+
+export type AdminQuota = {
+  is_admin: boolean;
+  enforced?: boolean;
+  plans?: QuotaPlan[];
+};
+
+export type AdminUserQuota = {
+  user: { id: string; name: string; username: string | null; email: string | null };
+  quota: QuotaStatus;
+};

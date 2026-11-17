@@ -25,6 +25,11 @@ jobs:
         working-directory: apps/ios
     steps:
       - uses: actions/checkout@v4
+      - name: Xcode 26 (MLX требует Swift 6.2)
+        run: |
+          xc=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$xc" ]; then sudo xcode-select -s "$xc"; fi
+          xcodebuild -version
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Generate Xcode project

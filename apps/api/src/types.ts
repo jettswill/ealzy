@@ -328,6 +328,28 @@ export interface UsageCounter {
   call_count: number;
   updated_at: string;
 }
+export type QuotaPeriod = "week" | "month";
+export interface QuotaPlan {
+  plan: string;
+  title: string;
+  period: QuotaPeriod;
+  period_tokens: number;
+  window_hours: number;
+  window_tokens: number;
+  updated_at: string;
+}
+export interface UserPlan {
+  owner_id: string;
+  plan: string;
+  plan_until: string | null;
+  updated_at: string;
+}
+export interface UsageHour {
+  owner_id: string;
+  hour_start: string;
+  total_tokens: number;
+  call_count: number;
+}
 export interface PendingAction {
   id: string;
   owner_id: string;

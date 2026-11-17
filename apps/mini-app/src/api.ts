@@ -35,6 +35,10 @@ import type {
   CompletenessReport,
   ImportSession,
   UsageSummary,
+  QuotaStatus,
+  QuotaPlan,
+  AdminQuota,
+  AdminUserQuota,
 } from "./types";
 import {
   createLocalNote,
@@ -95,8 +99,7 @@ export class ApiAbortError extends ApiError {
 
 export function isAbortError(error: unknown) {
   return (
-    error instanceof ApiAbortError ||
-    (error instanceof DOMException && error.name === "AbortError")
+    error instanceof ApiAbortError || (error instanceof DOMException && error.name === "AbortError")
   );
 }
 
@@ -440,8 +443,7 @@ export class ApiClient {
 
   createDate(
     personId: string,
-    input: Pick<PersonDate, "kind" | "month" | "day"> &
-      Partial<Pick<PersonDate, "label" | "year">>,
+    input: Pick<PersonDate, "kind" | "month" | "day"> & Partial<Pick<PersonDate, "label" | "year">>,
   ) {
     return this.request<PersonDate>(`/api/people/${personId}/dates`, {
       method: "POST",
@@ -693,6 +695,33 @@ export class ApiClient {
 
   billingUsage(): Promise<UsageSummary> {
     return this.request("/api/billing/usage");
+  }
+
+  billingQuota(): Promise<QuotaStatus> {
+    return this.request("/api/billing/quota");
+  }
+
+  adminQuota(): Promise<AdminQuota> {
+    return this.request("/api/admin/quota");
+  }
+
+  adminClaim(): Promise<AdminQuota> {
+    return this.request("/api/admin/claim", { method: "POST" });
+  }
+
+  adminSaveQuota(body: { enforced?: boolean; plans?: Partial<QuotaPlan>[] }): Promise<AdminQuota> {
+    return this.request("/api/admin/quota", { method: "PUT", body: JSON.stringify(body) });
+  }
+
+  adminUserQuota(handle: string): Promise<AdminUserQuota> {
+    return this.request(`/api/admin/users/${encodeURIComponent(handle)}/quota`);
+  }
+
+  adminSetUserPlan(handle: string, plan: string, until: string | null): Promise<AdminUserQuota> {
+    return this.request(`/api/admin/users/${encodeURIComponent(handle)}/plan`, {
+      method: "PUT",
+      body: JSON.stringify({ plan, until }),
+    });
   }
 
   importTodoistStatus(): Promise<{ oauth: boolean }> {

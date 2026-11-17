@@ -25,6 +25,9 @@ import type {
   RecommendationFeedback,
   PendingAction,
   UsageCounter,
+  UsageHour,
+  QuotaPlan,
+  UserPlan,
   Experience,
   SelfPromise,
   SelfPromiseCheckin,
@@ -312,6 +315,33 @@ export type LinkAuthUserResult =
 export type NoteMutationResult =
   { status: "ok"; note: Note } | { status: "conflict"; note: Note } | { status: "not_found" };
 
+export const DEFAULT_QUOTA_PLANS: Omit<QuotaPlan, "updated_at">[] = [
+  {
+    plan: "free",
+    title: "Бесплатно",
+    period: "week",
+    period_tokens: 150_000,
+    window_hours: 5,
+    window_tokens: 50_000,
+  },
+  {
+    plan: "pro",
+    title: "Подписка",
+    period: "month",
+    period_tokens: 3_000_000,
+    window_hours: 5,
+    window_tokens: 300_000,
+  },
+  {
+    plan: "unlimited",
+    title: "Без лимита",
+    period: "month",
+    period_tokens: 0,
+    window_hours: 5,
+    window_tokens: 0,
+  },
+];
+
 export interface AppRepository {
   upsertTelegramUser(input: {
     telegram_id: number;
@@ -530,6 +560,19 @@ export interface AppRepository {
     at?: Date,
   ): Promise<UsageCounter>;
   listUsageCounters(ownerId: string, from: string, to: string): Promise<UsageCounter[]>;
+  listUsageHours(ownerId: string, since: string): Promise<UsageHour[]>;
+  listQuotaPlans(): Promise<QuotaPlan[]>;
+  updateQuotaPlan(
+    plan: string,
+    input: Partial<Pick<QuotaPlan, "period" | "period_tokens" | "window_hours" | "window_tokens">>,
+  ): Promise<QuotaPlan | null>;
+  getQuotaEnforced(): Promise<boolean>;
+  setQuotaEnforced(enforced: boolean): Promise<void>;
+  getUserPlan(ownerId: string): Promise<UserPlan | null>;
+  setUserPlan(ownerId: string, plan: string, until: string | null): Promise<UserPlan>;
+  isAdmin(ownerId: string): Promise<boolean>;
+  claimFirstAdmin(ownerId: string): Promise<boolean>;
+  findUserByHandle(handle: string): Promise<User | null>;
   createImportSession(
     ownerId: string,
     input: { source: ImportSource; items: ImportItem[]; access_token?: string | null },
@@ -585,9 +628,7 @@ const now = () => new Date().toISOString();
 
 export const APP_LOGIN_TTL_MS = 10 * 60_000;
 export type AppLoginPoll =
-  | { status: "pending" }
-  | { status: "expired" }
-  | { status: "approved"; owner_id: string };
+  { status: "pending" } | { status: "expired" } | { status: "approved"; owner_id: string };
 export interface DeviceInput {
   platform: "ios";
   push_token: string;
@@ -1026,9 +1067,7 @@ export class InMemoryRepository implements AppRepository {
                 norm(location.label ?? "").includes(q),
             ) ||
             this.datesOf(p.id).some(
-              (date) =>
-                norm(date.label ?? "").includes(q) ||
-                norm(date.kind).includes(q),
+              (date) => norm(date.label ?? "").includes(q) || norm(date.kind).includes(q),
             )),
       )
       .map((person) => this.withPersonExtras(person));
@@ -1931,7 +1970,8 @@ export class InMemoryRepository implements AppRepository {
     const end = Date.parse(to);
     return this.calendarEvents
       .filter(
-        (x) => x.owner_id === ownerId && Date.parse(x.starts_at) < end && Date.parse(x.ends_at) > start,
+        (x) =>
+          x.owner_id === ownerId && Date.parse(x.starts_at) < end && Date.parse(x.ends_at) > start,
       )
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
   }
@@ -1939,7 +1979,13 @@ export class InMemoryRepository implements AppRepository {
     return this.devices.filter((x) => x.owner_id === ownerId);
   }
   async createAppLoginRequest(nonce: string) {
-    this.appLogins.push({ nonce, owner_id: null, created_at: now(), approved_at: null, consumed_at: null });
+    this.appLogins.push({
+      nonce,
+      owner_id: null,
+      created_at: now(),
+      approved_at: null,
+      consumed_at: null,
+    });
   }
   async approveAppLoginRequest(nonce: string, ownerId: string) {
     const row = this.appLogins.find((x) => x.nonce === nonce);
@@ -1983,7 +2029,9 @@ export class InMemoryRepository implements AppRepository {
     return device;
   }
   async deleteDevice(ownerId: string, pushToken: string) {
-    this.devices = this.devices.filter((x) => !(x.owner_id === ownerId && x.push_token === pushToken));
+    this.devices = this.devices.filter(
+      (x) => !(x.owner_id === ownerId && x.push_token === pushToken),
+    );
   }
   async trackEvents(
     ownerId: string,
@@ -2013,6 +2061,16 @@ export class InMemoryRepository implements AppRepository {
     const prompt_tokens = Math.max(0, Math.trunc(input.prompt_tokens));
     const completion_tokens = Math.max(0, Math.trunc(input.completion_tokens));
     const total_tokens = Math.max(0, Math.trunc(input.total_tokens));
+    const hour_start = new Date(Math.floor(at.getTime() / 3_600_000) * 3_600_000).toISOString();
+    const hour = this.usageHours.find(
+      (row) => row.owner_id === ownerId && row.hour_start === hour_start,
+    );
+    if (hour) {
+      hour.total_tokens += total_tokens;
+      hour.call_count += 1;
+    } else {
+      this.usageHours.push({ owner_id: ownerId, hour_start, total_tokens, call_count: 1 });
+    }
     const existing = this.usageCounters.find(
       (row) => row.owner_id === ownerId && row.used_on === used_on && row.metric === metric,
     );
@@ -2036,6 +2094,62 @@ export class InMemoryRepository implements AppRepository {
     };
     this.usageCounters.push(created);
     return created;
+  }
+  usageHours: UsageHour[] = [];
+  quotaPlans: QuotaPlan[] = DEFAULT_QUOTA_PLANS.map((plan) => ({ ...plan, updated_at: now() }));
+  quotaEnforced = false;
+  userPlans: UserPlan[] = [];
+  admins: string[] = [];
+  async listUsageHours(ownerId: string, since: string) {
+    return this.usageHours
+      .filter((row) => row.owner_id === ownerId && row.hour_start >= since)
+      .sort((a, b) => a.hour_start.localeCompare(b.hour_start));
+  }
+  async listQuotaPlans() {
+    return [...this.quotaPlans];
+  }
+  async updateQuotaPlan(
+    plan: string,
+    input: Partial<Pick<QuotaPlan, "period" | "period_tokens" | "window_hours" | "window_tokens">>,
+  ) {
+    const row = this.quotaPlans.find((x) => x.plan === plan);
+    if (!row) return null;
+    Object.assign(row, input, { updated_at: now() });
+    return row;
+  }
+  async getQuotaEnforced() {
+    return this.quotaEnforced;
+  }
+  async setQuotaEnforced(enforced: boolean) {
+    this.quotaEnforced = enforced;
+  }
+  async getUserPlan(ownerId: string) {
+    return this.userPlans.find((x) => x.owner_id === ownerId) ?? null;
+  }
+  async setUserPlan(ownerId: string, plan: string, until: string | null) {
+    const row: UserPlan = { owner_id: ownerId, plan, plan_until: until, updated_at: now() };
+    this.userPlans = [...this.userPlans.filter((x) => x.owner_id !== ownerId), row];
+    return row;
+  }
+  async isAdmin(ownerId: string) {
+    return this.admins.includes(ownerId);
+  }
+  async claimFirstAdmin(ownerId: string) {
+    if (this.admins.length) return this.admins.includes(ownerId);
+    this.admins.push(ownerId);
+    return true;
+  }
+  async findUserByHandle(handle: string) {
+    const value = handle.trim().replace(/^@/, "").toLowerCase();
+    return (
+      this.users.find(
+        (x) =>
+          x.id === value ||
+          x.username?.toLowerCase() === value ||
+          x.email?.toLowerCase() === value ||
+          String(x.telegram_id ?? "") === value,
+      ) ?? null
+    );
   }
   async listUsageCounters(ownerId: string, from: string, to: string) {
     return this.usageCounters
@@ -3616,7 +3730,11 @@ export class SupabaseRepository implements AppRepository {
     const unique = new Map(input.events.map((e) => [`${e.external_id}|${e.starts_at}`, e]));
     await this.one(
       this.db.from("calendar_events").upsert(
-        [...unique.values()].map((event) => ({ ...event, owner_id: ownerId, source: input.source })),
+        [...unique.values()].map((event) => ({
+          ...event,
+          owner_id: ownerId,
+          source: input.source,
+        })),
         { onConflict: "owner_id,source,external_id,starts_at" },
       ),
     );
@@ -3746,6 +3864,111 @@ export class SupabaseRepository implements AppRepository {
         updated_at: now(),
       }
     );
+  }
+  async listUsageHours(ownerId: string, since: string) {
+    const rows = await this.many<UsageHour>(
+      this.db
+        .from("usage_hours")
+        .select("*")
+        .eq("owner_id", ownerId)
+        .gte("hour_start", since)
+        .order("hour_start", { ascending: true }),
+    );
+    return rows.map((row) => ({
+      ...row,
+      hour_start: new Date(row.hour_start).toISOString(),
+      total_tokens: Number(row.total_tokens),
+    }));
+  }
+  async listQuotaPlans() {
+    const rows = await this.many<QuotaPlan>(
+      this.db.from("quota_plans").select("*").order("plan", { ascending: true }),
+    );
+    return rows.map((row) => ({
+      ...row,
+      period_tokens: Number(row.period_tokens),
+      window_tokens: Number(row.window_tokens),
+    }));
+  }
+  async updateQuotaPlan(
+    plan: string,
+    input: Partial<Pick<QuotaPlan, "period" | "period_tokens" | "window_hours" | "window_tokens">>,
+  ) {
+    const row = await this.one<QuotaPlan | null>(
+      this.db
+        .from("quota_plans")
+        .update({ ...input, updated_at: new Date().toISOString() })
+        .eq("plan", plan)
+        .select("*")
+        .maybeSingle(),
+    );
+    return row
+      ? {
+          ...row,
+          period_tokens: Number(row.period_tokens),
+          window_tokens: Number(row.window_tokens),
+        }
+      : null;
+  }
+  async getQuotaEnforced() {
+    const row = await this.one<{ enforced: boolean } | null>(
+      this.db.from("quota_settings").select("enforced").eq("id", true).maybeSingle(),
+    );
+    return row?.enforced ?? false;
+  }
+  async setQuotaEnforced(enforced: boolean) {
+    await this.one(
+      this.db
+        .from("quota_settings")
+        .upsert({ id: true, enforced, updated_at: new Date().toISOString() }),
+    );
+  }
+  async getUserPlan(ownerId: string) {
+    return this.one<UserPlan | null>(
+      this.db.from("user_plans").select("*").eq("owner_id", ownerId).maybeSingle(),
+    );
+  }
+  async setUserPlan(ownerId: string, plan: string, until: string | null) {
+    return this.one<UserPlan>(
+      this.db
+        .from("user_plans")
+        .upsert({
+          owner_id: ownerId,
+          plan,
+          plan_until: until,
+          updated_at: new Date().toISOString(),
+        })
+        .select("*")
+        .single(),
+    );
+  }
+  async isAdmin(ownerId: string) {
+    const row = await this.one<{ owner_id: string } | null>(
+      this.db.from("app_admins").select("owner_id").eq("owner_id", ownerId).maybeSingle(),
+    );
+    return Boolean(row);
+  }
+  async claimFirstAdmin(ownerId: string) {
+    const existing = await this.many<{ owner_id: string }>(
+      this.db.from("app_admins").select("owner_id").limit(1),
+    );
+    if (existing.length) return this.isAdmin(ownerId);
+    await this.one(this.db.from("app_admins").insert({ owner_id: ownerId }));
+    return true;
+  }
+  async findUserByHandle(handle: string) {
+    const value = handle.trim().replace(/^@/, "");
+    if (/^[0-9a-f-]{36}$/i.test(value)) return this.getUser(value.toLowerCase());
+    if (/^\d+$/.test(value)) {
+      return this.one<User | null>(
+        this.db.from("users").select("*").eq("telegram_id", Number(value)).maybeSingle(),
+      );
+    }
+    const column = value.includes("@") ? "email" : "username";
+    const rows = await this.many<User>(
+      this.db.from("users").select("*").ilike(column, value).limit(1),
+    );
+    return rows[0] ?? null;
   }
   async listUsageCounters(ownerId: string, from: string, to: string) {
     return this.many<UsageCounter>(

@@ -70,6 +70,10 @@ struct SettingsView: View {
                         }
                     }
 
+                    section("Илзи на iPhone") {
+                        LocalBrainSection()
+                    }
+
                     section("Как быстрее") {
                         howTo("mic", "Siri", "«Скажи Ealzy» — и надиктуй. «Что у меня сегодня в Ealzy» — фокус голосом.")
                         howTo("button.horizontal.top.press", "Кнопка действия",

@@ -76,6 +76,7 @@ import { applyBrainDump, finishOnboardingActivation } from "./modules/assistant/
 import { composeDigestText, zonedParts } from "./modules/assistant/scheduled-messages.js";
 import { touchLastActive } from "./modules/engagement/reengagement.js";
 import { attachUsageSink, loadUsageSummary, runWithUsageOwner } from "./modules/billing/usage.js";
+import { loadQuota } from "./modules/billing/quota.js";
 import {
   buildCompleteness,
   confirmImport,
@@ -289,7 +290,9 @@ const communityCache = new WeakMap<
 function achievementCommunity(repository: AppRepository, now = Date.now()) {
   const cached = communityCache.get(repository);
   if (cached && now - cached.at < COMMUNITY_TTL_MS) return cached.value;
-  const value = repository.listReliabilityCohort().then((cohort) => summarizeAchievementHolders(cohort));
+  const value = repository
+    .listReliabilityCohort()
+    .then((cohort) => summarizeAchievementHolders(cohort));
   communityCache.set(repository, { at: now, value });
   // Сбой чтения не должен застрять в кэше на десять минут.
   value.catch(() => {
@@ -805,7 +808,10 @@ export function createApp(deps: AppDependencies): Express {
         })
         .strict()
         .parse(req.body);
-      if (Date.parse(input.to) - Date.parse(input.from) > 35 * 24 * 3600_000 || input.to <= input.from)
+      if (
+        Date.parse(input.to) - Date.parse(input.from) > 35 * 24 * 3600_000 ||
+        input.to <= input.from
+      )
         throw new HttpError(400, "CALENDAR_RANGE", "Calendar window must be 1–35 days");
       const stored = await repository.replaceCalendarEvents(owner(req), {
         source: input.source,
@@ -1301,7 +1307,9 @@ export function createApp(deps: AppDependencies): Express {
       const ownerId = owner(req);
       const self = found(await repository.getSelfPerson(ownerId));
       const dateId = id.parse(req.params.id);
-      const owned = (await repository.listDates(ownerId, self.id)).some((item) => item.id === dateId);
+      const owned = (await repository.listDates(ownerId, self.id)).some(
+        (item) => item.id === dateId,
+      );
       if (!owned) throw new HttpError(404, "NOT_FOUND", "Resource not found");
       res.json({
         data: found(
@@ -1316,7 +1324,9 @@ export function createApp(deps: AppDependencies): Express {
       const ownerId = owner(req);
       const self = found(await repository.getSelfPerson(ownerId));
       const dateId = id.parse(req.params.id);
-      const owned = (await repository.listDates(ownerId, self.id)).some((item) => item.id === dateId);
+      const owned = (await repository.listDates(ownerId, self.id)).some(
+        (item) => item.id === dateId,
+      );
       if (!owned) throw new HttpError(404, "NOT_FOUND", "Resource not found");
       if (!(await repository.deleteDate(ownerId, dateId)))
         throw new HttpError(404, "NOT_FOUND", "Resource not found");
@@ -1858,6 +1868,107 @@ export function createApp(deps: AppDependencies): Express {
     "/profile/completeness",
     asyncHandler(async (req, res) => {
       res.json({ data: await buildCompleteness(repository, owner(req)) });
+    }),
+  );
+  api.get(
+    "/billing/quota",
+    asyncHandler(async (req, res) => {
+      res.json({ data: await loadQuota(repository, owner(req)) });
+    }),
+  );
+  const requireAdmin = async (ownerId: string) => {
+    if (!(await repository.isAdmin(ownerId)))
+      throw new HttpError(403, "FORBIDDEN", "Только для администратора");
+  };
+  const adminView = async () => ({
+    enforced: await repository.getQuotaEnforced(),
+    plans: await repository.listQuotaPlans(),
+  });
+  api.get(
+    "/admin/quota",
+    asyncHandler(async (req, res) => {
+      const ownerId = owner(req);
+      const isAdmin = await repository.isAdmin(ownerId);
+      res.json({ data: { is_admin: isAdmin, ...(isAdmin ? await adminView() : {}) } });
+    }),
+  );
+  api.post(
+    "/admin/claim",
+    asyncHandler(async (req, res) => {
+      const ok = await repository.claimFirstAdmin(owner(req));
+      if (!ok) throw new HttpError(403, "FORBIDDEN", "Администратор уже назначен");
+      res.json({ data: { is_admin: true, ...(await adminView()) } });
+    }),
+  );
+  api.put(
+    "/admin/quota",
+    asyncHandler(async (req, res) => {
+      await requireAdmin(owner(req));
+      const body = z
+        .object({
+          enforced: z.boolean().optional(),
+          plans: z
+            .array(
+              z
+                .object({
+                  plan: z.string().min(1).max(31),
+                  period: z.enum(["week", "month"]).optional(),
+                  period_tokens: z.number().int().min(0).max(1_000_000_000).optional(),
+                  window_hours: z.number().int().min(1).max(168).optional(),
+                  window_tokens: z.number().int().min(0).max(1_000_000_000).optional(),
+                })
+                .strict(),
+            )
+            .max(10)
+            .optional(),
+        })
+        .strict()
+        .parse(req.body ?? {});
+      if (body.enforced !== undefined) await repository.setQuotaEnforced(body.enforced);
+      for (const { plan, ...patch } of body.plans ?? []) {
+        if (!(await repository.updateQuotaPlan(plan, patch)))
+          throw new HttpError(404, "NOT_FOUND", `Нет тарифа ${plan}`);
+      }
+      res.json({ data: { is_admin: true, ...(await adminView()) } });
+    }),
+  );
+  api.get(
+    "/admin/users/:handle/quota",
+    asyncHandler(async (req, res) => {
+      await requireAdmin(owner(req));
+      const user = await repository.findUserByHandle(String(req.params.handle));
+      if (!user) throw new HttpError(404, "NOT_FOUND", "Пользователь не найден");
+      res.json({
+        data: {
+          user: { id: user.id, name: user.name, username: user.username, email: user.email },
+          quota: await loadQuota(repository, user.id),
+        },
+      });
+    }),
+  );
+  api.put(
+    "/admin/users/:handle/plan",
+    asyncHandler(async (req, res) => {
+      await requireAdmin(owner(req));
+      const body = z
+        .object({
+          plan: z.string().min(1).max(31),
+          until: z.string().datetime().nullable().optional(),
+        })
+        .strict()
+        .parse(req.body ?? {});
+      const user = await repository.findUserByHandle(String(req.params.handle));
+      if (!user) throw new HttpError(404, "NOT_FOUND", "Пользователь не найден");
+      const plans = await repository.listQuotaPlans();
+      if (!plans.some((p) => p.plan === body.plan))
+        throw new HttpError(400, "INVALID_VALUE", `Нет тарифа ${body.plan}`);
+      await repository.setUserPlan(user.id, body.plan, body.until ?? null);
+      res.json({
+        data: {
+          user: { id: user.id, name: user.name, username: user.username, email: user.email },
+          quota: await loadQuota(repository, user.id),
+        },
+      });
     }),
   );
   api.get(

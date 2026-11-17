@@ -9,12 +9,15 @@ enum APIError: LocalizedError {
     case unauthorized
     case server(String)
     case offline
+    /// Облачные запросы закончились; детали — когда вернутся.
+    case quota(CloudQuota?)
 
     var errorDescription: String? {
         switch self {
         case .unauthorized: return "Нужно войти заново."
         case .server(let message): return message
         case .offline: return "Нет связи с сервером. Попробуй ещё раз."
+        case .quota: return "Облачные запросы закончились."
         }
     }
 }
@@ -94,6 +97,11 @@ final class APIClient {
             onUnauthorized?()
             throw APIError.unauthorized
         }
+        if status == 429,
+           let body = try? JSONCoding.decoder.decode(QuotaErrorBody.self, from: data),
+           body.error.code == "QUOTA_EXCEEDED" {
+            throw APIError.quota(body.error.details)
+        }
         guard (200..<300).contains(status) else {
             let message = (try? JSONCoding.decoder.decode(ServerErrorBody.self, from: data))?
                 .error.message
@@ -105,3 +113,12 @@ final class APIClient {
 
 /// Пустое тело для POST без параметров.
 struct EmptyBody: Encodable {}
+
+/// 429 QUOTA_EXCEEDED: `{ "error": { "code", "message", "details": {...} } }`.
+private struct QuotaErrorBody: Decodable {
+    struct Detail: Decodable {
+        let code: String?
+        let details: CloudQuota?
+    }
+    let error: Detail
+}
