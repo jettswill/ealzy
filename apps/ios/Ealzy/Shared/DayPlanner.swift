@@ -27,8 +27,24 @@ struct DayPlan: Equatable {
     }
 }
 
+/// Ручной выбор фокуса на сегодня: закреплённое главное и убранные из фокуса дела.
+struct FocusChoice: Codable, Equatable {
+    var day: String
+    var pinned: String?
+    var skipped: [String] = []
+
+    static func dayKey(_ date: Date = Date(), calendar: Calendar = .current) -> String {
+        let parts = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 0, parts.day ?? 0)
+    }
+}
+
 enum DayPlanner {
-    static func plan(_ tasks: [EalzyTask], now: Date = Date(), calendar: Calendar = .current) -> DayPlan {
+    static func plan(
+        _ tasks: [EalzyTask], now: Date = Date(), calendar: Calendar = .current, choice: FocusChoice? = nil
+    ) -> DayPlan {
+        let choice = choice?.day == FocusChoice.dayKey(now, calendar: calendar) ? choice : nil
+        let skipped = Set(choice?.skipped ?? [])
         let startOfToday = calendar.startOfDay(for: now)
         guard let startOfTomorrow = calendar.date(byAdding: .day, value: 1, to: startOfToday) else {
             return DayPlan()
@@ -50,7 +66,8 @@ enum DayPlanner {
         // Кандидаты в фокус: крупное (не мелочь, не встреча) со сроком сегодня/просрочено
         // или сильное «сделай сейчас» без оглядки на дату.
         let candidates = mine.filter { task in
-            !task.isMeeting && !task.isQuick && (isToday(task) || isOverdue(task) || task.isPush)
+            !skipped.contains(task.id) && !task.isMeeting && !task.isQuick
+                && (isToday(task) || isOverdue(task) || task.isPush)
         }
         func focusScore(_ task: EalzyTask) -> Int {
             var score = task.pushScore
@@ -62,7 +79,10 @@ enum DayPlanner {
             let (a, b) = (focusScore($0), focusScore($1))
             return a != b ? a > b : $0.title.localizedCompare($1.title) == .orderedAscending
         }
-        if let first = ranked.first {
+        // Человек сам выбрал главное — оно и есть фокус, без второго.
+        if let pinnedId = choice?.pinned, let pinned = mine.first(where: { $0.id == pinnedId }) {
+            plan.focus = [pinned]
+        } else if let first = ranked.first {
             plan.focus = [first]
             // Второй фокус — только если он тоже важный и горит сегодня.
             if ranked.count > 1 {

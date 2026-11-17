@@ -126,7 +126,7 @@ struct RootView: View {
                 await AppDelegate.upload()
             }
             .sheet(isPresented: $showOnboarding) { OnboardingView() }
-            .fullScreenCover(isPresented: Binding(get: { focus.isRunning }, set: { if !$0 { focus.finish() } })) {
+            .fullScreenCover(isPresented: Binding(get: { focus.isRunning && focus.isPresented }, set: { focus.isPresented = $0 })) {
                 FocusView()
             }
         } else {

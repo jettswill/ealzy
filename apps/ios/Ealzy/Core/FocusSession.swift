@@ -35,10 +35,13 @@ final class FocusSession {
     }
 
     var isRunning: Bool { state != nil }
+    /// Экран фокуса открыт. Свернуть его — не значит остановить: таймер идёт дальше.
+    var isPresented = false
     var isPaused: Bool { state?.pausedAt != nil }
 
     func start(_ task: EalzyTask, minutes: Int) {
         state = State(taskId: task.id, title: task.title, plannedMinutes: minutes, startedAt: Date())
+        isPresented = true
     }
 
     func elapsed(at now: Date = Date()) -> TimeInterval {
@@ -65,6 +68,7 @@ final class FocusSession {
     }
 
     func finish() {
+        isPresented = false
         state = nil
     }
 }

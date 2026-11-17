@@ -1,3 +1,4 @@
+import EventKit
 import SwiftUI
 
 /// Лента дня 8:00–23:00: цвет полосы — время суток, встречи — капсулы со временем,
@@ -9,6 +10,7 @@ struct DayRibbon: View {
         let start: Date
         let end: Date
         let isPast: Bool
+        var source: EKEvent?
     }
 
     let events: [Event]
@@ -16,6 +18,8 @@ struct DayRibbon: View {
     let now: Date
     var startHour = 8
     var endHour = 23
+    var onEvent: (Event) -> Void = { _ in }
+    var onFocus: () -> Void = {}
 
     @Environment(\.colorScheme) private var scheme
 
@@ -36,11 +40,13 @@ struct DayRibbon: View {
                 ForEach(events) { event in
                     pill(time(event.start), from: event.start, to: event.end, width: width,
                          fill: event.isPast ? Palette.pillPast : Palette.pill,
-                         ink: event.isPast ? Palette.ink2 : Palette.ink)
+                         ink: event.isPast ? Palette.ink2 : Palette.ink) { onEvent(event) }
+                        .accessibilityLabel("\(time(event.start)) \(event.title)")
                 }
                 if let focus {
                     pill(time(focus.start), from: focus.start, to: focus.end, width: width,
-                         fill: Palette.gold, ink: Palette.goldInk)
+                         fill: Palette.gold, ink: Palette.goldInk) { onFocus() }
+                        .accessibilityLabel("Окно для фокуса с \(time(focus.start))")
                 }
 
                 if let x = position(now, width: width) {
@@ -78,8 +84,7 @@ struct DayRibbon: View {
             }
         }
         .frame(height: laneTop + laneHeight + 36)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(accessibilityText)
+        .accessibilityElement(children: .contain)
     }
 
     // MARK: Геометрия
@@ -100,18 +105,25 @@ struct DayRibbon: View {
     }
 
     @ViewBuilder
-    private func pill(_ text: String, from: Date, to: Date, width: CGFloat, fill: Color, ink: Color) -> some View {
+    private func pill(
+        _ text: String, from: Date, to: Date, width: CGFloat, fill: Color, ink: Color,
+        action: @escaping () -> Void
+    ) -> some View {
         let x = fraction(from) * width
         let w = max((fraction(to) - fraction(from)) * width, minPill)
         let left = min(x, width - w - 4)
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .monospacedDigit()
-            .foregroundStyle(ink)
-            .lineLimit(1)
-            .frame(width: w, height: pillHeight)
-            .background(fill, in: Capsule())
-            .offset(x: max(left, 4), y: laneTop + (laneHeight - pillHeight) / 2)
+        Button(action: action) {
+            Text(text)
+                .font(.caption2.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(ink)
+                .lineLimit(1)
+                .frame(width: w, height: pillHeight)
+                .background(fill, in: Capsule())
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .offset(x: max(left, 4), y: laneTop + (laneHeight - pillHeight) / 2)
     }
 
     private struct Label { let x: CGFloat; let text: String; let isFocus: Bool }

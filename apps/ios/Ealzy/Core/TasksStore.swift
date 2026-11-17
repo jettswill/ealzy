@@ -14,7 +14,53 @@ final class TasksStore {
         didSet { publishSnapshot() }
     }
 
-    var plan: DayPlan { DayPlanner.plan(tasks) }
+    private static let choiceKey = "focusChoice"
+    /// Ручной выбор главного на сегодня; завтра сбрасывается сам.
+    private(set) var focusChoice: FocusChoice? = {
+        guard let data = UserDefaults.standard.data(forKey: "focusChoice") else { return nil }
+        return try? JSONDecoder().decode(FocusChoice.self, from: data)
+    }() {
+        didSet {
+            if let focusChoice, let data = try? JSONEncoder().encode(focusChoice) {
+                UserDefaults.standard.set(data, forKey: Self.choiceKey)
+            }
+            publishSnapshot()
+        }
+    }
+
+    var plan: DayPlan { DayPlanner.plan(tasks, choice: focusChoice) }
+
+    private var todayChoice: FocusChoice {
+        let today = FocusChoice.dayKey()
+        if let focusChoice, focusChoice.day == today { return focusChoice }
+        return FocusChoice(day: today)
+    }
+
+    /// Сделать дело главным на сегодня.
+    func pinFocus(_ task: EalzyTask) {
+        var choice = todayChoice
+        choice.pinned = task.id
+        choice.skipped.removeAll { $0 == task.id }
+        focusChoice = choice
+    }
+
+    /// Убрать дело из фокуса на сегодня — оно остаётся в списке, главным станет следующее.
+    func skipFocus(_ task: EalzyTask) {
+        var choice = todayChoice
+        if choice.pinned == task.id { choice.pinned = nil }
+        if !choice.skipped.contains(task.id) { choice.skipped.append(task.id) }
+        focusChoice = choice
+    }
+
+    func cancel(_ task: EalzyTask) async {
+        replace(task.id) { $0.status = "cancelled" }
+        await send(task.id, TaskPatch(status: "cancelled"))
+    }
+
+    func reschedule(_ task: EalzyTask, to date: Date) async {
+        replace(task.id) { $0.dueAt = date }
+        await send(task.id, TaskPatch(dueAt: date))
+    }
 
     func publishSnapshot() {
         guard !tasks.isEmpty || errorMessage == nil else { return }

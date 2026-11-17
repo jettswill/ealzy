@@ -60,7 +60,7 @@ struct WidgetSnapshot: Codable, Equatable {
     }
 
     static func make(plan: DayPlan, nextEvent: Item?) -> WidgetSnapshot {
-        let next = (plan.overdue + plan.today + plan.quick).prefix(4).map {
+        let next = (plan.overdue + plan.today + plan.quick).prefix(8).map {
             Item(id: $0.id, title: $0.title, meta: TaskMeta.text(for: $0))
         }
         return WidgetSnapshot(

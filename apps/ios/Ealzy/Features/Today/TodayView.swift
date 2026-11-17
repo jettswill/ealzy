@@ -8,6 +8,9 @@ struct TodayView: View {
     @Environment(PhoneCalendar.self) private var calendar
     @Environment(AppRouter.self) private var router
     @Environment(FocusSession.self) private var focus
+    @State private var openedEvent: OpenedEvent?
+    @State private var openedTask: EalzyTask?
+    @State private var pickingFocusFor: EalzyTask?
 
     var body: some View {
         let plan = tasks.plan
@@ -19,13 +22,22 @@ struct TodayView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                if focus.isRunning && !focus.isPresented {
+                    FocusBanner().padding(.bottom, 10)
+                }
                 Text(Self.dayTitle(now))
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
                     .padding(.top, 8)
 
-                DayRibbon(events: ribbonEvents(now: now), focus: main == nil ? nil : window, now: now)
-                    .padding(.top, 14)
+                DayRibbon(
+                    events: ribbonEvents(now: now),
+                    focus: main == nil ? nil : window,
+                    now: now,
+                    onEvent: { event in if let source = event.source { openedEvent = OpenedEvent(event: source) } },
+                    onFocus: { if let main { pickingFocusFor = main } }
+                )
+                .padding(.top, 14)
 
                 Text(note(plan: plan, busy: busy, now: now))
                     .font(.subheadline)
@@ -34,10 +46,16 @@ struct TodayView: View {
 
                 if let main {
                     FocusHeader(task: main, window: window, minutes: minutes) {
-                        focus.start(main, minutes: minutes)
+                        if focus.isRunning, focus.state?.taskId == main.id {
+                            focus.isPresented = true
+                        } else {
+                            focus.start(main, minutes: minutes)
+                        }
                         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                    } later: {
-                        Task { await tasks.moveToTomorrow(main) }
+                    } change: {
+                        pickingFocusFor = main
+                    } open: {
+                        openedTask = main
                     }
                     .padding(.top, 8)
                     if plan.focus.count > 1 {
@@ -69,6 +87,9 @@ struct TodayView: View {
         .overlay {
             if tasks.isLoading && tasks.tasks.isEmpty { ProgressView() }
         }
+        .sheet(item: $openedEvent) { EventDetailView(event: $0.event) }
+        .sheet(item: $openedTask) { TaskDetailView(task: $0) }
+        .sheet(item: $pickingFocusFor) { FocusPickerView(current: $0) }
     }
 
     // MARK: Между делом
@@ -113,7 +134,8 @@ struct TodayView: View {
 
     private func ribbonEvents(now: Date) -> [DayRibbon.Event] {
         calendar.todayEvents.filter { !$0.isAllDay }.map {
-            DayRibbon.Event(title: $0.title ?? "Событие", start: $0.startDate, end: $0.endDate, isPast: $0.endDate <= now)
+            DayRibbon.Event(title: $0.title ?? "Событие", start: $0.startDate, end: $0.endDate,
+                            isPast: $0.endDate <= now, source: $0)
         }
     }
 
@@ -169,12 +191,18 @@ struct FocusHeader: View {
     let window: TimeSpan?
     let minutes: Int
     let start: () -> Void
-    let later: () -> Void
+    let change: () -> Void
+    let open: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Self.title(task.title, size: 38)
-                .fixedSize(horizontal: false, vertical: true)
+            Button(action: open) {
+                Self.title(task.title, size: 38)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Открыть дело")
             Text(meta)
                 .font(.subheadline)
                 .foregroundStyle(Palette.ink2)
@@ -188,7 +216,7 @@ struct FocusHeader: View {
                         .background(Palette.gold, in: Capsule())
                         .foregroundStyle(Palette.goldInk)
                 }
-                Button("Не сегодня", action: later)
+                Button("Сменить", action: change)
                     .padding(.horizontal, 14)
                     .frame(height: 50)
                     .foregroundStyle(Palette.ink2)
@@ -239,6 +267,7 @@ struct TaskRow: View {
     @Environment(PhoneCalendar.self) private var calendar
     let task: EalzyTask
     var canComplete = true
+    @State private var showDetail = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -256,18 +285,26 @@ struct TaskRow: View {
             } else {
                 Image(systemName: "hourglass").foregroundStyle(Palette.goldText).frame(width: 22)
             }
-            Text(task.title)
-                .font(.subheadline)
-                .foregroundStyle(Palette.ink)
-                .strikethrough(!task.isOpen)
-                .lineLimit(2)
-            Spacer(minLength: 8)
-            if let meta = TaskMeta.text(for: task) {
-                Text(meta).font(.footnote).foregroundStyle(Palette.ink2).lineLimit(1)
+            Button { showDetail = true } label: {
+                HStack {
+                    Text(task.title)
+                        .font(.subheadline)
+                        .foregroundStyle(Palette.ink)
+                        .strikethrough(!task.isOpen)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    Spacer(minLength: 8)
+                    if let meta = TaskMeta.text(for: task) {
+                        Text(meta).font(.footnote).foregroundStyle(Palette.ink2).lineLimit(1)
+                    }
+                }
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
         .padding(.vertical, 7)
         .contentShape(Rectangle())
+        .sheet(isPresented: $showDetail) { TaskDetailView(task: task) }
         .contextMenu {
             if canComplete {
                 Button { Task { await tasks.complete(task) } } label: { Label("Готово", systemImage: "checkmark") }
@@ -280,4 +317,10 @@ struct TaskRow: View {
             }
         }
     }
+}
+
+/// EKEvent для .sheet(item:).
+struct OpenedEvent: Identifiable {
+    let id = UUID()
+    let event: EKEvent
 }

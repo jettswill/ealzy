@@ -24,7 +24,7 @@ final class ScreenshotTests: XCTestCase {
     func testScreens() {
         for appearance in ["light", "dark"] {
             let app = launch(appearance)
-            XCTAssertTrue(app.buttons["Не сегодня"].waitForExistence(timeout: 15))
+            XCTAssertTrue(app.buttons["Сменить"].waitForExistence(timeout: 15))
             sleep(1)
             snap("1-today-\(appearance)")
 
@@ -47,12 +47,28 @@ final class ScreenshotTests: XCTestCase {
             app.buttons["Готово"].firstMatch.tap()
             sleep(1)
 
+            if appearance == "dark" {
+                let title = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Северного'")).firstMatch
+                if title.waitForExistence(timeout: 5) {
+                    title.tap(); sleep(1); snap("6-task-detail-dark")
+                    app.buttons["Закрыть"].firstMatch.tap(); sleep(1)
+                }
+                let call = app.buttons.matching(NSPredicate(format: "label CONTAINS 'Созвон'")).firstMatch
+                if call.waitForExistence(timeout: 5) {
+                    call.tap(); sleep(1); snap("7-event-dark")
+                    app.buttons["Закрыть"].firstMatch.tap(); sleep(1)
+                }
+                app.buttons["Сменить"].tap(); sleep(1); snap("8-change-focus-dark")
+                app.buttons["Отмена"].firstMatch.tap(); sleep(1)
+            }
             let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Начать'")).firstMatch
             if start.waitForExistence(timeout: 5) {
                 start.tap()
                 sleep(2)
                 snap("5-focus-\(appearance)")
-                app.buttons["Выйти из фокуса"].tap()
+                app.buttons["Свернуть фокус"].tap()
+                sleep(1)
+                snap("9-focus-minimized-\(appearance)")
             }
             app.terminate()
         }
