@@ -27,3 +27,18 @@ cd apps/ios && xcodegen generate && open Ealzy.xcodeproj
 CI (`.github/workflows/ios.yml`) на каждый PR собирает приложение для симулятора без подписи
 и гоняет тесты. Выкладка в TestFlight появится после аккаунта Apple Developer
 (нужны Team ID и ключ App Store Connect в секретах GitHub).
+
+## Поставить на свой iPhone без платного аккаунта Apple
+
+Apple сейчас почти не пускает в Developer Program из России. Обходной путь — бесплатная
+«Personal Team» обычного Apple ID в Xcode:
+
+1. Xcode из App Store, открыть один раз; Xcode → Settings → Accounts → «+» → Apple ID.
+2. iPhone кабелем к Mac, «Доверять», включить Режим разработчика.
+3. Запустить `scripts/install-on-iphone.sh` (на Mac основателя — двойной щелчок
+   по `~/ealzy/Установить Ealzy на iPhone.command`, он сначала подтягивает свежий код).
+4. Один раз на iPhone: Настройки → Основные → VPN и управление устройством → «Доверять».
+
+Ограничения бесплатной учётки: сборка живёт 7 дней (запустить скрипт снова — данные
+сохранятся), нет push от сервера (сводки по-прежнему приходят в Telegram), без групп
+приложений — виджет берёт данные из общей связки ключей (`signing/Personal.entitlements`).

@@ -44,13 +44,18 @@ struct WidgetSnapshot: Codable, Equatable {
     }
 
     static func load() -> WidgetSnapshot? {
-        guard let url = fileURL, let data = try? Data(contentsOf: url) else { return nil }
-        return try? JSONCoding.decoder.decode(WidgetSnapshot.self, from: data)
+        let data = fileURL.flatMap { try? Data(contentsOf: $0) } ?? Keychain.readSnapshot()
+        return data.flatMap { try? JSONCoding.decoder.decode(WidgetSnapshot.self, from: $0) }
     }
 
+    /// Общая папка группы приложений, а без неё (бесплатная учётка Apple) — общая связка ключей.
     func save() {
-        guard let url = Self.fileURL, let data = try? JSONCoding.encoder.encode(self) else { return }
-        try? data.write(to: url, options: .atomic)
+        guard let data = try? JSONCoding.encoder.encode(self) else { return }
+        if let url = Self.fileURL {
+            try? data.write(to: url, options: .atomic)
+        } else {
+            Keychain.saveSnapshot(data)
+        }
         Self.reloadWidgets()
     }
 
@@ -79,6 +84,7 @@ struct WidgetSnapshot: Codable, Equatable {
 
     static func clear() {
         if let url = fileURL { try? FileManager.default.removeItem(at: url) }
+        Keychain.deleteSnapshot()
         reloadWidgets()
     }
 
