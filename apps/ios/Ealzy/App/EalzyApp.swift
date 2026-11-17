@@ -81,16 +81,22 @@ struct RootView: View {
         @Bindable var router = router
         if auth.isSignedIn {
             ZStack(alignment: .bottom) {
-                // «Сегодня» ⇄ «Запас» — и вкладками, и свайпом влево-вправо.
-                TabView(selection: $router.tab) {
-                    TodayView().tag(AppRouter.Tab.today)
-                    ReserveView().tag(AppRouter.Tab.reserve)
-                }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .background { LampBackground() } // свет лампы на весь экран, общий для обеих вкладок
-                .onChange(of: router.tab) { UISelectionFeedbackGenerator().selectionChanged() }
+                if focus.isRunning {
+                    // Идёт дело — приложение переключается в режим фокуса: больше ничего не отвлекает.
+                    FocusView()
+                        .transition(.opacity)
+                } else {
+                    // «Сегодня» ⇄ «Все дела» — и вкладками, и свайпом влево-вправо.
+                    TabView(selection: $router.tab) {
+                        TodayView().tag(AppRouter.Tab.today)
+                        ReserveView().tag(AppRouter.Tab.reserve)
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .background { LampBackground() } // свет лампы на весь экран, общий для обеих вкладок
+                    .onChange(of: router.tab) { UISelectionFeedbackGenerator().selectionChanged() }
 
-                BottomBar(tab: $router.tab, openIlzi: { router.openIlzi() })
+                    BottomBar(tab: $router.tab, openIlzi: { router.openIlzi() })
+                }
 
                 // Под шторкой Илзи день притемняется — шторка явно поверх, а не сливается с фоном.
                 if router.isIlziOpen {
@@ -101,6 +107,7 @@ struct RootView: View {
                 }
             }
             .animation(.easeInOut(duration: 0.25), value: router.isIlziOpen)
+            .animation(.easeInOut(duration: 0.35), value: focus.isRunning)
             .sheet(isPresented: $router.isIlziOpen) {
                 IlziSheet(detent: $ilziDetent)
                     .presentationDetents([.medium, .large], selection: $ilziDetent)
@@ -109,10 +116,7 @@ struct RootView: View {
                     .presentationBackground(Palette.sheet)
             }
             .onChange(of: router.isIlziOpen) { if router.isIlziOpen { ilziDetent = .medium } }
-            .onChange(of: router.focusRequest) {
-                router.isIlziOpen = false
-                if focus.isRunning { focus.isPresented = true }
-            }
+            .onChange(of: router.focusRequest) { router.isIlziOpen = false }
             .onChange(of: tasks.tasks) {
                 // Дело фокуса закрыли из виджета или уведомления — фокус заканчивается.
                 if let id = focus.state?.taskId, let task = tasks.tasks.first(where: { $0.id == id }), !task.isOpen {
@@ -133,9 +137,6 @@ struct RootView: View {
                 await AppDelegate.upload()
             }
             .sheet(isPresented: $showOnboarding) { OnboardingView() }
-            .fullScreenCover(isPresented: Binding(get: { focus.isRunning && focus.isPresented }, set: { focus.isPresented = $0 })) {
-                FocusView()
-            }
         } else {
             LoginView()
         }
