@@ -51,6 +51,7 @@ struct IlziSheet: View {
                         Color.black
                     }
                 }
+                .padding(.top, 20) // под «ручкой» шторки — пусто, текст начинается ниже
                 .onAppear { toEnd(proxy) }
                 .onChange(of: detent) { toEnd(proxy) }
                 .onChange(of: chat.messages.last?.id) { toEnd(proxy, animated: true) }
