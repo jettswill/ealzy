@@ -20,10 +20,13 @@ struct ReserveView: View {
                 ScreenHeader(title: "Все дела")
                 Text(total == 0
                      ? "Пусто. Скажи Илзи, что висит в голове."
-                     : "\(total) \(TodayView.plural(total, "дело", "дела", "дел")) · на сегодня \(today.count). Нажми ☀︎, чтобы взять в день.")
+                     : "\(total) \(TodayView.plural(total, "дело", "дела", "дел")) · на сегодня \(today.count)")
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
                     .padding(.top, 2)
+
+                NewTaskField()
+                    .padding(.top, 18)
 
                 if stale.count >= 3 && Date().timeIntervalSince1970 > snoozedUntil {
                     staleCard(stale)
@@ -127,5 +130,73 @@ struct ReserveView: View {
             return now.timeIntervalSince(created) > 21 * 86_400 && task.dueAt == nil
         }
         .sorted { ($0.createdAt ?? now) < ($1.createdAt ?? now) }
+    }
+}
+
+/// Новое дело руками: поле сверху списка. «Сегодня» — сразу в день.
+struct NewTaskField: View {
+    @Environment(TasksStore.self) private var tasks
+    @State private var title = ""
+    @State private var today = false
+    @FocusState private var focused: Bool
+
+    private var hasText: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "plus")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(Palette.goldText)
+                .frame(width: 32)
+            TextField("Новое дело", text: $title)
+                .font(.subheadline)
+                .foregroundStyle(Palette.ink)
+                .focused($focused)
+                .submitLabel(.done)
+                .onSubmit(save)
+            if focused || hasText {
+                Button {
+                    today.toggle()
+                    UISelectionFeedbackGenerator().selectionChanged()
+                } label: {
+                    Label("Сегодня", systemImage: today ? "checkmark" : "plus")
+                        .font(.caption.weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .frame(height: 30)
+                        .foregroundStyle(today ? Palette.goldInk : Palette.ink2)
+                        .background(today ? Palette.gold : .clear, in: Capsule())
+                        .overlay(Capsule().strokeBorder(today ? .clear : Palette.rule))
+                        .fixedSize()
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(today ? "Не на сегодня" : "Сразу на сегодня")
+            }
+            if hasText {
+                Button(action: save) {
+                    Image(systemName: "arrow.up")
+                        .font(.footnote.weight(.bold))
+                        .frame(width: 30, height: 30)
+                        .background(Palette.gold, in: Circle())
+                        .foregroundStyle(Palette.goldInk)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Добавить дело")
+            }
+        }
+        .padding(.horizontal, 6)
+        .frame(minHeight: 48)
+        .background(Palette.raised.opacity(0.7), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.rule))
+        .animation(.snappy, value: focused)
+        .animation(.snappy, value: hasText)
+    }
+
+    private func save() {
+        guard hasText else { focused = false; return }
+        let text = title, toToday = today
+        title = ""
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        Task { await tasks.create(text, today: toToday) }
+        focused = true // можно сразу писать следующее
     }
 }

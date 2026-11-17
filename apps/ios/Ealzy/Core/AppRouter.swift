@@ -20,6 +20,14 @@ final class AppRouter {
     private(set) var captureRequest = 0
     /// Текст, который надо сразу отправить Илзи (например, «Разобрать» из запаса).
     var pendingMessage: String?
+    /// Разговор голосом (виджет «Илзи — голосом»): шторка сразу слушает.
+    var voicePending = false
+
+    func openVoice() {
+        voicePending = true
+        openIlzi()
+    }
+
     /// Открыть идущий фокус (из Dynamic Island, экрана блокировки, виджета).
     private(set) var focusRequest = 0
 
@@ -44,6 +52,7 @@ final class AppRouter {
         guard url.scheme == "ealzy" else { return false }
         switch url.host {
         case "capture": openCapture()
+        case "voice": openVoice()
         case "chat":
             let text = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "text" })?.value

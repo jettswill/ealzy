@@ -290,6 +290,28 @@ struct FocusHeader: View {
     }
 }
 
+/// Квадратная галочка «сделано».
+struct CheckBox: View {
+    let checked: Bool
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .strokeBorder(checked ? Color.clear : Palette.ink3, lineWidth: 1.5)
+            .background(checked ? Palette.gold : .clear, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .overlay {
+                if checked {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Palette.goldInk)
+                        .transition(.scale.combined(with: .opacity))
+                }
+            }
+            .frame(width: 24, height: 24)
+            .frame(width: 32, height: 36)
+            .contentShape(Rectangle())
+    }
+}
+
 // MARK: - Строка дела
 
 struct TaskRow: View {
@@ -297,55 +319,85 @@ struct TaskRow: View {
     @Environment(PhoneCalendar.self) private var calendar
     let task: EalzyTask
     var canComplete = true
-    /// Во «Всех делах» — солнышко справа: поставить дело на сегодня или убрать из дня.
+    /// Во «Всех делах» — кнопка справа «+ Сегодня» / «✓ Сегодня»: взять дело в день или убрать.
     var showsDayToggle = false
     @State private var showDetail = false
 
     var body: some View {
+        let checked = tasks.isChecked(task)
         HStack(alignment: .center, spacing: 12) {
             if canComplete {
+                // Галочка в квадрате — понятно, что это «сделано». Отметил — строка зачёркнута
+                // и ждёт пару секунд: можно передумать.
                 Button {
-                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    Task { task.isOpen ? await tasks.complete(task) : await tasks.reopen(task) }
+                    UIImpactFeedbackGenerator(style: checked ? .light : .medium).impactOccurred()
+                    withAnimation(.snappy) { tasks.toggleDone(task) }
                 } label: {
-                    Image(systemName: task.isOpen ? "circle" : "checkmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(task.isOpen ? Palette.ink3 : Palette.goldText)
+                    CheckBox(checked: checked)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(task.isOpen ? "Готово" : "Вернуть в работу")
+                .accessibilityLabel(checked ? "Снять отметку" : "Отметить сделанным")
             } else {
-                Image(systemName: "hourglass").foregroundStyle(Palette.goldText).frame(width: 22)
+                Image(systemName: "hourglass").foregroundStyle(Palette.goldText).frame(width: 24)
             }
             Button { showDetail = true } label: {
                 HStack {
-                    Text(task.title)
-                        .font(.subheadline)
-                        .foregroundStyle(task.isOpen ? Palette.ink : Palette.ink3)
-                        .strikethrough(!task.isOpen)
-                        .lineLimit(2)
-                        .multilineTextAlignment(.leading)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(task.title)
+                            .font(.subheadline)
+                            .foregroundStyle(checked ? Palette.ink3 : Palette.ink)
+                            .strikethrough(checked, color: Palette.ink3)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                        if showsDayToggle, !tasks.isOnToday(task), let meta = TaskMeta.text(for: task) {
+                            Text(meta).font(.caption).foregroundStyle(Palette.ink3).lineLimit(1)
+                        }
+                    }
                     Spacer(minLength: 8)
-                    if let meta = TaskMeta.text(for: task) {
+                    if !showsDayToggle, let meta = TaskMeta.text(for: task) {
                         Text(meta).font(.footnote).foregroundStyle(Palette.ink2).lineLimit(1)
                     }
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if showsDayToggle && task.isOpen {
-                let onToday = tasks.isOnToday(task)
+            if showsDayToggle && task.isOpen && !checked && tasks.isOnToday(task) {
+                // Уже на сегодня: без лишних меток, только «…» — вернуть во все дела, на завтра.
+                Menu {
+                    Button { Task { await tasks.removeFromToday(task) } } label: {
+                        Label("Вернуть во все дела", systemImage: "tray.and.arrow.down")
+                    }
+                    Button { Task { await tasks.moveToTomorrow(task) } } label: {
+                        Label("На завтра", systemImage: "arrow.right")
+                    }
+                    Button { showDetail = true } label: { Label("Изменить срок…", systemImage: "calendar") }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Palette.ink3)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Действия с делом")
+            } else if showsDayToggle && task.isOpen && !checked {
+                let onToday = false
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     Task { onToday ? await tasks.removeFromToday(task) : await tasks.addToToday(task) }
                 } label: {
-                    Image(systemName: onToday ? "sun.max.fill" : "sun.max")
-                        .font(.system(size: 17))
-                        .foregroundStyle(onToday ? Palette.goldText : Palette.ink3)
-                        .frame(width: 36, height: 36)
+                    Label(onToday ? "Сегодня" : "Сегодня", systemImage: onToday ? "checkmark" : "plus")
+                        .font(.caption.weight(.semibold))
+                        .labelStyle(.titleAndIcon)
+                        .padding(.horizontal, 10)
+                        .frame(height: 30)
+                        // Уже на сегодня — спокойная золотая подпись; ещё нет — кнопка с рамкой.
+                        .foregroundStyle(onToday ? Palette.goldText : Palette.ink2)
+                        .background(onToday ? Palette.gold.opacity(0.16) : .clear, in: Capsule())
+                        .overlay(Capsule().strokeBorder(onToday ? .clear : Palette.rule))
+                        .fixedSize()
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(onToday ? "Убрать из дня" : "На сегодня")
+                .accessibilityLabel(onToday ? "Убрать из дня" : "Взять на сегодня")
             }
         }
         .padding(.vertical, 7)
@@ -353,7 +405,7 @@ struct TaskRow: View {
         .sheet(isPresented: $showDetail) { TaskDetailView(task: task) }
         .contextMenu {
             if canComplete && task.isOpen {
-                Button { Task { await tasks.complete(task) } } label: { Label("Готово", systemImage: "checkmark") }
+                Button { tasks.toggleDone(task) } label: { Label("Готово", systemImage: "checkmark") }
                 if tasks.isOnToday(task) {
                     Button { Task { await tasks.removeFromToday(task) } } label: { Label("Убрать из дня", systemImage: "minus.circle") }
                 } else {

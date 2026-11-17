@@ -4,11 +4,21 @@ import WidgetKit
 /// На сегодня ничего не осталось (или и не было). Не пустой экран, а взгляд вперёд:
 /// что ещё будет сегодня, календарь и дела на завтра, неделя — и кнопка спланировать.
 struct FreeDayView: View {
+    enum Mode { case rest, ahead }
+
     let snapshot: WidgetSnapshot
     let family: WidgetFamily
+    /// rest — «всё сделано / свободно»; ahead — страница «Впереди» в карусели виджета.
+    var mode: Mode = .rest
+    /// Переключатель страниц карусели (рисует виджет).
+    var accessory: AnyView? = nil
 
     private var isDone: Bool { snapshot.doneCount > 0 }
-    private var title: String { isDone ? "Всё сделано" : "Свободный день" }
+    private var title: String {
+        if mode == .ahead { return "Впереди" }
+        if isDone { return "Всё сделано" }
+        return family == .systemSmall ? "Свободно" : "Свободный день"
+    }
 
     struct Line: Identifiable {
         let id: String
@@ -96,7 +106,7 @@ struct FreeDayView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: isDone ? "checkmark.seal.fill" : "sun.max")
+            Image(systemName: mode == .ahead ? "calendar" : (isDone ? "checkmark.seal.fill" : "sun.max"))
                 .font(.footnote)
                 .foregroundStyle(Palette.goldText)
             Text(title)
@@ -104,7 +114,9 @@ struct FreeDayView: View {
                 .foregroundStyle(Palette.ink)
                 .lineLimit(1)
             Spacer(minLength: 4)
-            if isDone && family != .systemSmall {
+            if mode == .ahead, let accessory {
+                accessory
+            } else if isDone && family != .systemSmall {
                 Text("сделано \(snapshot.doneCount)")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(Palette.goldText)
@@ -114,7 +126,7 @@ struct FreeDayView: View {
 
     private func sectionView(_ section: Section, limit: Int) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(section.title)
+            Text(family == .systemSmall ? (section.title.components(separatedBy: " · ").first ?? section.title) : section.title)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(Palette.goldText)
                 .lineLimit(1)
@@ -165,6 +177,7 @@ struct FreeDayView: View {
                         .background(index == 0 ? Palette.gold : Palette.rule.opacity(0.6), in: Capsule())
                 }
             }
+            if mode == .rest, let accessory { accessory }
         }
     }
 
@@ -204,7 +217,23 @@ struct FreeDayView: View {
                     sectionView(section, limit: section.title.hasPrefix("ЗАВТРА") ? 5 : 3)
                 }
                 Spacer(minLength: 0)
-                buttons
+                if mode == .rest { buttons }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        case .systemMedium where mode == .ahead:
+            // «Впереди» в среднем: две ближайшие секции, первая — две строки, вторая — одна.
+            let visible = sections.filter { !$0.lines.isEmpty }
+            VStack(alignment: .leading, spacing: 8) {
+                header
+                if visible.isEmpty {
+                    Text("Ни встреч, ни дел на ближайшие дни. Можно отдыхать — или спланировать неделю.")
+                        .font(.caption)
+                        .foregroundStyle(Palette.ink2)
+                }
+                ForEach(Array(visible.prefix(2).enumerated()), id: \.offset) { index, section in
+                    sectionView(section, limit: index == 0 ? 2 : 1)
+                }
+                Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         default:

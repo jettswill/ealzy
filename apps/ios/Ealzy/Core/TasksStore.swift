@@ -77,6 +77,63 @@ final class TasksStore {
         focusChoice = choice
     }
 
+    // MARK: Отметить готовым — с запасом на «ой, не то»
+
+    /// Отмеченные, но ещё не отправленные: строка зачёркнута и стоит на месте несколько секунд,
+    /// можно снять галочку. Уходит с экрана — отправляем сразу.
+    private(set) var pendingDone: Set<String> = []
+    static let undoDelay: Duration = .seconds(4)
+
+    func isChecked(_ task: EalzyTask) -> Bool { !task.isOpen || pendingDone.contains(task.id) }
+
+    func toggleDone(_ task: EalzyTask) {
+        if pendingDone.contains(task.id) {
+            pendingDone.remove(task.id)
+            return
+        }
+        if !task.isOpen {
+            Task { await reopen(task) }
+            return
+        }
+        pendingDone.insert(task.id)
+        Task {
+            try? await Task.sleep(for: Self.undoDelay)
+            await commit(task.id)
+        }
+    }
+
+    /// Ушли с экрана или свернули приложение — отмеченное уходит сразу.
+    func commitPending() {
+        for id in pendingDone { Task { await commit(id) } }
+    }
+
+    private func commit(_ id: String) async {
+        guard pendingDone.remove(id) != nil, let task = tasks.first(where: { $0.id == id }) else { return }
+        await complete(task)
+    }
+
+    /// Новое дело руками — во «Всех делах» или сразу на сегодня.
+    func create(_ title: String, today: Bool) async {
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let due = today ? DueClock.dateOnly(Date()) : nil
+        let local = EalzyTask(id: "local-\(UUID().uuidString)", title: trimmed, description: nil, status: "todo",
+                              dueAt: due, estimateMinutes: nil, importance: nil, urgency: nil, kind: "task",
+                              assignee: "user", completedAt: nil, createdAt: Date())
+        tasks.append(local)
+        if DemoData.isOn { return }
+        do {
+            let created: EalzyTask = try await APIClient.shared.post("/tasks", body: NewTask(title: trimmed, dueAt: due))
+            replace(local.id) { $0 = created }
+            errorMessage = nil
+        } catch {
+            tasks.removeAll { $0.id == local.id }
+            errorMessage = error.localizedDescription
+        }
+        publishSnapshot()
+        await ReminderScheduler.shared.reschedule(for: tasks)
+    }
+
     func cancel(_ task: EalzyTask) async {
         replace(task.id) { $0.status = "cancelled" }
         await send(task.id, TaskPatch(status: "cancelled"))
