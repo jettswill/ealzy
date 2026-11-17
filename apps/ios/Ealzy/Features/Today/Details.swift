@@ -250,36 +250,3 @@ struct FocusPickerView: View {
         }
     }
 }
-
-// MARK: - Фокус идёт (свёрнут)
-
-struct FocusBanner: View {
-    @Environment(FocusSession.self) private var focus
-
-    var body: some View {
-        Button {
-            focus.isPresented = true
-        } label: {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                HStack(spacing: 10) {
-                    Image(systemName: focus.isPaused ? "pause.fill" : "timer")
-                        .foregroundStyle(Palette.goldInk)
-                    Text(FocusView.clock(focus.remaining(at: context.date)))
-                        .font(.subheadline.weight(.semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(Palette.goldInk)
-                    Text(focus.state?.title ?? "")
-                        .font(.subheadline)
-                        .foregroundStyle(Palette.goldInk.opacity(0.8))
-                        .lineLimit(1)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.up").font(.footnote.weight(.semibold)).foregroundStyle(Palette.goldInk)
-                }
-                .padding(.horizontal, 16)
-                .frame(height: 44)
-                .background(Palette.gold, in: Capsule())
-            }
-        }
-        .accessibilityLabel("Вернуться к фокусу")
-    }
-}

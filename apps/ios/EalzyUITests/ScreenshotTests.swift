@@ -66,9 +66,11 @@ final class ScreenshotTests: XCTestCase {
                 start.tap()
                 sleep(2)
                 snap("5-focus-\(appearance)")
-                app.buttons["Свернуть фокус"].tap()
+                app.buttons["Выйти из фокуса"].tap()
                 sleep(1)
-                snap("9-focus-minimized-\(appearance)")
+                snap("9-focus-exit-\(appearance)")
+                app.buttons["Выйти, дело останется на сегодня"].firstMatch.tap()
+                sleep(1)
             }
             app.terminate()
         }
