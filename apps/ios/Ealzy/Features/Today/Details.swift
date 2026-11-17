@@ -43,6 +43,17 @@ struct TaskDetailView: View {
                                 dismiss()
                             }
                         }
+                        if tasks.isOnToday(task) {
+                            action("Убрать из дня", "minus.circle") {
+                                Task { await tasks.removeFromToday(task) }
+                                dismiss()
+                            }
+                        } else {
+                            action("Поставить на сегодня", "sun.max") {
+                                Task { await tasks.addToToday(task) }
+                                dismiss()
+                            }
+                        }
                         action("Изменить срок", "calendar") {
                             due = task.dueAt ?? Date().addingTimeInterval(3600)
                             editingDue.toggle()

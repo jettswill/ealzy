@@ -7,9 +7,9 @@ final class ScreenshotTests: XCTestCase {
         continueAfterFailure = true
     }
 
-    private func launch(_ appearance: String) -> XCUIApplication {
+    private func launch(_ appearance: String, extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-EalzyDemo", "-appearance", appearance, "-AppleLanguages", "(ru)", "-AppleLocale", "ru_RU"]
+        app.launchArguments = ["-EalzyDemo", "-appearance", appearance, "-AppleLanguages", "(ru)", "-AppleLocale", "ru_RU"] + extra
         app.launch()
         return app
     }
@@ -72,6 +72,15 @@ final class ScreenshotTests: XCTestCase {
             }
             app.terminate()
         }
+    }
+
+    func testDayDoneScreen() {
+        let app = launch("light", extra: ["-EalzyDemoDone"])
+        if app.buttons["Взять ещё"].waitForExistence(timeout: 15) {
+            sleep(1)
+            snap("10-day-done-light")
+        }
+        app.terminate()
     }
 
     func testLoginScreen() {

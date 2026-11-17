@@ -90,7 +90,7 @@ struct RootView: View {
                 .background { LampBackground() } // свет лампы на весь экран, общий для обеих вкладок
                 .onChange(of: router.tab) { UISelectionFeedbackGenerator().selectionChanged() }
 
-                BottomBar(tab: $router.tab, openSettings: { router.showSettings = true }, openIlzi: { router.openIlzi() })
+                BottomBar(tab: $router.tab, openIlzi: { router.openIlzi() })
             }
             .sheet(isPresented: $router.isIlziOpen) {
                 IlziSheet(detent: $ilziDetent)
@@ -123,10 +123,34 @@ struct RootView: View {
     }
 }
 
-/// Нижняя панель: «Сегодня», «Все дела», «Ещё» — одной сеткой; Илзи — лёгкая круглая кнопка рядом.
+/// Заголовок экрана: крупно слева, «Ещё» справа на той же линии.
+struct ScreenHeader: View {
+    @Environment(AppRouter.self) private var router
+    let title: String
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Text(title)
+                .font(Typeface.display(30))
+                .foregroundStyle(Palette.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Spacer(minLength: 0)
+            Button { router.showSettings = true } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(Palette.ink2)
+                    .frame(width: 44, height: 44)
+            }
+            .accessibilityLabel("Ещё")
+            .padding(.trailing, -10)
+        }
+    }
+}
+
+/// Нижняя панель: «Сегодня» и «Все дела» одной сеткой; Илзи — лёгкая круглая кнопка рядом.
 struct BottomBar: View {
     @Binding var tab: AppRouter.Tab
-    let openSettings: () -> Void
     let openIlzi: () -> Void
 
     var body: some View {
@@ -134,7 +158,6 @@ struct BottomBar: View {
             HStack(spacing: 2) {
                 item("Сегодня", "sun.max", selected: tab == .today) { withAnimation(.snappy) { tab = .today } }
                 item("Все дела", "checklist", selected: tab == .reserve) { withAnimation(.snappy) { tab = .reserve } }
-                item("Ещё", "ellipsis.circle", selected: false, action: openSettings)
             }
             .padding(.horizontal, 6)
             .frame(height: 62)
@@ -168,7 +191,7 @@ struct BottomBar: View {
                     .font(.system(size: 11, weight: .semibold))
                     .frame(height: 13)
             }
-            .frame(width: 74, height: 54)
+            .frame(width: 80, height: 54)
             .foregroundStyle(selected ? Palette.goldText : Palette.ink3)
             .contentShape(Rectangle())
         }

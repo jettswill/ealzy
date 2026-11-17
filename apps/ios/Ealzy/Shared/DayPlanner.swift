@@ -1,8 +1,9 @@
 import Foundation
 
-/// План дня вместо списка (research/focus-day-system.md):
-/// 1 фокус (2 — только если горят сроки), мелочи, остальное на сегодня,
-/// всё прочее — «в запасе N». Чистая функция, покрыта тестами.
+/// План дня (research/focus-day-system.md): день собирает сам человек —
+/// в него попадают только дела со сроком «сегодня». Из них — 1 главное
+/// (2 — только если оба важные), остальное и мелочи; просроченное и всё прочее
+/// живёт во «Всех делах». Чистая функция, покрыта тестами.
 struct DayPlan: Equatable {
     var focus: [EalzyTask] = []
     var overdue: [EalzyTask] = []
@@ -10,18 +11,23 @@ struct DayPlan: Equatable {
     var quick: [EalzyTask] = []
     var forIlzi: [EalzyTask] = []
     var reserve: [EalzyTask] = []
+    /// Закрытые сегодня — чтобы было видно, что день сделан.
+    var done: [EalzyTask] = []
 
-    var isEmpty: Bool {
-        focus.isEmpty && overdue.isEmpty && today.isEmpty && quick.isEmpty
-    }
+    /// Открытые дела дня: главное, остальное, мелочи.
+    var dayOpen: [EalzyTask] { focus + today + quick }
+
+    var isEmpty: Bool { dayOpen.isEmpty }
+    /// Всё, что было на сегодня, закрыто.
+    var isDayDone: Bool { isEmpty && !done.isEmpty }
 
     /// Строка дня — одна фраза, которую прочитают гарантированно.
     var headline: String {
-        switch (focus.count, reserve.count) {
-        case (0, 0) where isEmpty: return "День свободен. Скажи Илзи, что висит в голове."
-        case (0, _) where isEmpty: return "На сегодня ничего не горит. Можно взять что-то из всех дел."
-        case (2, _): return "Сегодня два фокуса — иначе не успеть по срокам."
-        case (1, _): return "Один фокус. Сделаешь его — день уже удался."
+        if isDayDone { return "Всё на сегодня сделано. Ты молодец." }
+        switch focus.count {
+        case 0 where isEmpty: return "День пока пустой. Выбери, что сделаешь сегодня."
+        case 2: return "Сегодня два главных — оба важные."
+        case 1: return "Одно главное. Сделаешь его — день уже удался."
         default: return "Крупного на сегодня нет — хороший день, чтобы разгрести мелочи."
         }
     }
@@ -63,35 +69,35 @@ enum DayPlanner {
             return due >= startOfToday && due < startOfTomorrow
         }
 
-        // Кандидаты в фокус: крупное (не мелочь, не встреча) со сроком сегодня/просрочено
-        // или сильное «сделай сейчас» без оглядки на дату.
+        // Кандидаты в главное — только из того, что человек сам поставил на сегодня:
+        // крупное, не мелочь и не встреча.
         let candidates = mine.filter { task in
-            !skipped.contains(task.id) && !task.isMeeting && !task.isQuick
-                && (isToday(task) || isOverdue(task) || task.isPush)
-        }
-        func focusScore(_ task: EalzyTask) -> Int {
-            var score = task.pushScore
-            if isOverdue(task) { score += 5 }
-            if isToday(task) { score += 3 }
-            return score
+            !skipped.contains(task.id) && !task.isMeeting && !task.isQuick && isToday(task)
         }
         let ranked = candidates.sorted {
-            let (a, b) = (focusScore($0), focusScore($1))
+            let (a, b) = ($0.pushScore, $1.pushScore)
             return a != b ? a > b : $0.title.localizedCompare($1.title) == .orderedAscending
         }
         // Человек сам выбрал главное — оно и есть фокус, без второго.
-        if let pinnedId = choice?.pinned, let pinned = mine.first(where: { $0.id == pinnedId }) {
+        if let pinnedId = choice?.pinned, let pinned = mine.first(where: { $0.id == pinnedId && isToday($0) }) {
             plan.focus = [pinned]
         } else if let first = ranked.first {
             plan.focus = [first]
             // Второй фокус — только если он тоже важный и горит сегодня.
             if ranked.count > 1 {
                 let second = ranked[1]
-                if (second.importance ?? 3) >= 4 && (isToday(second) || isOverdue(second)) {
+                if (second.importance ?? 3) >= 4 && (plan.focus[0].importance ?? 3) >= 4 {
                     plan.focus.append(second)
                 }
             }
         }
+        plan.done = tasks
+            .filter { $0.status == "done" && !$0.isForIlzi }
+            .filter { task in
+                if let completed = task.completedAt { return completed >= startOfToday && completed < startOfTomorrow }
+                return isToday(task)
+            }
+            .sorted { ($0.completedAt ?? .distantPast) < ($1.completedAt ?? .distantPast) }
         let focusIds = Set(plan.focus.map(\.id))
         let rest = mine.filter { !focusIds.contains($0.id) }
 

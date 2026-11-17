@@ -18,8 +18,14 @@ struct SnapshotProvider: TimelineProvider {
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<SnapshotEntry>) -> Void) {
         // Снимок обновляет приложение; виджет перечитывает его раз в полчаса на всякий случай.
-        let entry = SnapshotEntry(date: Date(), snapshot: WidgetSnapshot.load())
-        completion(Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(30 * 60))))
+        // Во время фокуса — ещё одна запись на момент, когда выйдет время.
+        let now = Date()
+        let snapshot = WidgetSnapshot.load()
+        var entries = [SnapshotEntry(date: now, snapshot: snapshot)]
+        if let ends = snapshot?.focusRun?.endsAt, ends > now {
+            entries.append(SnapshotEntry(date: ends, snapshot: snapshot))
+        }
+        completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(30 * 60))))
     }
 }
 
@@ -43,14 +49,16 @@ struct FocusWidgetView: View {
     let entry: SnapshotEntry
 
     var body: some View {
-        if let snapshot = entry.snapshot {
+        if let snapshot = entry.snapshot, let run = snapshot.focusRun {
+            FocusRunView(run: run, now: entry.date, family: family)
+        } else if let snapshot = entry.snapshot {
             switch family {
             case .accessoryInline:
-                Text(snapshot.focus.first.map { "Фокус: \($0.title)" } ?? "Ealzy: ничего не горит")
+                Text(snapshot.focus.first.map { "Главное: \($0.title)" } ?? Self.emptyLine(snapshot))
             case .accessoryRectangular:
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Фокус").font(.caption2).foregroundStyle(.secondary)
-                    Text(snapshot.focus.first?.title ?? "Ничего не горит")
+                    Text("Главное").font(.caption2).foregroundStyle(.secondary)
+                    Text(snapshot.focus.first?.title ?? Self.emptyLine(snapshot))
                         .font(.headline)
                         .lineLimit(2)
                     if let event = snapshot.nextEvent {
@@ -71,6 +79,87 @@ struct FocusWidgetView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
+    }
+
+    static func emptyLine(_ snapshot: WidgetSnapshot) -> String {
+        snapshot.doneCount > 0 && snapshot.next.isEmpty ? "Всё на сегодня сделано" : "День пока пустой"
+    }
+}
+
+/// Идёт фокус: виджет повторяет экран приложения — дело, сколько осталось, «не отвлекайся».
+private struct FocusRunView: View {
+    let run: WidgetSnapshot.FocusRun
+    let now: Date
+    let family: WidgetFamily
+
+    private var isOver: Bool { run.endsAt.map { $0 <= now } ?? false }
+
+    @ViewBuilder
+    private var clock: some View {
+        if let ends = run.endsAt, ends > now {
+            Text(timerInterval: now...ends, countsDown: true)
+        } else if let rest = run.pausedRemaining {
+            Text(Self.format(rest))
+        } else {
+            Text("время вышло")
+        }
+    }
+
+    private var status: String {
+        if run.pausedRemaining != nil { return "На паузе" }
+        return isOver ? "Время вышло — закончи или продли" : "Не отвлекайся — остальное подождёт"
+    }
+
+    var body: some View {
+        switch family {
+        case .accessoryInline:
+            HStack { Text("Фокус ·"); clock }
+        case .accessoryRectangular:
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 4) { Text("В фокусе"); clock.monospacedDigit() }
+                    .font(.caption2)
+                Text(run.title).font(.headline).lineLimit(2)
+            }
+        default:
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("СЕЙЧАС В ФОКУСЕ").font(.caption2.weight(.semibold)).foregroundStyle(Palette.goldText)
+                    Spacer(minLength: 4)
+                    if family != .systemSmall {
+                        Button(intent: CompleteTaskIntent(taskId: run.taskId)) {
+                            Image(systemName: "checkmark.circle").font(.title3).foregroundStyle(Palette.goldText)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Готово")
+                    }
+                }
+                Text(run.title)
+                    .font(Typeface.display(family == .systemSmall ? 16 : (family == .systemLarge ? 24 : 19)))
+                    .foregroundStyle(Palette.ink)
+                    .lineLimit(family == .systemLarge ? 4 : 2)
+                    .minimumScaleFactor(0.85)
+                    .padding(.top, 4)
+                Spacer(minLength: 4)
+                clock
+                    .font(.system(size: family == .systemSmall ? 30 : 38, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(isOver ? Palette.goldText : Palette.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(status)
+                    .font(.caption)
+                    .foregroundStyle(Palette.ink2)
+                    .lineLimit(family == .systemSmall ? 2 : 1)
+                    .padding(.top, 2)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    static func format(_ seconds: TimeInterval) -> String {
+        let total = max(Int(seconds), 0)
+        let h = total / 3600, m = (total % 3600) / 60, s = total % 60
+        return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
     }
 }
 
@@ -95,10 +184,26 @@ private struct SmallFocus: View {
                         .foregroundStyle(Palette.goldText)
                 }
                 .buttonStyle(.plain)
-            } else {
-                Text("Ничего не горит").font(Typeface.display(17)).foregroundStyle(Palette.ink).padding(.top, 4)
+            } else if let first = snapshot.next.first {
+                Text(first.title)
+                    .font(Typeface.display(17))
+                    .foregroundStyle(Palette.ink)
+                    .lineLimit(4)
+                    .minimumScaleFactor(0.85)
+                    .padding(.top, 4)
                 Spacer(minLength: 4)
-                Text("ещё \(snapshot.reserveCount) не на сегодня").font(.caption).foregroundStyle(Palette.ink2)
+                Button(intent: CompleteTaskIntent(taskId: first.id)) {
+                    Label("Готово", systemImage: "checkmark.circle")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Palette.goldText)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text(FocusWidgetView.emptyLine(snapshot))
+                    .font(Typeface.display(17)).foregroundStyle(Palette.ink).padding(.top, 4)
+                Spacer(minLength: 4)
+                Text(snapshot.doneCount > 0 ? "Ты молодец." : "Выбери дела в приложении")
+                    .font(.caption).foregroundStyle(Palette.ink2)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -115,7 +220,7 @@ private struct DayList: View {
 
     var body: some View {
         let next = Array(snapshot.next.prefix(rows))
-        let hidden = snapshot.next.count - next.count + snapshot.reserveCount
+        let hidden = snapshot.next.count - next.count
         VStack(alignment: .leading, spacing: 0) {
             if let focus = snapshot.focus.first {
                 HStack(alignment: .top, spacing: 10) {
@@ -137,7 +242,7 @@ private struct DayList: View {
                     .accessibilityLabel("Готово")
                 }
             } else {
-                Text(snapshot.headline)
+                Text(snapshot.next.isEmpty ? FocusWidgetView.emptyLine(snapshot) : "На сегодня")
                     .font(Typeface.display(17))
                     .foregroundStyle(Palette.ink)
                     .lineLimit(2)
@@ -156,8 +261,10 @@ private struct DayList: View {
                 .padding(.top, 10)
             }
             Spacer(minLength: 0)
-            if hidden > 0 {
-                Text("ещё \(hidden) — в приложении")
+            if hidden > 0 || snapshot.doneCount > 0 {
+                Text([hidden > 0 ? "ещё \(hidden) на сегодня" : nil,
+                      snapshot.doneCount > 0 ? "сделано \(snapshot.doneCount)" : nil]
+                    .compactMap { $0 }.joined(separator: " · "))
                     .font(.caption2)
                     .foregroundStyle(Palette.ink3)
             }

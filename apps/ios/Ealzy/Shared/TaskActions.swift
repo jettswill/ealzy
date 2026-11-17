@@ -3,6 +3,20 @@ import Foundation
 struct TaskPatch: Encodable {
     var status: String?
     var dueAt: Date?
+    /// Снять срок: на сервер уходит `due_at: null`.
+    var clearDue = false
+
+    enum CodingKeys: String, CodingKey { case status, dueAt }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(status, forKey: .status)
+        if clearDue {
+            try container.encodeNil(forKey: .dueAt)
+        } else {
+            try container.encodeIfPresent(dueAt, forKey: .dueAt)
+        }
+    }
 }
 
 struct NewTask: Encodable {

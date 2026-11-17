@@ -2,7 +2,7 @@ import EventKit
 import SwiftUI
 
 /// Главный экран «Лампа»: лента дня, одно главное дело под светом лампы,
-/// мелочи между делом, всё остальное — в запасе.
+/// остальное, что человек сам поставил на сегодня, и сделанное. Всё прочее — во «Всех делах».
 struct TodayView: View {
     @Environment(TasksStore.self) private var tasks
     @Environment(PhoneCalendar.self) private var calendar
@@ -22,13 +22,10 @@ struct TodayView: View {
 
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                ScreenHeader(title: Self.dayTitle(now))
                 if focus.isRunning && !focus.isPresented {
-                    FocusBanner().padding(.bottom, 10)
+                    FocusBanner().padding(.top, 6)
                 }
-                Text(Self.dayTitle(now))
-                    .font(.subheadline)
-                    .foregroundStyle(Palette.ink2)
-                    .padding(.top, 8)
 
                 DayRibbon(
                     events: ribbonEvents(now: now),
@@ -65,14 +62,11 @@ struct TodayView: View {
                             .padding(.top, 14)
                     }
                 } else {
-                    Text(plan.headline)
-                        .font(Typeface.display(28))
-                        .foregroundStyle(Palette.ink)
+                    emptyDay(plan)
                         .padding(.top, 10)
                 }
 
-                betweenTasks(plan)
-                    .padding(.top, 28)
+                restOfDay(plan)
             }
             .padding(.horizontal, 24)
             .padding(.top, 4)
@@ -92,36 +86,77 @@ struct TodayView: View {
         .sheet(item: $pickingFocusFor) { FocusPickerView(current: $0) }
     }
 
-    // MARK: Между делом
+    // MARK: Остальное на сегодня и сделанное
+
+    /// Ничего открытого на сегодня: либо день сделан — хвалим, либо его ещё не собрали.
+    @ViewBuilder
+    private func emptyDay(_ plan: DayPlan) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(plan.isDayDone ? "Всё на сегодня сделано." : "День пока пустой.")
+                .font(Typeface.display(34))
+                .foregroundStyle(Palette.ink)
+            Text(plan.isDayDone
+                 ? "Ты молодец. Можно отдохнуть — или взять что-то ещё из всех дел."
+                 : "Выбери одно главное и пару мелочей. Остальное подождёт во «Всех делах».")
+                .font(.body)
+                .foregroundStyle(Palette.ink2)
+                .padding(.top, 10)
+            Button { withAnimation { router.tab = .reserve } } label: {
+                Label(plan.isDayDone ? "Взять ещё" : "Собрать день", systemImage: "plus")
+                    .font(.body.weight(.semibold))
+                    .padding(.horizontal, 22)
+                    .frame(height: 50)
+                    .background(plan.isDayDone ? Color.clear : Palette.gold, in: Capsule())
+                    .overlay(Capsule().strokeBorder(plan.isDayDone ? Palette.rule : .clear))
+                    .foregroundStyle(plan.isDayDone ? Palette.ink : Palette.goldInk)
+            }
+            .padding(.top, 20)
+        }
+    }
 
     @ViewBuilder
-    private func betweenTasks(_ plan: DayPlan) -> some View {
-        let items = plan.overdue + plan.today + plan.quick
-        let minutes = items.compactMap(\.estimateMinutes).reduce(0, +)
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(minutes > 0 ? "Между делом · \(minutes) мин" : "Между делом")
-                Spacer()
-                if !plan.reserve.isEmpty {
-                    Button("ещё \(plan.reserve.count) — во «Всех делах»") { withAnimation { router.tab = .reserve } }
-                        .foregroundStyle(Palette.ink2)
-                }
+    private func restOfDay(_ plan: DayPlan) -> some View {
+        let items = plan.today + plan.quick
+        if !items.isEmpty {
+            let minutes = items.compactMap(\.estimateMinutes).reduce(0, +)
+            VStack(alignment: .leading, spacing: 0) {
+                sectionTitle(minutes > 0 ? "Ещё на сегодня · \(Self.duration(TimeInterval(minutes * 60)))" : "Ещё на сегодня",
+                             trailing: "Добавить")
+                ForEach(items) { TaskRow(task: $0) }
             }
-            .font(.footnote)
-            .foregroundStyle(Palette.ink2)
-            .padding(.bottom, 6)
-
-            if items.isEmpty {
-                Text("Мелочей на сегодня нет.")
+            .padding(.top, 30)
+        } else if !plan.isEmpty {
+            Button { withAnimation { router.tab = .reserve } } label: {
+                Label("Добавить дело на сегодня", systemImage: "plus")
                     .font(.subheadline)
-                    .foregroundStyle(Palette.ink3)
-                    .padding(.vertical, 6)
+                    .foregroundStyle(Palette.ink2)
             }
-            ForEach(items) { TaskRow(task: $0) }
-            if let error = tasks.errorMessage {
-                Text(error).font(.footnote).foregroundStyle(.red).padding(.top, 8)
+            .padding(.top, 30)
+        }
+        if !plan.done.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                sectionTitle("Сделано · \(plan.done.count)", trailing: nil)
+                ForEach(plan.done) { TaskRow(task: $0) }
+            }
+            .padding(.top, 30)
+        }
+        if let error = tasks.errorMessage {
+            Text(error).font(.footnote).foregroundStyle(.red).padding(.top, 8)
+        }
+    }
+
+    private func sectionTitle(_ title: String, trailing: String?) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            if let trailing {
+                Button(trailing) { withAnimation { router.tab = .reserve } }
+                    .foregroundStyle(Palette.goldText)
             }
         }
+        .font(.footnote)
+        .foregroundStyle(Palette.ink2)
+        .padding(.bottom, 6)
     }
 
     // MARK: Календарь → лента
@@ -267,6 +302,8 @@ struct TaskRow: View {
     @Environment(PhoneCalendar.self) private var calendar
     let task: EalzyTask
     var canComplete = true
+    /// Во «Всех делах» — солнышко справа: поставить дело на сегодня или убрать из дня.
+    var showsDayToggle = false
     @State private var showDetail = false
 
     var body: some View {
@@ -274,14 +311,14 @@ struct TaskRow: View {
             if canComplete {
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                    Task { await tasks.complete(task) }
+                    Task { task.isOpen ? await tasks.complete(task) : await tasks.reopen(task) }
                 } label: {
                     Image(systemName: task.isOpen ? "circle" : "checkmark.circle.fill")
                         .font(.title3)
                         .foregroundStyle(task.isOpen ? Palette.ink3 : Palette.goldText)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Готово")
+                .accessibilityLabel(task.isOpen ? "Готово" : "Вернуть в работу")
             } else {
                 Image(systemName: "hourglass").foregroundStyle(Palette.goldText).frame(width: 22)
             }
@@ -289,7 +326,7 @@ struct TaskRow: View {
                 HStack {
                     Text(task.title)
                         .font(.subheadline)
-                        .foregroundStyle(Palette.ink)
+                        .foregroundStyle(task.isOpen ? Palette.ink : Palette.ink3)
                         .strikethrough(!task.isOpen)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -301,13 +338,32 @@ struct TaskRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            if showsDayToggle && task.isOpen {
+                let onToday = tasks.isOnToday(task)
+                Button {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    Task { onToday ? await tasks.removeFromToday(task) : await tasks.addToToday(task) }
+                } label: {
+                    Image(systemName: onToday ? "sun.max.fill" : "sun.max")
+                        .font(.system(size: 17))
+                        .foregroundStyle(onToday ? Palette.goldText : Palette.ink3)
+                        .frame(width: 36, height: 36)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(onToday ? "Убрать из дня" : "На сегодня")
+            }
         }
         .padding(.vertical, 7)
         .contentShape(Rectangle())
         .sheet(isPresented: $showDetail) { TaskDetailView(task: task) }
         .contextMenu {
-            if canComplete {
+            if canComplete && task.isOpen {
                 Button { Task { await tasks.complete(task) } } label: { Label("Готово", systemImage: "checkmark") }
+                if tasks.isOnToday(task) {
+                    Button { Task { await tasks.removeFromToday(task) } } label: { Label("Убрать из дня", systemImage: "minus.circle") }
+                } else {
+                    Button { Task { await tasks.addToToday(task) } } label: { Label("На сегодня", systemImage: "sun.max") }
+                }
                 Button { Task { await tasks.moveToTomorrow(task) } } label: { Label("На завтра", systemImage: "arrow.right") }
             }
             if task.dueAt != nil {

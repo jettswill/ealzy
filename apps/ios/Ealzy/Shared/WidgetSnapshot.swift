@@ -13,6 +13,16 @@ struct WidgetSnapshot: Codable, Equatable {
         let meta: String?
     }
 
+    /// Идущий фокус: виджет повторяет то, что сейчас в приложении.
+    struct FocusRun: Codable, Equatable {
+        let taskId: String
+        let title: String
+        /// Когда выйдет время (если таймер идёт).
+        var endsAt: Date?
+        /// Сколько осталось, если на паузе.
+        var pausedRemaining: TimeInterval?
+    }
+
     var updatedAt: Date
     var headline: String
     var focus: [Item]
@@ -20,6 +30,8 @@ struct WidgetSnapshot: Codable, Equatable {
     var quickCount: Int
     var reserveCount: Int
     var nextEvent: Item?
+    var doneCount: Int = 0
+    var focusRun: FocusRun?
 
     static let appGroup = "group.ru.ealzy.app"
     private static let fileName = "widget-snapshot.json"
@@ -60,7 +72,7 @@ struct WidgetSnapshot: Codable, Equatable {
     }
 
     static func make(plan: DayPlan, nextEvent: Item?) -> WidgetSnapshot {
-        let next = (plan.overdue + plan.today + plan.quick).prefix(8).map {
+        let next = (plan.today + plan.quick).prefix(8).map {
             Item(id: $0.id, title: $0.title, meta: TaskMeta.text(for: $0))
         }
         return WidgetSnapshot(
@@ -69,16 +81,31 @@ struct WidgetSnapshot: Codable, Equatable {
             focus: plan.focus.map { Item(id: $0.id, title: $0.title, meta: TaskMeta.text(for: $0)) },
             next: Array(next),
             quickCount: plan.quick.count,
-            reserveCount: plan.reserve.count,
-            nextEvent: nextEvent
+            reserveCount: plan.reserve.count + plan.overdue.count,
+            nextEvent: nextEvent,
+            doneCount: plan.done.count
         )
+    }
+
+    /// Фокус начали, поставили на паузу или закончили — виджет сразу показывает это же.
+    static func setFocusRun(_ run: FocusRun?) {
+        var snapshot = load() ?? WidgetSnapshot(
+            updatedAt: Date(), headline: "", focus: [], next: [], quickCount: 0, reserveCount: 0, nextEvent: nil
+        )
+        guard snapshot.focusRun != run else { return }
+        snapshot.focusRun = run
+        snapshot.save()
     }
 
     /// Дело закрыли из виджета или уведомления — убираем сразу, не дожидаясь приложения.
     static func markDone(_ id: String) {
         guard var snapshot = load() else { return }
+        if snapshot.focus.contains(where: { $0.id == id }) || snapshot.next.contains(where: { $0.id == id }) {
+            snapshot.doneCount += 1
+        }
         snapshot.focus.removeAll { $0.id == id }
         snapshot.next.removeAll { $0.id == id }
+        if snapshot.focusRun?.taskId == id { snapshot.focusRun = nil }
         snapshot.save()
     }
 
@@ -115,7 +142,7 @@ enum TaskMeta {
                 parts.append([day, time].compactMap { $0 }.joined(separator: " "))
             }
         }
-        if let minutes = task.estimateMinutes {
+        if let minutes = task.estimateMinutes, task.isOpen {
             if minutes >= 60 {
                 let rest = minutes % 60
                 parts.append("~\(minutes / 60) ч" + (rest == 0 ? "" : " \(rest) мин"))

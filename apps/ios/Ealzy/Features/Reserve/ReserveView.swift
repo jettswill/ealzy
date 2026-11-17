@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// «Все дела»: сегодняшние сверху, дальше — неделя, позже, когда-нибудь.
+/// «Все дела»: отсюда человек сам собирает день — солнышко справа ставит дело на сегодня.
+/// Сверху то, что уже на сегодня, потом просроченное, неделя, позже, когда-нибудь.
 struct ReserveView: View {
     @Environment(TasksStore.self) private var tasks
     @Environment(AppRouter.self) private var router
@@ -9,21 +10,20 @@ struct ReserveView: View {
     var body: some View {
         let plan = tasks.plan
         let reserve = plan.reserve
-        let today = plan.focus + plan.overdue + plan.today + plan.quick
-        let groups = (today.isEmpty ? [] : [Group(title: "Сегодня", tasks: today)]) + Self.group(reserve)
-        let total = today.count + reserve.count
+        let today = plan.dayOpen
+        let groups = [Group(title: "На сегодня", tasks: today), Group(title: "Просрочено", tasks: plan.overdue)]
+            .filter { !$0.tasks.isEmpty } + Self.group(reserve)
+        let total = today.count + plan.overdue.count + reserve.count
         let stale = Self.stale(reserve)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                Text("Все дела")
-                    .font(Typeface.display(34))
-                    .foregroundStyle(Palette.ink)
+                ScreenHeader(title: "Все дела")
                 Text(total == 0
                      ? "Пусто. Скажи Илзи, что висит в голове."
-                     : "\(total) \(TodayView.plural(total, "дело", "дела", "дел")) · на сегодня \(today.count)")
+                     : "\(total) \(TodayView.plural(total, "дело", "дела", "дел")) · на сегодня \(today.count). Нажми ☀︎, чтобы взять в день.")
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
-                    .padding(.top, 6)
+                    .padding(.top, 2)
 
                 if stale.count >= 3 && Date().timeIntervalSince1970 > snoozedUntil {
                     staleCard(stale)
@@ -42,7 +42,7 @@ struct ReserveView: View {
                         .padding(.bottom, 4)
                         ForEach(group.tasks) { task in
                             Divider().overlay(Palette.rule)
-                            TaskRow(task: task)
+                            TaskRow(task: task, showsDayToggle: true)
                         }
                     }
                     .padding(.top, 26)

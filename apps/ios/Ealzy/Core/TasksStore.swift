@@ -36,12 +36,37 @@ final class TasksStore {
         return FocusChoice(day: today)
     }
 
-    /// Сделать дело главным на сегодня.
+    /// Сделать дело главным на сегодня (и поставить его в день, если его там нет).
     func pinFocus(_ task: EalzyTask) {
         var choice = todayChoice
         choice.pinned = task.id
         choice.skipped.removeAll { $0 == task.id }
         focusChoice = choice
+        if !isOnToday(task) { Task { await addToToday(task) } }
+    }
+
+    func isOnToday(_ task: EalzyTask) -> Bool {
+        task.dueAt.map { Calendar.current.isDateInToday($0) } ?? false
+    }
+
+    /// Человек сам собирает день: дело — в «Сегодня».
+    func addToToday(_ task: EalzyTask) async {
+        let due = DueClock.dateOnly(Date())
+        replace(task.id) { $0.dueAt = due }
+        await send(task.id, TaskPatch(dueAt: due))
+    }
+
+    /// Убрать из дня — дело уходит во «Все дела», без срока.
+    func removeFromToday(_ task: EalzyTask) async {
+        if focusChoice?.pinned == task.id { focusChoice?.pinned = nil }
+        replace(task.id) { $0.dueAt = nil }
+        await send(task.id, TaskPatch(clearDue: true))
+    }
+
+    /// Случайно отметил — вернуть в работу.
+    func reopen(_ task: EalzyTask) async {
+        replace(task.id) { $0.status = "todo"; $0.completedAt = nil }
+        await send(task.id, TaskPatch(status: "todo"))
     }
 
     /// Убрать дело из фокуса на сегодня — оно остаётся в списке, главным станет следующее.
@@ -64,7 +89,10 @@ final class TasksStore {
 
     func publishSnapshot() {
         guard !tasks.isEmpty || errorMessage == nil else { return }
-        WidgetSnapshot.make(plan: plan, nextEvent: nextEvent).save()
+        var snapshot = WidgetSnapshot.make(plan: plan, nextEvent: nextEvent)
+        // Идущий фокус пишет FocusSession — его не трогаем.
+        snapshot.focusRun = WidgetSnapshot.load()?.focusRun
+        snapshot.save()
     }
 
     func load() async {
@@ -85,7 +113,7 @@ final class TasksStore {
     }
 
     func complete(_ task: EalzyTask) async {
-        replace(task.id) { $0.status = "done" }
+        replace(task.id) { $0.status = "done"; $0.completedAt = Date() }
         await send(task.id, TaskPatch(status: "done"))
     }
 
