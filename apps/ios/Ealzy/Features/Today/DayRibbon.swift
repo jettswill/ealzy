@@ -123,16 +123,18 @@ struct DayRibbon: View {
         }
         if let focus { all.append(Label(x: fraction(focus.start) * width, text: "фокус", isFocus: true)) }
         var kept: [Label] = []
+        // Подпись шириной ~84 pt не должна уходить за правый край.
+        let maxX = width - 84
         for label in all.sorted(by: { $0.x < $1.x }) {
-            if let last = kept.last, label.x - last.x < 64 { continue }
-            if label.x > width - 40 { continue }
-            kept.append(label)
+            let x = min(label.x, maxX)
+            if let last = kept.last, x - last.x < 72 { continue }
+            kept.append(Label(x: x, text: label.text, isFocus: label.isFocus))
         }
         return kept
     }
 
     static func shortTitle(_ title: String) -> String {
-        title.count > 14 ? String(title.prefix(13)) + "…" : title
+        title.count > 12 ? String(title.prefix(11)) + "…" : title
     }
 
     private func time(_ date: Date) -> String {
