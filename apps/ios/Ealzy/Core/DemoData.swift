@@ -66,6 +66,24 @@ enum DemoData {
         ].filter { Calendar.current.isDateInToday($0.startDate) }
     }
 
+    static func tomorrowEvents(store: EKEventStore) -> [EKEvent] {
+        let cal = Calendar.current
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date()))!
+        func event(_ title: String, hour: Int, minute: Int = 0, minutes: Int, location: String? = nil) -> EKEvent {
+            let e = EKEvent(eventStore: store)
+            e.title = title
+            e.startDate = cal.date(bySettingHour: hour, minute: minute, second: 0, of: tomorrow)!
+            e.endDate = e.startDate.addingTimeInterval(TimeInterval(minutes * 60))
+            e.location = location
+            return e
+        }
+        return [
+            event("Бокс", hour: 9, minutes: 90, location: "Зал на Тверской"),
+            event("Планёрка", hour: 12, minutes: 30),
+            event("Стоматолог", hour: 17, minute: 30, minutes: 60, location: "Мясницкая, 24"),
+        ]
+    }
+
     static var messages: [ChatMessage] {
         [
             ChatMessage(id: "m1", role: "user", content: "в пятницу забрать костюм из химчистки, и надо что-то Оле на субботу", createdAt: at(-3)),

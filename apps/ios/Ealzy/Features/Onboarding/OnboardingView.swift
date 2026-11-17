@@ -37,7 +37,7 @@ struct OnboardingView: View {
                         action: "Подключить"
                     ) {
                         await calendar.enableSync()
-                        tasks.nextEvent = calendar.nextEventItem
+                        tasks.calendarInfo = calendar.widgetCalendar
                     }
                     step(
                         icon: "checklist",

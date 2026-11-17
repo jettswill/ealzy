@@ -110,6 +110,15 @@ final class ScreenshotTests: XCTestCase {
         app.terminate()
     }
 
+    func testWidgetGallery() {
+        for appearance in ["light", "dark"] {
+            let app = launch(appearance, extra: ["-EalzyWidgetGallery"])
+            sleep(3)
+            snap("16-widgets-\(appearance)")
+            app.terminate()
+        }
+    }
+
     func testLoginScreen() {
         for appearance in ["light", "dark"] {
             let app = XCUIApplication()

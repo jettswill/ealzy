@@ -31,6 +31,7 @@ final class PhoneCalendar {
 
     private let store = EKEventStore()
     private(set) var todayEvents: [EKEvent] = []
+    private(set) var tomorrowEvents: [EKEvent] = []
     private(set) var lastSync: Date?
     var errorMessage: String?
 
@@ -72,6 +73,7 @@ final class PhoneCalendar {
     func sync() async {
         if DemoData.isOn {
             todayEvents = DemoData.events(store: store)
+            tomorrowEvents = DemoData.tomorrowEvents(store: store)
             return
         }
         guard isSyncEnabled, hasCalendarAccess else { return }
@@ -84,6 +86,8 @@ final class PhoneCalendar {
             .filter { $0.status != .canceled }
             .sorted { $0.startDate < $1.startDate }
         todayEvents = events.filter { $0.startDate < endOfToday && $0.endDate > start }
+        let endOfTomorrow = calendar.date(byAdding: .day, value: 1, to: endOfToday) ?? endOfToday
+        tomorrowEvents = events.filter { $0.startDate < endOfTomorrow && $0.endDate > endOfToday }
         let upload = CalendarUpload(
             from: start,
             to: end,
@@ -106,6 +110,23 @@ final class PhoneCalendar {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Календарь для виджета: ближайшее, что ещё будет сегодня, и завтрашний день.
+    var widgetCalendar: WidgetCalendar {
+        let now = Date()
+        func item(_ event: EKEvent) -> WidgetSnapshot.Item {
+            WidgetSnapshot.Item(
+                id: event.calendarItemIdentifier,
+                title: event.title ?? "Событие",
+                meta: event.isAllDay ? "весь день" : event.startDate.formatted(date: .omitted, time: .shortened)
+            )
+        }
+        return WidgetCalendar(
+            next: nextEventItem,
+            laterToday: todayEvents.filter { !$0.isAllDay && $0.endDate > now }.prefix(4).map(item),
+            tomorrow: tomorrowEvents.prefix(6).map(item)
+        )
     }
 
     /// Ближайшее событие сегодня — для виджета.

@@ -57,7 +57,7 @@ struct EalzyApp: App {
     private func refreshAll() async {
         await chat.flushQueue()
         await calendar.sync()
-        tasks.nextEvent = calendar.nextEventItem
+        tasks.calendarInfo = calendar.widgetCalendar
         await tasks.load()
     }
 
@@ -80,7 +80,9 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var router = router
-        if auth.isSignedIn {
+        if WidgetGallery.isOn {
+            WidgetGallery()
+        } else if auth.isSignedIn {
             ZStack(alignment: .bottom) {
                 if focus.isRunning {
                     // Идёт дело — приложение переключается в режим фокуса: больше ничего не отвлекает.
@@ -129,7 +131,7 @@ struct RootView: View {
                 await auth.refresh()
                 await chat.flushQueue()
                 await calendar.sync()
-                tasks.nextEvent = calendar.nextEventItem
+                tasks.calendarInfo = calendar.widgetCalendar
                 await tasks.load()
                 // Разрешения спрашивает знакомство; потом — только переподписка на push.
                 if !showOnboarding, await ReminderScheduler.shared.isAuthorized() {

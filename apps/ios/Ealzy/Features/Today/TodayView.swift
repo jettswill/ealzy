@@ -68,7 +68,7 @@ struct TodayView: View {
         .scrollDismissesKeyboard(.interactively)
         .refreshable {
             await calendar.sync()
-            tasks.nextEvent = calendar.nextEventItem
+            tasks.calendarInfo = calendar.widgetCalendar
             await tasks.load()
         }
         .overlay {

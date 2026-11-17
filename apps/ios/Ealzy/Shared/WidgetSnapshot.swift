@@ -35,9 +35,18 @@ struct WidgetSnapshot: Codable, Equatable {
     /// Что на завтра — показать, когда сегодня свободно или всё сделано.
     var tomorrow: [Item] = []
     var overdueCount: Int = 0
+    /// Что ещё будет сегодня в календаре.
+    var laterToday: [Item] = []
+    /// Календарь на завтра.
+    var tomorrowEvents: [Item] = []
+    /// Дела на ближайшую неделю (после завтра) — с днём.
+    var week: [Item] = []
+    /// Дела без срока — «когда-нибудь».
+    var somedayCount: Int = 0
 
     init(updatedAt: Date, headline: String, focus: [Item], next: [Item], quickCount: Int, reserveCount: Int,
-         nextEvent: Item?, doneCount: Int = 0, focusRun: FocusRun? = nil, tomorrow: [Item] = [], overdueCount: Int = 0) {
+         nextEvent: Item?, doneCount: Int = 0, focusRun: FocusRun? = nil, tomorrow: [Item] = [], overdueCount: Int = 0,
+         laterToday: [Item] = [], tomorrowEvents: [Item] = [], week: [Item] = [], somedayCount: Int = 0) {
         self.updatedAt = updatedAt
         self.headline = headline
         self.focus = focus
@@ -49,6 +58,10 @@ struct WidgetSnapshot: Codable, Equatable {
         self.focusRun = focusRun
         self.tomorrow = tomorrow
         self.overdueCount = overdueCount
+        self.laterToday = laterToday
+        self.tomorrowEvents = tomorrowEvents
+        self.week = week
+        self.somedayCount = somedayCount
     }
 
     /// Новые поля необязательны: снимок от старой версии приложения тоже читается.
@@ -65,6 +78,10 @@ struct WidgetSnapshot: Codable, Equatable {
         focusRun = try c.decodeIfPresent(FocusRun.self, forKey: .focusRun)
         tomorrow = try c.decodeIfPresent([Item].self, forKey: .tomorrow) ?? []
         overdueCount = try c.decodeIfPresent(Int.self, forKey: .overdueCount) ?? 0
+        laterToday = try c.decodeIfPresent([Item].self, forKey: .laterToday) ?? []
+        tomorrowEvents = try c.decodeIfPresent([Item].self, forKey: .tomorrowEvents) ?? []
+        week = try c.decodeIfPresent([Item].self, forKey: .week) ?? []
+        somedayCount = try c.decodeIfPresent(Int.self, forKey: .somedayCount) ?? 0
     }
 
     static let appGroup = "group.ru.ealzy.app"
@@ -106,6 +123,11 @@ struct WidgetSnapshot: Codable, Equatable {
     }
 
     static func make(plan: DayPlan, nextEvent: Item?) -> WidgetSnapshot {
+        make(plan: plan, agenda: WidgetCalendar(next: nextEvent))
+    }
+
+    static func make(plan: DayPlan, agenda info: WidgetCalendar, calendar: Calendar = .current) -> WidgetSnapshot {
+        let nextEvent = info.next
         let next = (plan.today + plan.quick).prefix(8).map {
             Item(id: $0.id, title: $0.title, meta: TaskMeta.text(for: $0))
         }
@@ -122,7 +144,20 @@ struct WidgetSnapshot: Codable, Equatable {
                 .filter { $0.dueAt.map(Calendar.current.isDateInTomorrow) ?? false }
                 .prefix(3)
                 .map { Item(id: $0.id, title: $0.title, meta: TaskMeta.text(for: $0)) },
-            overdueCount: plan.overdue.count
+            overdueCount: plan.overdue.count,
+            laterToday: info.laterToday,
+            tomorrowEvents: info.tomorrow,
+            week: plan.reserve
+                .filter { task in
+                    guard let due = task.dueAt else { return false }
+                    let start = calendar.startOfDay(for: Date())
+                    let dayAfter = calendar.date(byAdding: .day, value: 2, to: start) ?? start
+                    let weekEnd = calendar.date(byAdding: .day, value: 8, to: start) ?? start
+                    return due >= dayAfter && due < weekEnd
+                }
+                .prefix(4)
+                .map { Item(id: $0.id, title: $0.title, meta: TaskMeta.dayShort(for: $0.dueAt, calendar: calendar)) },
+            somedayCount: plan.reserve.filter { $0.dueAt == nil }.count
         )
     }
 
@@ -161,8 +196,23 @@ struct WidgetSnapshot: Codable, Equatable {
     }
 }
 
+/// Календарь для виджета: ближайшее событие, остаток сегодняшнего дня и завтра.
+struct WidgetCalendar: Equatable {
+    var next: WidgetSnapshot.Item?
+    var laterToday: [WidgetSnapshot.Item] = []
+    var tomorrow: [WidgetSnapshot.Item] = []
+}
+
 /// Подпись к делу: время, «завтра», оценка. Одна на приложение и виджет.
 enum TaskMeta {
+    /// «чт» / «пт 18:00» — коротко, для строки виджета.
+    static func dayShort(for date: Date?, calendar: Calendar = .current) -> String? {
+        guard let date else { return nil }
+        let day = date.formatted(.dateTime.weekday(.abbreviated).locale(Locale(identifier: "ru_RU")))
+        if DueClock.isDateOnly(date, calendar: calendar) { return day }
+        return "\(day) \(date.formatted(date: .omitted, time: .shortened))"
+    }
+
     static func text(for task: EalzyTask, calendar: Calendar = .current) -> String? {
         var parts: [String] = []
         if task.isMeeting { parts.append("встреча") }
