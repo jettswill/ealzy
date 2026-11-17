@@ -11,6 +11,7 @@ import { AuthCallbackPage } from "./pages/AuthCallbackPage";
 import { LoginPage } from "./pages/LoginPage";
 import { TelegramCallbackPage } from "./pages/TelegramCallbackPage";
 import { HomePage } from "./pages/HomePage";
+import { AdminPage } from "./pages/AdminPage";
 import { applyAppearance, deviceAppearance } from "./theme";
 
 const CHUNK_RELOAD_KEY = "ealzy.chunk_reload";
@@ -172,6 +173,7 @@ function AppShell() {
         <Route path="experiences" element={<ExperiencesPage />} />
         <Route path="experiences/:id" element={<ExperiencePage />} />
         <Route path="more" element={<MorePage />} />
+        <Route path="admin" element={<AdminPage />} />
         <Route path="import" element={<ImportPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="profile/privacy" element={<PrivacyPage />} />

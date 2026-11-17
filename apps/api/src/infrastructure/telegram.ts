@@ -1,3 +1,4 @@
+import { loadQuota, quotaMessage } from "../modules/billing/quota.js";
 import { parseAppLoginStart } from "../modules/auth/index.js";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
@@ -876,6 +877,18 @@ export class TelegramUpdateHandler {
       }
     }
     if (conversation.mode === "companion" && !commandText.startsWith("/")) {
+      const quota = await loadQuota(this.repository, user.id);
+      if (quota.enforced && quota.state === "exhausted") {
+        const profile = await this.repository.getProfile(user.id);
+        await this.persistAndSend(
+          user.id,
+          conversation.id,
+          message.chat.id,
+          quotaMessage(quota, profile?.timezone ?? undefined),
+          "companion",
+        );
+        return { duplicate: false };
+      }
       const result = await this.companion.respondToMessage(
         user.id,
         commandText,

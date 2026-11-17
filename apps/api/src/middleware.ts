@@ -74,7 +74,8 @@ export const errorHandler: ErrorRequestHandler = (error, req: RequestWithId, res
         error: describeThrown(error) || "unknown",
       }),
     );
-  res.status(status).json({ error: { code, message, requestId: req.requestId } });
+  const details = status < 500 && error?.details ? { details: error.details } : {};
+  res.status(status).json({ error: { code, message, requestId: req.requestId, ...details } });
 };
 
 export const asyncHandler =

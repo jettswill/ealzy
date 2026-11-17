@@ -15,6 +15,10 @@ struct IlziSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            QuotaBanner()
+                .padding(.horizontal, 22)
+                .padding(.top, 16)
+
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {

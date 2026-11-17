@@ -1,3 +1,4 @@
+import { assertCloudQuota } from "../billing/quota.js";
 import { z } from "zod";
 import type { AppRepository } from "../../repository.js";
 import { formatDate, languageOf } from "../../locale.js";
@@ -2012,6 +2013,7 @@ export class CompanionService {
     response: CompanionResponse;
     mail_confirm: MailConfirmKeyboard | null;
   }> {
+    if (sourceChannel !== "system") await assertCloudQuota(this.repository, ownerId);
     const conversation = await this.repository.getPrimaryConversation(ownerId);
     const userMessage = await this.repository.createMessage(ownerId, {
       conversation_id: conversation.id,
@@ -2038,6 +2040,7 @@ export class CompanionService {
     response: CompanionResponse;
     mail_confirm: MailConfirmKeyboard | null;
   }> {
+    await assertCloudQuota(this.repository, ownerId);
     const conversation = await this.repository.getPrimaryConversation(ownerId);
     const messages = await this.repository.listMessages(ownerId, conversation.id, 100);
     const target = failedCompanionRetryTarget(messages);
