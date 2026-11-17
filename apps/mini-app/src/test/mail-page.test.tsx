@@ -70,7 +70,7 @@ describe("mail page cache", () => {
     expect(await screen.findByText("me@gmail.com")).toBeInTheDocument();
     expect(screen.getByText("Встреча завтра")).toBeInTheDocument();
     expect(screen.getByText(/Босс/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Профиль" })).not.toHaveClass("nav-item-active");
-    expect(screen.getByRole("link", { name: "Контекст" })).not.toHaveClass("nav-item-active");
+    expect(screen.getByRole("link", { name: "Сегодня" })).not.toHaveClass("nav-item-active");
+    expect(screen.getByRole("link", { name: "Все дела" })).not.toHaveClass("nav-item-active");
   });
 });

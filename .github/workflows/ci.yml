@@ -1,9 +1,18 @@
 name: CI
 
+# Проверки PR. Пуш в main проверяет и выкатывает Deploy — второй раз не гоняем.
+# Изменения только в iOS и документации Linux-проверки не затрагивают.
 on:
   pull_request:
-  push:
-    branches: [main]
+    paths-ignore:
+      - "apps/ios/**"
+      - "docs/**"
+      - "**/*.md"
+      - ".github/workflows/ios*.yml"
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:

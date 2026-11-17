@@ -3,6 +3,8 @@ const ru = {
     main: "Основная навигация",
     home: "Дела",
     allTasks: "Все дела",
+    today: "Сегодня",
+    moreAria: "Ещё",
     people: "Люди",
     plan: "Планы",
     bearings: "Обещания",
@@ -147,13 +149,23 @@ const ru = {
     continueGoogle: "Продолжить с Google",
     continueApple: "Продолжить с Apple",
     continueYandex: "Продолжить с Яндексом",
-    altHint: "Окно Telegram не открывается? Войдите другим способом — само приложение работает без VPN.",
+    altHint:
+      "Окно Telegram не открывается? Войдите другим способом — само приложение работает без VPN.",
     openInTelegram: "Открыть бота в Telegram",
     guestBannerText: "Вы работаете как гость. Войдите через Telegram, чтобы не потерять данные.",
     guestBannerTextAny: "Вы работаете как гость. Войдите, чтобы не потерять данные.",
     guestLinkCta: "Войти через Telegram",
   },
   home: {
+    mainEyebrow: "Главное",
+    mainDone: "Готово",
+    mainChange: "Сменить",
+    mainPickTitle: "Что сегодня главное?",
+    mainPickLead: "Одно дело, которое сделает день. Остальное — следом.",
+    moreToday: "Ещё на сегодня",
+    doneToday: "Сделано · {count}",
+    dayDoneTitle: "Всё на сегодня сделано.",
+    dayDoneText: "Ты молодец. Можно отдохнуть — или взять что-то ещё из всех дел.",
     weather: "Время и погода",
     location: "Локация",
     weatherLoading: "погода…",
@@ -281,6 +293,11 @@ const ru = {
     tasksText: "Открытые и выполненные дела",
     profileTitle: "Профиль",
     profileText: "Ценности, уведомления, память и обзоры недели",
+    appearanceTitle: "Оформление",
+    appearanceSystem: "Как в системе",
+    appearanceLight: "Светлая",
+    appearanceDark: "Тёмная",
+    sectionsTitle: "Разделы",
     mailTitle: "Почта",
     mailText: "Встречи, важное и черновики ответов",
     recsTitle: "Рекомендации",
@@ -923,7 +940,8 @@ const ru = {
     description: "Не список дел. Маленькие обещания себе — и честный чек-ин, без стыда за срыв.",
     loading: "Загрузка обещаний",
     empty: "Обещаний пока нет",
-    emptyText: "Запишите одно обещание себе: что хотите делать регулярно — а я буду честно спрашивать, как идёт.",
+    emptyText:
+      "Запишите одно обещание себе: что хотите делать регулярно — а я буду честно спрашивать, как идёт.",
     add: "＋ Добавить",
     create: "Добавить обещание",
     createTitle: "Новое обещание",
@@ -1024,7 +1042,8 @@ const ru = {
   onboarding: {
     title: "Знакомство — шаг {step} из {total}",
     lead: "Чем занимаешься и одна цель — и Илзи попросит дела на сегодня. Можно пропустить: цель и список всё равно появятся.",
-    leadFormal: "Чем занимаетесь и одна цель — и Илзи попросит дела на сегодня. Можно пропустить: цель и список всё равно появятся.",
+    leadFormal:
+      "Чем занимаетесь и одна цель — и Илзи попросит дела на сегодня. Можно пропустить: цель и список всё равно появятся.",
     skip: "Пропустить и начать",
     introTitle: "Давайте знакомиться",
     introPitch:
@@ -1042,6 +1061,8 @@ const en: typeof ru = {
     main: "Main navigation",
     home: "Tasks",
     allTasks: "All tasks",
+    today: "Today",
+    moreAria: "More",
     people: "People",
     plan: "Plans",
     bearings: "Promises",
@@ -1186,13 +1207,24 @@ const en: typeof ru = {
     continueGoogle: "Continue with Google",
     continueApple: "Continue with Apple",
     continueYandex: "Continue with Yandex",
-    altHint: "Telegram sign-in not opening? Use another way in — the app itself works without a VPN.",
+    altHint:
+      "Telegram sign-in not opening? Use another way in — the app itself works without a VPN.",
     openInTelegram: "Open the bot in Telegram",
-    guestBannerText: "You're using a guest session. Sign in with Telegram so you don't lose your data.",
+    guestBannerText:
+      "You're using a guest session. Sign in with Telegram so you don't lose your data.",
     guestBannerTextAny: "You're using a guest session. Sign in so you don't lose your data.",
     guestLinkCta: "Sign in with Telegram",
   },
   home: {
+    mainEyebrow: "Main thing",
+    mainDone: "Done",
+    mainChange: "Change",
+    mainPickTitle: "What matters most today?",
+    mainPickLead: "One task that makes the day. The rest follows.",
+    moreToday: "Also today",
+    doneToday: "Done · {count}",
+    dayDoneTitle: "Everything for today is done.",
+    dayDoneText: "Nice work. Rest — or take something else from all tasks.",
     digestEyebrow: "Today at a glance",
     digestHide: "Hide",
     digestTelegramHint:
@@ -1319,6 +1351,11 @@ const en: typeof ru = {
     tasksText: "Open and completed tasks",
     profileTitle: "Profile",
     profileText: "Your values, notifications, memory, and reflection history",
+    appearanceTitle: "Appearance",
+    appearanceSystem: "Match system",
+    appearanceLight: "Light",
+    appearanceDark: "Dark",
+    sectionsTitle: "Sections",
     mailTitle: "Mail",
     mailText: "Meetings, important mail, and reply drafts",
     recsTitle: "Recommendations",
@@ -1684,7 +1721,8 @@ const en: typeof ru = {
     notifyEyebrow: "Telegram",
     notifyTitle: "Messages",
     notifyLead: "Sent in Telegram using your timezone ({zone}).",
-    notifyWebLead: "The morning summary is built in your timezone ({zone}) and waits on the home screen.",
+    notifyWebLead:
+      "The morning summary is built in your timezone ({zone}) and waits on the home screen.",
     notifyNeedTelegram:
       "Link Telegram to have the summary arrive on its own, plus the evening sync and the Monday plan.",
     morningTitle: "Morning summary",
@@ -1960,10 +1998,12 @@ const en: typeof ru = {
     back: "‹ Plan",
     eyebrow: "Promises",
     title: "Promises to yourself",
-    description: "Not a to-do list. Small promises to yourself — and an honest check-in, without shame for a slip.",
+    description:
+      "Not a to-do list. Small promises to yourself — and an honest check-in, without shame for a slip.",
     loading: "Loading promises",
     empty: "No promises yet",
-    emptyText: "Write one promise to yourself: something you want to do regularly — and I'll ask honestly how it is going.",
+    emptyText:
+      "Write one promise to yourself: something you want to do regularly — and I'll ask honestly how it is going.",
     add: "＋ Add",
     create: "Add a promise",
     createTitle: "New promise",
@@ -2064,7 +2104,8 @@ const en: typeof ru = {
   onboarding: {
     title: "Welcome — step {step} of {total}",
     lead: "What you do and one goal — then Ilzi asks for today's list. Skip if you want: a goal and the dump still appear.",
-    leadFormal: "What you do and one goal — then Ilzi asks for today's list. Skip if you want: a goal and the dump still appear.",
+    leadFormal:
+      "What you do and one goal — then Ilzi asks for today's list. Skip if you want: a goal and the dump still appear.",
     skip: "Skip and start",
     introTitle: "Let's get acquainted",
     introPitch:
@@ -2149,27 +2190,21 @@ export const ruInformal: Record<string, string> = {
   "profile.emptySelf": "Пока Илзи знает о тебе мало",
   "profile.emptySelfText":
     "Добавь интерес, привычку или то, что для тебя важно — и подсказки станут ближе.",
-  "profile.noReflections":
-    "Обзоров ещё нет. Запусти, когда будет минута — ничего не уходит само.",
+  "profile.noReflections": "Обзоров ещё нет. Запусти, когда будет минута — ничего не уходит само.",
   "profile.telegramLink":
     "Привяжи Telegram, чтобы получать утренние, понедельничные и вечерние сообщения.",
   "profile.mailNone": "Подключи Gmail, Яндекс или Mail.ru, чтобы следить за встречами и важным.",
   "profile.notifyLead": "Отправляются в Telegram по твоему поясу ({zone}).",
-  "profile.notifyWebLead":
-    "Утренняя сводка собирается по твоему поясу ({zone}) и ждёт на главной.",
+  "profile.notifyWebLead": "Утренняя сводка собирается по твоему поясу ({zone}) и ждёт на главной.",
   "profile.notifyNeedTelegram":
     "Привяжи Telegram, чтобы сводка приходила сама, а к ней добавились вечерний синк и план на понедельник.",
-  "profile.welcomeLead":
-    "Помоги Илзи давать полезные советы. Можно пропустить и закончить позже.",
-  "profile.reliabilityEmpty":
-    "Появится, когда закроешь дело со сроком — или когда срок пройдёт.",
-  "profile.reliabilitySolid":
-    "Больше половины дел успеваешь к сроку — на тебя можно рассчитывать.",
+  "profile.welcomeLead": "Помоги Илзи давать полезные советы. Можно пропустить и закончить позже.",
+  "profile.reliabilityEmpty": "Появится, когда закроешь дело со сроком — или когда срок пройдёт.",
+  "profile.reliabilitySolid": "Больше половины дел успеваешь к сроку — на тебя можно рассчитывать.",
   "profile.reliabilityExcellent": "Закрываешь почти всё вовремя — редкая точность.",
   "recs.emptyText": "Спроси в чате, например: «чем удивить Машу на выходных?»",
   "spaces.emptyText": "Создай пространство для дома, работы или совместного проекта.",
-  "goals.description":
-    "Результаты, к которым идёшь. Илзи поможет понять мотивы и держаться курса.",
+  "goals.description": "Результаты, к которым идёшь. Илзи поможет понять мотивы и держаться курса.",
   "goals.emptyText": "Добавь один важный результат — планам будет куда идти.",
   "projects.emptyText": "Собери связанные дела в проект.",
   "experiences.emptyText": "Расскажи в чате, как прошло — или добавь встречу здесь.",
@@ -2183,8 +2218,7 @@ export const ruInformal: Record<string, string> = {
   "locations.eyebrow": "Где ты бываешь",
   "locations.emptyText": "Добавь город или адрес, если хочешь локальные подборки и логистику.",
   "dates.emptyText": "Добавь день рождения или другую важную дату.",
-  "auth.guestBannerText":
-    "Ты работаешь как гость. Войди через Telegram, чтобы не потерять данные.",
+  "auth.guestBannerText": "Ты работаешь как гость. Войди через Telegram, чтобы не потерять данные.",
   "auth.guestBannerTextAny": "Ты работаешь как гость. Войди, чтобы не потерять данные.",
 };
 

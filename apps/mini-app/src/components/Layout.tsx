@@ -1,18 +1,13 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect } from "react";
 import type { ReactNode } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { useI18n } from "../i18n";
 import { useDesktopNav } from "../media";
 import { LoadingState } from "./ui";
-import { EalzyWordmark } from "./EalzyLogo";
+import { EalzyMark, EalzyWordmark } from "./EalzyLogo";
 import { OAuthButtons, useOAuthProviders } from "./OAuthButtons";
 import { TelegramLoginButton } from "./TelegramLogin";
-
-const TaskFormModal = lazy(async () => {
-  const mod = await import("./TaskForm");
-  return { default: mod.TaskFormModal };
-});
 
 function isPrefixPath(pathname: string, root: string) {
   return pathname === root || pathname.startsWith(`${root}/`);
@@ -23,7 +18,11 @@ function isGoalsPath(pathname: string) {
 }
 
 function isHomePath(pathname: string) {
-  return pathname === "/" || isPrefixPath(pathname, "/tasks");
+  return pathname === "/";
+}
+
+function isAllTasksPath(pathname: string) {
+  return isPrefixPath(pathname, "/tasks");
 }
 
 function isCompanionPath(pathname: string) {
@@ -41,6 +40,7 @@ function isMailPath(pathname: string) {
 function isContextPath(pathname: string) {
   return (
     !isHomePath(pathname) &&
+    !isAllTasksPath(pathname) &&
     !isCompanionPath(pathname) &&
     !isProfilePath(pathname) &&
     !isMailPath(pathname)
@@ -56,7 +56,6 @@ export function Layout() {
   const { isGuest } = useAuth();
   const oauthProviders = useOAuthProviders(isGuest);
   const desktop = useDesktopNav();
-  const [adding, setAdding] = useState(false);
 
   useEffect(() => {
     const w = window as Window & {
@@ -107,36 +106,8 @@ export function Layout() {
     label: t("more.profileTitle"),
     icon: "profile",
   };
-  const mobileItems: NavEntry[] = [
-    { to: "/", label: t("nav.home"), icon: "today" },
-    { to: "/companion", label: t("nav.ilzi"), icon: "chat" },
-    { to: "/more", label: t("nav.context"), icon: "context" },
-    profileItem,
-  ];
-  const left = desktop ? [] : mobileItems.slice(0, 2);
-  const right = desktop ? [] : mobileItems.slice(2);
-  const plusJoinsNeighbors =
-    !desktop && (isCompanionPath(location.pathname) || isContextPath(location.pathname));
-  const addButton = (
-    <button
-      type="button"
-      className={
-        desktop ? "nav-add nav-add-icon" : `nav-add${plusJoinsNeighbors ? " nav-add-join" : ""}`
-      }
-      aria-label={t("nav.addAria")}
-      aria-haspopup="dialog"
-      aria-expanded={adding}
-      onPointerDown={() => {
-        const active = document.activeElement;
-        if (active instanceof HTMLElement && active !== document.body) active.blur();
-      }}
-      onClick={() => setAdding(true)}
-    >
-      <span className="nav-add-plus" aria-hidden="true" />
-      {!desktop && <span className="nav-add-label">{t("nav.add")}</span>}
-    </button>
-  );
-
+  const todayItem: NavEntry = { to: "/", label: t("nav.today"), icon: "today" };
+  const allTasksItem: NavEntry = { to: "/tasks", label: t("nav.allTasks"), icon: "list" };
   return (
     <div className="app-shell">
       <nav aria-label={t("nav.main")} className="app-nav">
@@ -151,20 +122,34 @@ export function Layout() {
               <div className="nav-group">
                 <NavItem
                   item={{
-                    to: "/",
-                    label: t("nav.home"),
-                    icon: "today",
-                    addLabel: t("nav.addTo", { section: t("nav.home") }),
+                    ...todayItem,
+                    addLabel: t("nav.addTo", { section: t("nav.today") }),
                   }}
                   pathname={location.pathname}
                   onAdd={() => navigate("/", { state: { create: true } })}
                 />
+                <NavItem
+                  item={{
+                    ...allTasksItem,
+                    addLabel: t("nav.addTo", { section: t("nav.allTasks") }),
+                  }}
+                  pathname={location.pathname}
+                  onAdd={() => navigate("/tasks", { state: { create: true } })}
+                />
               </div>
               <div className="nav-group">
-                <NavItem
-                  item={{ to: "/companion", label: t("nav.ilzi"), icon: "chat" }}
-                  pathname={location.pathname}
-                />
+                <NavLink
+                  to="/companion"
+                  end
+                  className={`nav-item nav-item-ilzi ${
+                    isCompanionPath(location.pathname) ? "nav-item-active" : ""
+                  }`}
+                >
+                  <span className="nav-ilzi-mark" aria-hidden="true">
+                    <EalzyMark />
+                  </span>
+                  <span>{t("nav.ilzi")}</span>
+                </NavLink>
               </div>
               <div className="nav-group">
                 <p className="nav-section-label">{t("nav.context")}</p>
@@ -188,24 +173,19 @@ export function Layout() {
             </div>
           </>
         ) : (
-          <div className="nav-inner">
-            {left.map((item, index) => (
-              <NavItem
-                key={item.to}
-                item={item}
-                pathname={location.pathname}
-                neighbor={index === left.length - 1}
-              />
-            ))}
-            {addButton}
-            {right.map((item, index) => (
-              <NavItem
-                key={item.to}
-                item={item}
-                pathname={location.pathname}
-                neighbor={index === 0}
-              />
-            ))}
+          <div className="tabbar">
+            <div className="tabbar-panel">
+              <NavItem item={todayItem} pathname={location.pathname} />
+              <NavItem item={allTasksItem} pathname={location.pathname} />
+            </div>
+            <NavLink
+              to="/companion"
+              end
+              aria-label={t("nav.ilzi")}
+              className={`tabbar-ilzi ${isCompanionPath(location.pathname) ? "tabbar-ilzi-active" : ""}`}
+            >
+              <EalzyMark className="tabbar-ilzi-mark" />
+            </NavLink>
           </div>
         )}
       </nav>
@@ -229,11 +209,6 @@ export function Layout() {
           <Outlet />
         </Suspense>
       </main>
-      {adding && (
-        <Suspense fallback={null}>
-          <TaskFormModal onClose={() => setAdding(false)} onSaved={() => setAdding(false)} />
-        </Suspense>
-      )}
     </div>
   );
 }
@@ -296,11 +271,13 @@ function navItemActive(to: string, pathname: string, isActive: boolean) {
   if (to === "/promises") return isPrefixPath(pathname, "/promises");
   if (to === "/profile") return isProfilePath(pathname);
   if (to === "/") return isHomePath(pathname);
+  if (to === "/tasks") return isAllTasksPath(pathname);
   return isActive;
 }
 
 type NavIcon =
   | "today"
+  | "list"
   | "goals"
   | "more"
   | "context"
@@ -327,11 +304,22 @@ const stroke = {
 };
 
 const iconPaths: Record<NavIcon, ReactNode> = {
+  // Солнце — как вкладка «Сегодня» в iOS-приложении.
   today: (
     <>
-      <rect x="4" y="5" width="16" height="15" rx="2" {...stroke} />
-      <path d="M8 3v3M16 3v3M4 10h16" {...stroke} />
-      <rect x="8.5" y="13" width="3.5" height="3.5" rx="0.7" fill="currentColor" />
+      <circle cx="12" cy="12" r="3.6" {...stroke} />
+      <path
+        d="M12 3.2v1.9M12 18.9v1.9M3.2 12h1.9M18.9 12h1.9M5.8 5.8l1.35 1.35M16.85 16.85l1.35 1.35M5.8 18.2l1.35-1.35M16.85 7.15l1.35-1.35"
+        {...stroke}
+      />
+    </>
+  ),
+  // Чек-лист — как «Все дела».
+  list: (
+    <>
+      <path d="M4.5 6.5l1.4 1.4 2.6-2.6M4.5 12.5l1.4 1.4 2.6-2.6" {...stroke} />
+      <path d="M11.5 6.6H19.5M11.5 12.6H19.5M11.5 18.6H19.5" {...stroke} />
+      <circle cx="6.4" cy="18.6" r="1.35" {...stroke} />
     </>
   ),
   notes: (

@@ -4,6 +4,7 @@ import { useArchiveLinger } from "../archive-linger";
 import { useAuth } from "../auth";
 import { TaskCardModal, TaskFormModal } from "../components/TaskForm";
 import { TaskTitleContent } from "../components/TaskValue";
+import { MoreLink } from "../components/MoreLink";
 import type { Task, TaskStatus } from "../types";
 import {
   Button,
@@ -101,13 +102,18 @@ export function TasksPage() {
 
   return (
     <>
-      <Link className="back-link mb-3 inline-flex" to="/">
+      <Link className="back-link back-link-desktop mb-3 inline-flex" to="/">
         {t("tasks.back")}
       </Link>
       <PageHeader
         title={t("tasks.title")}
         description={t("tasks.description")}
-        action={<Button onClick={() => setCreating(true)}>{t("people.add")}</Button>}
+        action={
+          <div className="page-header-actions">
+            <Button onClick={() => setCreating(true)}>{t("people.add")}</Button>
+            <MoreLink />
+          </div>
+        }
       />
       <div className="chip-row" role="group" aria-label={t("tasks.filter")}>
         {(["all", "active", "ealzy", "todo", "in_progress", "done", "cancelled"] as const).map(
