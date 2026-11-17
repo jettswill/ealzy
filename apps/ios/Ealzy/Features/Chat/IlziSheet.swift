@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Илзи — шторка поверх дня. Открывается в полэкрана, во весь — когда печатаешь
+/// Илзи — шторка поверх дня, всегда открыта на последнем сообщении. В полэкрана, во весь — когда печатаешь
 /// или листаешь разговор. Закрывается свайпом вниз или касанием над шторкой.
 struct IlziSheet: View {
     @Environment(ChatStore.self) private var chat
@@ -12,7 +12,6 @@ struct IlziSheet: View {
     @State private var spokenPrefix = ""
     @FocusState private var inputFocused: Bool
 
-    private var isHalf: Bool { detent == .medium }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -24,18 +23,16 @@ struct IlziSheet: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
-                        // В полэкрана — только последний ответ Илзи (коротко), полностью — весь разговор.
-                        if isHalf {
-                            if let last = chat.messages.last(where: { !$0.isUser }) ?? chat.messages.last {
-                                MessageBubble(message: last, showTime: true, lineLimit: 5) {
-                                    detent = .large
-                                }
-                                .id(last.id)
+                        // Весь разговор, открыт в самом конце: последнее — внизу, над полем ввода.
+                        ForEach(Array(chat.messages.enumerated()), id: \.element.id) { index, message in
+                            if let day = Self.dayLabel(for: message, after: index > 0 ? chat.messages[index - 1] : nil) {
+                                Text(day)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(Palette.ink3)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.top, index > 0 ? 6 : 0)
                             }
-                        } else {
-                            ForEach(chat.messages) { message in
-                                MessageBubble(message: message).id(message.id)
-                            }
+                            MessageBubble(message: message).id(message.id)
                         }
                         if chat.isSending {
                             HStack(spacing: 8) {
@@ -47,23 +44,17 @@ struct IlziSheet: View {
                         if draft.isEmpty && !chat.isSending {
                             suggestions
                         }
+                        Color.clear.frame(height: 1).id(Self.end)
                     }
                     .padding(.horizontal, 22)
                     .padding(.vertical, 16)
                 }
                 .scrollDismissesKeyboard(.interactively)
-                .defaultScrollAnchor(isHalf ? .top : .bottom)
-                .onChange(of: detent) {
-                    guard let last = chat.messages.last?.id else { return }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { proxy.scrollTo(last, anchor: .bottom) }
-                }
-                .onChange(of: chat.messages.count) {
-                    guard let last = chat.messages.last?.id else { return }
-                    withAnimation { proxy.scrollTo(last, anchor: .bottom) }
-                }
-                .onAppear {
-                    if let last = chat.messages.last?.id { proxy.scrollTo(last, anchor: .bottom) }
-                }
+                .defaultScrollAnchor(.bottom)
+                .onAppear { toEnd(proxy) }
+                .onChange(of: detent) { toEnd(proxy) }
+                .onChange(of: chat.messages.last?.id) { toEnd(proxy, animated: true) }
+                .onChange(of: chat.isSending) { toEnd(proxy, animated: true) }
             }
 
             inputBar
@@ -78,6 +69,36 @@ struct IlziSheet: View {
                 send(text)
             }
         }
+    }
+
+    private static let end = "end"
+
+    /// Прокрутить в самый конец разговора. Шторка выезжает и меняет высоту с анимацией,
+    /// поэтому прокручиваем ещё раз, когда она встанет на место.
+    private func toEnd(_ proxy: ScrollViewProxy, animated: Bool = false) {
+        let scroll = {
+            if animated {
+                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(Self.end, anchor: .bottom) }
+            } else {
+                proxy.scrollTo(Self.end, anchor: .bottom)
+            }
+        }
+        scroll()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: scroll)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: scroll)
+    }
+
+    /// «Сегодня», «Вчера», «15 ноября» — над первым сообщением нового дня.
+    static func dayLabel(for message: ChatMessage, after previous: ChatMessage?, calendar: Calendar = .current) -> String? {
+        guard let date = message.createdAt else { return nil }
+        if let before = previous?.createdAt, calendar.isDate(before, inSameDayAs: date) { return nil }
+        if calendar.isDateInToday(date) { return "Сегодня" }
+        if calendar.isDateInYesterday(date) { return "Вчера" }
+        let sameYear = calendar.component(.year, from: date) == calendar.component(.year, from: Date())
+        let style = sameYear
+            ? Date.FormatStyle().day().month(.wide)
+            : Date.FormatStyle().day().month(.wide).year()
+        return date.formatted(style.locale(Locale(identifier: "ru_RU")))
     }
 
     private var header: some View {
