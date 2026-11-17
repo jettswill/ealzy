@@ -79,6 +79,13 @@ echo "   $UDID"
 # Идентификатор приложения должен быть своим для каждой учётки — добавляем код команды.
 BUNDLE_ID="ru.ealzy.app.p$(echo "$TEAM" | tr '[:upper:]' '[:lower:]')"
 
+# Модель на iPhone (MLX) собирает шейдеры Metal — в Xcode 26 это отдельный компонент.
+if ! xcrun -sdk iphoneos metal -v >/dev/null 2>&1; then
+  echo
+  echo "== Докачиваю Metal для Xcode (один раз, около 700 МБ) =="
+  xcodebuild -downloadComponent MetalToolchain || fail "не скачался Metal Toolchain. Xcode → Settings → Components → Metal Toolchain → Get, потом запусти этот файл снова."
+fi
+
 step "5/6 Сборка (первая — минут 5–10)"
 BUILT=""
 for ENT in Personal Minimal; do
