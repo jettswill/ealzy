@@ -349,7 +349,7 @@ struct TaskRow: View {
                             .strikethrough(checked, color: Palette.ink3)
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
-                        if showsDayToggle, let meta = TaskMeta.text(for: task) {
+                        if showsDayToggle, !tasks.isOnToday(task), let meta = TaskMeta.text(for: task) {
                             Text(meta).font(.caption).foregroundStyle(Palette.ink3).lineLimit(1)
                         }
                     }
@@ -361,8 +361,26 @@ struct TaskRow: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if showsDayToggle && task.isOpen && !checked {
-                let onToday = tasks.isOnToday(task)
+            if showsDayToggle && task.isOpen && !checked && tasks.isOnToday(task) {
+                // Уже на сегодня: без лишних меток, только «…» — вернуть во все дела, на завтра.
+                Menu {
+                    Button { Task { await tasks.removeFromToday(task) } } label: {
+                        Label("Вернуть во все дела", systemImage: "tray.and.arrow.down")
+                    }
+                    Button { Task { await tasks.moveToTomorrow(task) } } label: {
+                        Label("На завтра", systemImage: "arrow.right")
+                    }
+                    Button { showDetail = true } label: { Label("Изменить срок…", systemImage: "calendar") }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Palette.ink3)
+                        .frame(width: 36, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Действия с делом")
+            } else if showsDayToggle && task.isOpen && !checked {
+                let onToday = false
                 Button {
                     UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     Task { onToday ? await tasks.removeFromToday(task) : await tasks.addToToday(task) }
