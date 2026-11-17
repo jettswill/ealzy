@@ -9,8 +9,8 @@ final class TasksStore {
     private(set) var tasks: [EalzyTask] = []
     private(set) var isLoading = false
     var errorMessage: String?
-    /// Ближайшее событие календаря — для виджета (ставит PhoneCalendar после синхронизации).
-    var nextEvent: WidgetSnapshot.Item? {
+    /// Календарь для виджета (ставит PhoneCalendar после синхронизации).
+    var calendarInfo = WidgetCalendar() {
         didSet { publishSnapshot() }
     }
 
@@ -89,7 +89,7 @@ final class TasksStore {
 
     func publishSnapshot() {
         guard !tasks.isEmpty || errorMessage == nil else { return }
-        var snapshot = WidgetSnapshot.make(plan: plan, nextEvent: nextEvent)
+        var snapshot = WidgetSnapshot.make(plan: plan, agenda: calendarInfo)
         // Идущий фокус пишет FocusSession — его не трогаем.
         snapshot.focusRun = WidgetSnapshot.load()?.focusRun
         snapshot.save()
