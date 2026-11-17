@@ -74,7 +74,7 @@ struct RootView: View {
     @Environment(AppRouter.self) private var router
     @Environment(ChatStore.self) private var chat
     @Environment(FocusSession.self) private var focus
-    @State private var showOnboarding = !UserDefaults.standard.bool(forKey: OnboardingView.doneKey)
+    @State private var showOnboarding = !DemoData.isOn && !UserDefaults.standard.bool(forKey: OnboardingView.doneKey)
 
     var body: some View {
         @Bindable var router = router

@@ -12,7 +12,7 @@ final class AuthStore {
         case working
     }
 
-    private(set) var isSignedIn = Keychain.readToken() != nil
+    private(set) var isSignedIn = DemoData.isOn || Keychain.readToken() != nil
     private(set) var phase: Phase = .idle
     var errorMessage: String?
 
@@ -125,7 +125,7 @@ final class AuthStore {
 
     /// Продлеваем сессию при каждом запуске, чтобы человек не выпадал из аккаунта.
     func refresh() async {
-        guard isSignedIn else { return }
+        guard isSignedIn, !DemoData.isOn else { return }
         if let session: SessionPayload = try? await APIClient.shared.post("/auth/refresh", body: EmptyBody()) {
             Keychain.saveToken(session.token)
         }
@@ -148,7 +148,7 @@ final class AuthStore {
     }
 
     func signOut() {
-        guard isSignedIn else { return }
+        guard isSignedIn, !DemoData.isOn else { return }
         isSignedIn = false
         phase = .idle
         WidgetSnapshot.clear()
