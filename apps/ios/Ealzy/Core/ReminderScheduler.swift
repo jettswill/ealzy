@@ -95,7 +95,13 @@ final class ReminderScheduler: NSObject, UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse
     ) async {
         let info = response.notification.request.content.userInfo
-        guard let taskId = info["task_id"] as? String else { return }
+        guard let taskId = info["task_id"] as? String else {
+            // Push от Илзи (утро, вечер, неделя) — открываем разговор с ней.
+            if info["kind"] != nil {
+                await MainActor.run { AppRouter.shared.tab = .chat }
+            }
+            return
+        }
         let title = info["title"] as? String ?? "Дело"
         let calendar = Calendar.current
         let now = Date()

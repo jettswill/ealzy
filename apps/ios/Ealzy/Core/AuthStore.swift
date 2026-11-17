@@ -121,10 +121,6 @@ final class AuthStore {
         phase = .idle
         errorMessage = nil
         isSignedIn = true
-        Task {
-            await ReminderScheduler.shared.requestPermission()
-            await AppDelegate.upload()
-        }
     }
 
     /// Продлеваем сессию при каждом запуске, чтобы человек не выпадал из аккаунта.
@@ -132,6 +128,22 @@ final class AuthStore {
         guard isSignedIn else { return }
         if let session: SessionPayload = try? await APIClient.shared.post("/auth/refresh", body: EmptyBody()) {
             Keychain.saveToken(session.token)
+        }
+    }
+
+    /// Удаление аккаунта со всеми данными (требование App Store для приложений со входом).
+    func deleteAccount() async -> Bool {
+        do {
+            try await APIClient.shared.delete("/account", body: EmptyBody())
+            WidgetSnapshot.clear()
+            Keychain.deleteToken()
+            UserDefaults.standard.removeObject(forKey: OnboardingView.doneKey)
+            isSignedIn = false
+            phase = .idle
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 

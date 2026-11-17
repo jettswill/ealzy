@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(TasksStore.self) private var tasks
     @State private var notificationsOn = true
     @State private var showReminders = false
+    @State private var confirmDelete = false
 
     var body: some View {
         NavigationStack {
@@ -95,13 +96,27 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Button("Выйти", role: .destructive) { auth.signOut() }
+                    Button("Выйти") { auth.signOut() }
+                    Button("Удалить аккаунт", role: .destructive) { confirmDelete = true }
+                } footer: {
+                    Text("Удаление стирает дела, людей, заметки и память Илзи на всех устройствах, в Telegram и на сайте.")
                 }
             }
             .navigationTitle("Ещё")
             .task { notificationsOn = await ReminderScheduler.shared.isAuthorized() }
             .sheet(isPresented: $showReminders) {
                 RemindersImportView()
+            }
+            .confirmationDialog(
+                "Удалить аккаунт и все данные?",
+                isPresented: $confirmDelete,
+                titleVisibility: .visible
+            ) {
+                Button("Удалить навсегда", role: .destructive) {
+                    Task { _ = await auth.deleteAccount() }
+                }
+            } message: {
+                Text("Это нельзя отменить.")
             }
         }
     }

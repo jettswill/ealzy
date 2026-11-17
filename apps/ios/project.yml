@@ -7,8 +7,8 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "0.2.0"
-    CURRENT_PROJECT_VERSION: "2"
+    MARKETING_VERSION: "0.3.0"
+    CURRENT_PROJECT_VERSION: "3"
     DEVELOPMENT_TEAM: ""
     TARGETED_DEVICE_FAMILY: "1"
 targets:
@@ -29,7 +29,8 @@ targets:
           - CFBundleURLName: ru.ealzy.app
             CFBundleURLSchemes: [ealzy]
         LSApplicationQueriesSchemes: [tg]
-        UILaunchScreen: {}
+        UILaunchScreen:
+          UIColorName: LaunchBackground
         UIApplicationSupportsIndirectInputEvents: true
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIBackgroundModes: [fetch, remote-notification]
@@ -39,6 +40,8 @@ targets:
         NSCalendarsFullAccessUsageDescription: Илзи видит твои встречи и тренировки, чтобы планировать день вокруг них и ставить дела в календарь.
         NSCalendarsUsageDescription: Илзи видит твои встречи и тренировки, чтобы планировать день вокруг них.
         NSCalendarsWriteOnlyAccessUsageDescription: Илзи ставит дела в твой календарь, чтобы они были видны на iPhone и компьютере.
+        NSMicrophoneUsageDescription: Чтобы надиктовывать Илзи дела и мысли голосом.
+        NSSpeechRecognitionUsageDescription: Чтобы превращать надиктованное в текст — по возможности прямо на iPhone.
         NSRemindersFullAccessUsageDescription: Чтобы перенести открытые напоминания в Ealzy одной кнопкой.
         NSRemindersUsageDescription: Чтобы перенести открытые напоминания в Ealzy одной кнопкой.
     entitlements:
