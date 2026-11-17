@@ -51,7 +51,7 @@ struct IlziSheet: View {
 
             inputBar
         }
-        .background(Palette.raised.ignoresSafeArea())
+        .background(Palette.sheet.ignoresSafeArea())
         .task { await chat.load() }
         .onChange(of: inputFocused) { if inputFocused { detent = .large } }
         .onChange(of: router.captureRequest) { inputFocused = true }

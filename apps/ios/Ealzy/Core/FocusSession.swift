@@ -31,6 +31,8 @@ final class FocusSession {
     }
 
     init() {
+        // Снимки экранов в демо-режиме каждый раз начинают с чистого листа.
+        if DemoData.isOn { UserDefaults.standard.removeObject(forKey: Self.key) }
         if let data = UserDefaults.standard.data(forKey: Self.key) {
             state = try? JSONDecoder().decode(State.self, from: data)
         }
