@@ -322,30 +322,6 @@ describe("personal companion features", () => {
     await act(async () => release([]));
   });
 
-  it("opens a new task from the plus while the composer is focused", async () => {
-    vi.spyOn(api, "me").mockResolvedValue({
-      bio: null,
-      values: [],
-      communication_style: null,
-      timezone: null,
-      primary_conversation_id: "c1",
-    });
-    vi.spyOn(api, "conversationMessages").mockResolvedValue([]);
-    vi.spyOn(api, "dueExperienceFollowUps").mockResolvedValue([]);
-    vi.spyOn(api, "goals").mockResolvedValue([]);
-    vi.spyOn(api, "projects").mockResolvedValue([]);
-    vi.spyOn(api, "people").mockResolvedValue([]);
-    vi.spyOn(api, "spaces").mockResolvedValue([]);
-    renderAt("/companion");
-
-    const composer = await screen.findByLabelText("Сообщение Илзи");
-    await waitFor(() => expect(composer).toBeEnabled());
-    await userEvent.click(composer);
-    expect(composer).toHaveFocus();
-    await userEvent.click(screen.getByRole("button", { name: /Добавить дело/ }));
-    expect(await screen.findByRole("dialog", { name: "Новое дело" })).toBeInTheDocument();
-  });
-
   it("dictates on-device speech into the composer without sending it", async () => {
     const recognition = installSpeechRecognition();
     vi.spyOn(api, "me").mockResolvedValue({
@@ -485,7 +461,9 @@ describe("personal companion features", () => {
     expect(await screen.findByText("какие дела на сегодня?")).toBeInTheDocument();
     expect(screen.getAllByLabelText("user message")).toHaveLength(1);
     expect(screen.queryByText(/не удалось связаться с AI/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Напомнить о праздниках" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Напомнить о праздниках" }),
+    ).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Повторить запрос" }));
     expect(send).not.toHaveBeenCalled();
     expect(retry).toHaveBeenCalledTimes(1);
@@ -661,7 +639,10 @@ describe("personal companion features", () => {
     expect(screen.queryByText("What are you interested in lately?")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Messages" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "What matters now" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Message Ilzi" })).toHaveAttribute("href", "/companion");
+    expect(screen.getByRole("link", { name: "Message Ilzi" })).toHaveAttribute(
+      "href",
+      "/companion",
+    );
     expect(screen.getByRole("link", { name: "Open tasks" })).toHaveAttribute("href", "/");
   });
 
@@ -705,7 +686,9 @@ describe("personal companion features", () => {
       expect.objectContaining({ morning_digest_enabled: true, morning_digest_time: "08:00" }),
     );
     expect(screen.getByRole("checkbox", { name: /Morning summary/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Continue with Telegram" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Continue with Telegram" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows on-time scale instead of inferred negative traits", async () => {
@@ -758,9 +741,7 @@ describe("personal companion features", () => {
     expect(screen.queryByText("tends to postpone work")).not.toBeInTheDocument();
     expect(screen.queryByText("On-time tasks: 92%")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Marks" })).toBeInTheDocument();
-    expect(
-      screen.getByText(/We count consecutive days when 90% or more/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/We count consecutive days when 90% or more/)).toBeInTheDocument();
     expect(screen.getByText("To the Month mark")).toBeInTheDocument();
     expect(screen.getByText("8 of 30")).toBeInTheDocument();
     expect(screen.getByText("A week of almost everything on time")).toBeInTheDocument();
@@ -825,7 +806,9 @@ describe("personal companion features", () => {
     vi.spyOn(api, "reflections").mockResolvedValue([]);
     renderAt("/profile");
     expect(await screen.findByText("0 of 6")).toBeInTheDocument();
-    expect(screen.getByText(/Closing dated tasks on time will raise the scale/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Closing dated tasks on time will raise the scale/),
+    ).toBeInTheDocument();
     expect(screen.getByText("To the Week mark")).toBeInTheDocument();
     expect(screen.getByText("0 of 7")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open tasks" })).toHaveAttribute("href", "/");

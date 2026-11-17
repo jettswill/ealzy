@@ -1,7 +1,10 @@
 import { init, miniApp, themeParams, viewport } from "@telegram-apps/sdk-react";
 import {
   applyAppearance,
+  appearanceChoice,
   deviceAppearance,
+  resolveAppearance,
+  themeBackground,
   inTelegramWebView,
   type Appearance,
 } from "./theme";
@@ -43,9 +46,9 @@ function telegramAppearance(): Appearance | null {
 }
 
 function syncAppearance() {
-  const theme = telegramAppearance() ?? deviceAppearance();
+  const theme = resolveAppearance(appearanceChoice(), telegramAppearance() ?? deviceAppearance());
   applyAppearance(theme);
-  const bg = theme === "dark" ? "#212121" : "#ffffff";
+  const bg = themeBackground(theme);
   ignoreTelegramError(() => {
     if (miniApp.setBackgroundColor.isAvailable()) miniApp.setBackgroundColor(bg);
   });
@@ -66,6 +69,7 @@ function watchAppearance() {
     ).Telegram?.WebApp;
     webApp?.onEvent?.("themeChanged", syncAppearance);
   });
+  window.addEventListener("ealzy:appearance", syncAppearance);
   try {
     const light = window.matchMedia?.("(prefers-color-scheme: light)");
     if (typeof light?.addEventListener === "function") {
@@ -132,9 +136,7 @@ export async function initializeTelegram(): Promise<void> {
 }
 
 function measuredHeight() {
-  return Math.round(
-    Math.max(window.visualViewport?.height ?? 0, window.innerHeight || 0),
-  );
+  return Math.round(Math.max(window.visualViewport?.height ?? 0, window.innerHeight || 0));
 }
 
 function applyViewportHeight() {

@@ -12,7 +12,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { TelegramCallbackPage } from "./pages/TelegramCallbackPage";
 import { HomePage } from "./pages/HomePage";
 import { AdminPage } from "./pages/AdminPage";
-import { applyAppearance, deviceAppearance } from "./theme";
+import { applyAppearance, resolveAppearance } from "./theme";
 
 const CHUNK_RELOAD_KEY = "ealzy.chunk_reload";
 
@@ -106,7 +106,7 @@ function AppShell() {
   const { onboarding, markCompleted, markSkipped } = useOnboardingGate();
 
   useLayoutEffect(() => {
-    applyAppearance(deviceAppearance());
+    applyAppearance(resolveAppearance());
     hideBootLoader();
     try {
       window.Telegram?.WebApp?.ready?.();

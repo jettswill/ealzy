@@ -6,12 +6,12 @@ import { AuthProvider } from "./auth";
 import { hideBootLoader, markBootStuck } from "./boot";
 import { registerAppShell } from "./offline";
 import { enableStandaloneApp } from "./standalone";
-import { inTelegramWebView } from "./theme";
+import { inTelegramWebView, watchSystemAppearance } from "./theme";
 import "./styles.css";
 
 try {
-  window.Telegram?.WebApp?.setHeaderColor?.("#212121");
-  window.Telegram?.WebApp?.setBackgroundColor?.("#212121");
+  window.Telegram?.WebApp?.setHeaderColor?.("#191714");
+  window.Telegram?.WebApp?.setBackgroundColor?.("#191714");
   window.Telegram?.WebApp?.ready?.();
   window.Telegram?.WebApp?.expand?.();
 } catch {
@@ -22,6 +22,8 @@ enableStandaloneApp();
 
 if (inTelegramWebView()) {
   document.documentElement.classList.add("is-telegram");
+} else {
+  watchSystemAppearance();
 }
 
 const root = document.getElementById("root");

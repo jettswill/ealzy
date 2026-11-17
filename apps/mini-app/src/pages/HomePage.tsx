@@ -13,6 +13,14 @@ import {
   type DropListId,
 } from "../components/HomeTasks";
 import { Button, Card, ErrorState, LoadingState, Modal, useAsyncData } from "../components/ui";
+import { MoreLink } from "../components/MoreLink";
+import {
+  HomeMainTask,
+  MainTaskPicker,
+  homeDayTitle,
+  pickMainTask,
+  pinMainTask,
+} from "../components/HomeMain";
 import { DayCelebration } from "../components/DayCelebration";
 import { WeekSummary } from "../components/WeekSummary";
 import { useCreateIntent } from "../create-intent";
@@ -142,6 +150,8 @@ export function HomePage() {
   const [tab, setTab] = useState<HomeTab>("planned");
   const [pageIndex, setPageIndex] = useState(0);
   const [unplannedOpen, setUnplannedOpen] = useState(false);
+  const [pickingMain, setPickingMain] = useState(false);
+  const [mainPin, setMainPin] = useState(0);
   const pagerRef = useRef<HTMLDivElement>(null);
   const dayTabsRef = useRef<HTMLDivElement>(null);
   const { lingeringIds, rememberArchiveState } = useArchiveLinger();
@@ -250,6 +260,15 @@ export function HomePage() {
   useCreateIntent(() => setAddingDate(todayKey));
   const tomorrowKey = addCalendarDays(todayKey, 1);
   const hasTodayWork = todayItems.length > 0;
+  // «Главное» — одно дело под светом лампы, как в iOS: закреплённое вручную или первое открытое.
+  const openToday = todayItems.filter(
+    (task) => task.status !== "done" && task.status !== "cancelled",
+  );
+  // mainPin меняется, когда человек сам выбрал главное, — тогда перечитываем закреп.
+  const mainTask = mainPin >= 0 ? pickMainTask(openToday, todayKey) : null;
+  const restToday = mainTask ? todayItems.filter((task) => task.id !== mainTask.id) : todayItems;
+  const todayIds = new Set(todayItems.map((task) => task.id));
+  const doneToday = completedToday.filter((task) => !todayIds.has(task.id));
   const isFirstRun = tasks.length === 0 && !screen.loading;
   const firstGoal = goals.find((goal) => goal.status === "active");
   const eveningPlanMode = useMemo(
@@ -442,13 +461,14 @@ export function HomePage() {
   }, [pageIndex]);
   const eveningScrolled = useRef(false);
   useEffect(() => {
-    if (!eveningPlanMode || eveningScrolled.current) return;
+    // Пока дела не загрузились, день выглядит пустым — не листаем на завтра раньше времени.
+    if (!eveningPlanMode || eveningScrolled.current || screen.loading || tasks.length === 0) return;
     const tomorrowIdx = dayPages.findIndex((p) => p.id === "tomorrow");
     if (tomorrowIdx > 0) {
       eveningScrolled.current = true;
       scrollToPage(tomorrowIdx);
     }
-  }, [eveningPlanMode, dayPages, scrollToPage]);
+  }, [eveningPlanMode, dayPages, scrollToPage, screen.loading, tasks.length]);
 
   const taskButton = (task: Task, dueLabel: string | null, list: DropListId, index: number) => {
     const due = task.due_at ?? task.due_date;
@@ -572,6 +592,10 @@ export function HomePage() {
 
   return (
     <div className="home-screen">
+      <header className="home-header">
+        <h1 className="home-title">{homeDayTitle(now, locale, zone)}</h1>
+        {!desktop && <MoreLink />}
+      </header>
       <DailyDigest
         telegramLinked={Boolean(screen.data?.profile.telegram_id)}
         enabled={screen.data?.profile.morning_digest_enabled !== false}
@@ -888,12 +912,57 @@ export function HomePage() {
                         title={t("home.weekSummaryCompactTitle", { count: week.completed })}
                       />
                     ) : null}
+                    {mainTask ? (
+                      <HomeMainTask
+                        task={mainTask}
+                        aiTag={t("tasks.aiTag")}
+                        timeLabel={
+                          (mainTask.due_at ?? mainTask.due_date) &&
+                          dueClock((mainTask.due_at ?? mainTask.due_date)!, zone)
+                            ? formatTime((mainTask.due_at ?? mainTask.due_date)!)
+                            : null
+                        }
+                        canChange={openToday.length > 1}
+                        onOpen={setSelected}
+                        onDone={(task) => void changeStatus(task, "done")}
+                        onChange={() => setPickingMain(true)}
+                        hold={{ ...bindTask("today"), active: drag?.task.id === mainTask.id }}
+                      />
+                    ) : null}
+                    {mainTask && restToday.length > 0 ? (
+                      <h2 className="home-section-label">{t("home.moreToday")}</h2>
+                    ) : null}
                     <div className="home-task-list" data-drop-list="today" data-drop-body>
-                      {todayItems.map((task, index) => taskButton(task, null, "today", index))}
+                      {restToday.map((task) =>
+                        taskButton(task, null, "today", todayItems.indexOf(task)),
+                      )}
                     </div>
                   </>
                 )}
                 {addOnDate(todayKey)}
+                {hasTodayWork && doneToday.length > 0 ? (
+                  <section
+                    className="home-done"
+                    aria-label={t("home.doneToday", { count: doneToday.length })}
+                  >
+                    <h2 className="home-section-label">
+                      {t("home.doneToday", { count: doneToday.length })}
+                    </h2>
+                    <div className="home-task-list">
+                      {doneToday.map((task) => (
+                        <HomeTaskButton
+                          key={task.id}
+                          task={task}
+                          aiTag={t("tasks.aiTag")}
+                          dueLabel={null}
+                          pendingLabel={null}
+                          onSelect={setSelected}
+                          onComplete={(item) => void changeStatus(item, "todo")}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
               </section>
 
               <section
@@ -1058,6 +1127,19 @@ export function HomePage() {
             </Button>
           </div>
         </Modal>
+      )}
+      {pickingMain && (
+        <MainTaskPicker
+          tasks={openToday}
+          currentId={mainTask?.id ?? null}
+          aiTag={t("tasks.aiTag")}
+          onClose={() => setPickingMain(false)}
+          onPick={(task) => {
+            pinMainTask(todayKey, task.id);
+            setMainPin((n) => n + 1);
+            setPickingMain(false);
+          }}
+        />
       )}
       {scheduling && (
         <Modal title={t("home.scheduleTitle")} onClose={() => setScheduling(false)}>

@@ -16,7 +16,7 @@ describe("key screens", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders people and the four-section navigation", async () => {
+  it("renders people and the iOS-style tab bar", async () => {
     vi.spyOn(api, "people").mockResolvedValue([
       { id: "p1", name: "Masha", relationship: "Friend", description: "Loves the outdoors" },
     ]);
@@ -32,13 +32,14 @@ describe("key screens", () => {
 
     expect(await screen.findByRole("heading", { name: "Masha" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Основная навигация" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Добавить дело/ })).toHaveClass("nav-add-join");
-    expect(screen.getByRole("link", { name: "Дела" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Илзи" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Контекст" })).toHaveClass("nav-item-active");
-    expect(screen.getByRole("link", { name: "Профиль" })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Ещё" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Цели" })).not.toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Основная навигация" });
+    // Как в iOS: «Сегодня» и «Все дела» в одной панели, Илзи — круглая кнопка рядом.
+    expect(within(nav).getByRole("link", { name: "Сегодня" })).toHaveAttribute("href", "/");
+    expect(within(nav).getByRole("link", { name: "Все дела" })).toHaveAttribute("href", "/tasks");
+    expect(within(nav).getByRole("link", { name: "Илзи" })).toHaveClass("tabbar-ilzi");
+    expect(within(nav).queryByRole("button", { name: /Добавить дело/ })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("link", { name: "Профиль" })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("link", { name: "Цели" })).not.toBeInTheDocument();
   });
 
   it("lists desktop context sections on mobile and hides privacy until profile", async () => {
@@ -59,8 +60,12 @@ describe("key screens", () => {
     expect(screen.getByRole("link", { name: /Планы/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Обещания/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Люди/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Профиль/ })).toHaveAttribute("href", "/profile");
+    expect(screen.getByRole("radio", { name: "Как в системе" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
     expect(screen.queryByText("Приватность и данные")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Добавить дело/ })).toHaveClass("nav-add-join");
   });
 
   it("opens privacy controls from a nested profile page", async () => {
@@ -78,8 +83,7 @@ describe("key screens", () => {
     expect(screen.getByRole("link", { name: "← Профиль" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Экспорт данных" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Удалить аккаунт" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Профиль" })).toHaveClass("nav-item-active");
-    expect(screen.getByRole("button", { name: /Добавить дело/ })).not.toHaveClass("nav-add-join");
+    expect(screen.getByRole("link", { name: "Сегодня" })).not.toHaveClass("nav-item-active");
   });
 
   it("shows contextual add buttons on desktop navigation", async () => {
@@ -111,8 +115,8 @@ describe("key screens", () => {
         await screen.findByRole("navigation", { name: "Основная навигация" }),
       ).toBeInTheDocument();
       const nav = screen.getByRole("navigation", { name: "Основная навигация" });
-      expect(screen.getByRole("link", { name: "Дела" })).toBeInTheDocument();
-      expect(screen.queryByRole("link", { name: "Все дела" })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Сегодня" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Все дела" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Цели" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Илзи" })).toBeInTheDocument();
       expect(screen.getByRole("link", { name: "Люди" })).toBeInTheDocument();
@@ -127,8 +131,8 @@ describe("key screens", () => {
       expect(screen.queryByRole("link", { name: "Почта" })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "Ещё" })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Добавить дело" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Добавить в «Дела»" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Добавить в «Все дела»" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Добавить в «Сегодня»" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Добавить в «Все дела»" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Добавить в «Заметки»" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Добавить в «Цели»" })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Добавить в «Обещания»" })).toBeInTheDocument();
@@ -142,24 +146,25 @@ describe("key screens", () => {
     }
   });
 
-  it("opens a new task form from the centered nav button", async () => {
+  it("switches the theme from «Ещё → Оформление»", async () => {
     vi.spyOn(api, "people").mockResolvedValue([]);
     vi.spyOn(api, "goals").mockResolvedValue([]);
-    vi.spyOn(api, "projects").mockResolvedValue([]);
-    vi.spyOn(api, "spaces").mockResolvedValue([]);
+    localStorage.removeItem("ealzy.appearance");
     render(
-      <MemoryRouter initialEntries={["/people"]}>
+      <MemoryRouter initialEntries={["/more"]}>
         <AuthProvider apiFactory={factory}>
           <App />
         </AuthProvider>
       </MemoryRouter>,
     );
 
-    await userEvent.click(await screen.findByRole("button", { name: /Добавить дело/ }));
-    expect(await screen.findByRole("dialog", { name: "Новое дело" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Встреча" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Цель")).toBeInTheDocument();
-    expect(screen.getByLabelText("Проект")).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("radio", { name: "Светлая" }));
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("ealzy.appearance")).toBe("light");
+    await userEvent.click(screen.getByRole("radio", { name: "Тёмная" }));
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    await userEvent.click(screen.getByRole("radio", { name: "Как в системе" }));
+    expect(localStorage.getItem("ealzy.appearance")).toBeNull();
   });
 
   it("renders recommendation rationale and an external link", async () => {

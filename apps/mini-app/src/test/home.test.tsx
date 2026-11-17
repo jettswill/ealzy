@@ -136,6 +136,9 @@ describe("authenticated home", () => {
   });
 
   it("lists today, tomorrow, later days, and undated work without a home composer", async () => {
+    // Днём, а не вечером: после 20:00 главный экран сам листает на завтра.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-24T09:00:00.000Z"));
     stubHomeApis();
     vi.spyOn(api, "me").mockResolvedValue({
       bio: null,
@@ -221,6 +224,9 @@ describe("authenticated home", () => {
   });
 
   it("swipes the planned pager to the next day without dragging a task", async () => {
+    // Днём, а не вечером: после 20:00 главный экран сам листает на завтра.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-24T09:00:00.000Z"));
     stubHomeApis();
     const today = dateKeyInZone(new Date(), "UTC");
     vi.spyOn(api, "tasks").mockResolvedValue([
@@ -736,11 +742,11 @@ describe("authenticated home", () => {
     );
     expect(await screen.findByText("Позвонить в банк")).toHaveClass("line-through");
 
-    await userEvent.click(screen.getByRole("link", { name: "Контекст" }));
-    expect(await screen.findByRole("heading", { name: "Контекст" })).toBeInTheDocument();
-    expect(screen.getByText(/Записывайте всё важное/)).toBeInTheDocument();
+    const nav = screen.getByRole("navigation", { name: "Основная навигация" });
+    await userEvent.click(within(nav).getByRole("link", { name: "Все дела" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Все дела" })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("link", { name: "Дела" }));
+    await userEvent.click(within(nav).getByRole("link", { name: "Сегодня" }));
     expect(await screen.findByRole("tab", { name: "Сегодня" })).toBeInTheDocument();
     expect(screen.queryByText("Позвонить в банк")).not.toBeInTheDocument();
   });
@@ -980,14 +986,14 @@ describe("offline home capture", () => {
     renderAt("/");
 
     expect(await screen.findByRole("tab", { name: "Сегодня" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Добавить дело" }));
+    await userEvent.click(screen.getByRole("button", { name: "Добавить на сегодня" }));
     await userEvent.type(await screen.findByLabelText("Название"), "Купить хлеб");
     await userEvent.click(screen.getByRole("button", { name: "Создать дело" }));
 
     expect(screen.queryByRole("dialog", { name: "Новое дело" })).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: /^Купить хлеб/ })).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Добавить дело" }));
+    await userEvent.click(screen.getByRole("button", { name: "Добавить на сегодня" }));
     await userEvent.type(await screen.findByLabelText("Название"), "Забрать почту");
     await userEvent.click(screen.getByRole("button", { name: "Создать дело" }));
 

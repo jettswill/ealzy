@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useAuth, clearSession } from "../auth";
 import { Button, Card, PageHeader } from "../components/ui";
 import { useI18n } from "../i18n";
+import { AppearancePicker } from "../components/AppearancePicker";
 
 export function MorePage() {
   const { t } = useI18n();
@@ -48,6 +49,16 @@ export function MorePage() {
     <>
       <PageHeader title={t("more.title")} description={t("more.description")} />
       <div className="list-stack">
+        <Link to="/profile" className="list-row">
+          <span className="idea-icon">◐</span>
+          <span className="list-row-body">
+            <span className="list-row-title">{t("more.profileTitle")}</span>
+            <span className="list-row-text">{t("more.profileText")}</span>
+          </span>
+        </Link>
+      </div>
+      <h2 className="settings-group-title mt-6">{t("more.sectionsTitle")}</h2>
+      <div className="list-stack">
         {workspace.map((section) => (
           <Link key={section.to} to={section.to} className="list-row">
             <span className="idea-icon">{section.icon}</span>
@@ -58,6 +69,7 @@ export function MorePage() {
           </Link>
         ))}
       </div>
+      <AppearancePicker />
     </>
   );
 }

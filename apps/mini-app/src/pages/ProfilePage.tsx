@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type KeyboardEvent } from "react";
+import { AppearancePicker } from "../components/AppearancePicker";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../auth";
 import { TelegramLoginButton } from "../components/TelegramLogin";
@@ -48,7 +49,12 @@ const FACT_PROMPTS: {
   hint: string;
 }[] = [
   { id: "now", category: "preference", label: "profile.promptNow", hint: "profile.promptNowHint" },
-  { id: "craft", category: "preference", label: "profile.promptCraft", hint: "profile.promptCraftHint" },
+  {
+    id: "craft",
+    category: "preference",
+    label: "profile.promptCraft",
+    hint: "profile.promptCraftHint",
+  },
   { id: "place", category: "other", label: "profile.promptPlace", hint: "profile.promptPlaceHint" },
 ];
 
@@ -142,25 +148,30 @@ function ReliabilityCard({ stats }: { stats: ReliabilityStats }) {
             приходит с чувством вины; встречать его нулём — ровно то, чего
             граф работ велит избегать. Кольцо появляется вместе с данными. */}
         {stats.dated ? (
-        <div
-          className="reliability-ring-wrap"
-          role="img"
-          aria-label={`${t("profile.reliabilityTitle")}: ${stats.percent}%`}
-        >
-          <svg className="reliability-ring" viewBox="0 0 88 88">
-            <circle className="reliability-ring-track" cx="44" cy="44" r={RELIABILITY_RING_RADIUS} />
-            <circle
-              className="reliability-ring-fill"
-              cx="44"
-              cy="44"
-              r={RELIABILITY_RING_RADIUS}
-              strokeDasharray={RELIABILITY_RING_LENGTH}
-              strokeDashoffset={offset}
-              transform="rotate(-90 44 44)"
-            />
-          </svg>
-          <p className="reliability-ring-value">{stats.percent}%</p>
-        </div>
+          <div
+            className="reliability-ring-wrap"
+            role="img"
+            aria-label={`${t("profile.reliabilityTitle")}: ${stats.percent}%`}
+          >
+            <svg className="reliability-ring" viewBox="0 0 88 88">
+              <circle
+                className="reliability-ring-track"
+                cx="44"
+                cy="44"
+                r={RELIABILITY_RING_RADIUS}
+              />
+              <circle
+                className="reliability-ring-fill"
+                cx="44"
+                cy="44"
+                r={RELIABILITY_RING_RADIUS}
+                strokeDasharray={RELIABILITY_RING_LENGTH}
+                strokeDashoffset={offset}
+                transform="rotate(-90 44 44)"
+              />
+            </svg>
+            <p className="reliability-ring-value">{stats.percent}%</p>
+          </div>
         ) : null}
         <div className="min-w-0">
           <p className="eyebrow">{t("profile.reliabilityEyebrow")}</p>
@@ -178,8 +189,7 @@ function ReliabilityCard({ stats }: { stats: ReliabilityStats }) {
       {praise ? <p className="mt-3 text-sm">{praise}</p> : null}
       {!stats.dated ? (
         <p className="reliability-cue">
-          {t("profile.reliabilityEmpty")}{" "}
-          <Link to="/">{t("profile.reliabilityOpenTasks")}</Link>
+          {t("profile.reliabilityEmpty")} <Link to="/">{t("profile.reliabilityOpenTasks")}</Link>
         </p>
       ) : null}
       {stats.dated && !praise ? (
@@ -229,11 +239,11 @@ function AchievementsCard({ stats }: { stats: ReliabilityStats }) {
         <div className="reliability-streak">
           <div className="reliability-streak-meta">
             <span>
-              {t("profile.reliabilityNextMedal", { badge: t(`profile.reliabilityDay${nextBadge}`) })}
+              {t("profile.reliabilityNextMedal", {
+                badge: t(`profile.reliabilityDay${nextBadge}`),
+              })}
             </span>
-            <span>
-              {t("profile.reliabilityStreakOf", { current, target: nextBadge })}
-            </span>
+            <span>{t("profile.reliabilityStreakOf", { current, target: nextBadge })}</span>
           </div>
           <div
             className="reliability-streak-track"
@@ -388,7 +398,11 @@ export function ProfilePage() {
         <ReliabilityCard stats={reliability} />
       </section>
 
-      <section id="achievements" className="profile-anchor mt-6" aria-labelledby="achievements-title">
+      <section
+        id="achievements"
+        className="profile-anchor mt-6"
+        aria-labelledby="achievements-title"
+      >
         <AchievementsCard stats={reliability} />
       </section>
 
@@ -543,6 +557,7 @@ export function ProfilePage() {
         </section>
       )}
 
+      <AppearancePicker />
       <AccountCard profile={profile} />
 
       {editingMemory && (
