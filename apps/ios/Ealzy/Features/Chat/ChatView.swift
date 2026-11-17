@@ -4,6 +4,8 @@ struct ChatView: View {
     @Environment(ChatStore.self) private var chat
     @Environment(TasksStore.self) private var tasks
     @State private var draft = ""
+    @State private var speech = SpeechInput()
+    @State private var spokenPrefix = ""
     @FocusState private var inputFocused: Bool
 
     var body: some View {
@@ -52,10 +54,19 @@ struct ChatView: View {
 
     private var inputBar: some View {
         VStack(spacing: 4) {
-            if let error = chat.errorMessage {
+            if let error = chat.errorMessage ?? speech.errorMessage {
                 Text(error).font(.footnote).foregroundStyle(.red)
             }
             HStack(alignment: .bottom, spacing: 8) {
+                Button {
+                    spokenPrefix = draft.isEmpty ? "" : draft + " "
+                    Task { await speech.toggle { text in draft = spokenPrefix + text } }
+                } label: {
+                    Image(systemName: speech.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                        .font(.system(size: 34))
+                        .foregroundStyle(speech.isRecording ? Color.red : Color.accentColor)
+                }
+                .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Надиктовать")
                 TextField("Сообщение Илзи", text: $draft, axis: .vertical)
                     .lineLimit(1...6)
                     .focused($inputFocused)
@@ -63,6 +74,7 @@ struct ChatView: View {
                     .padding(.vertical, 10)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
                 Button {
+                    speech.stop()
                     let text = draft
                     draft = ""
                     Task {

@@ -49,6 +49,7 @@ struct EalzyApp: App {
 
     @MainActor
     private func refreshAll() async {
+        await chat.flushQueue()
         await calendar.sync()
         tasks.nextEvent = calendar.nextEventItem
         await tasks.load()
@@ -66,6 +67,8 @@ struct RootView: View {
     @Environment(TasksStore.self) private var tasks
     @Environment(PhoneCalendar.self) private var calendar
     @Environment(AppRouter.self) private var router
+    @Environment(ChatStore.self) private var chat
+    @State private var showOnboarding = !UserDefaults.standard.bool(forKey: OnboardingView.doneKey)
 
     var body: some View {
         @Bindable var router = router
@@ -83,12 +86,17 @@ struct RootView: View {
             }
             .task {
                 await auth.refresh()
+                await chat.flushQueue()
                 await calendar.sync()
                 tasks.nextEvent = calendar.nextEventItem
                 await tasks.load()
-                await ReminderScheduler.shared.requestPermission()
+                // Разрешения спрашивает знакомство; потом — только переподписка на push.
+                if !showOnboarding, await ReminderScheduler.shared.isAuthorized() {
+                    await ReminderScheduler.shared.requestPermission()
+                }
                 await AppDelegate.upload()
             }
+            .sheet(isPresented: $showOnboarding) { OnboardingView() }
         } else {
             LoginView()
         }

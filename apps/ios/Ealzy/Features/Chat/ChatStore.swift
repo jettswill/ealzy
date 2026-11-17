@@ -10,6 +10,37 @@ final class ChatStore {
     var errorMessage: String?
 
     private var conversationId: String?
+    private static let queueKey = "pendingCaptures"
+
+    /// Сколько записей ждут сети.
+    var pendingCount: Int { (UserDefaults.standard.stringArray(forKey: Self.queueKey) ?? []).count }
+
+    /// Быстрая запись: без сети не теряется, а ждёт и уходит позже.
+    func capture(_ text: String) async -> String? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let reply = await send(trimmed) { return reply.content }
+        if case .offline? = lastError as? APIError {
+            var queue = UserDefaults.standard.stringArray(forKey: Self.queueKey) ?? []
+            queue.append(trimmed)
+            UserDefaults.standard.set(queue, forKey: Self.queueKey)
+            errorMessage = nil
+            return "Нет связи — записала у себя и передам Илзи, как появится интернет."
+        }
+        return nil
+    }
+
+    /// Отправить отложенные записи по одной, в том порядке, в каком их надиктовали.
+    func flushQueue() async {
+        var queue = UserDefaults.standard.stringArray(forKey: Self.queueKey) ?? []
+        while let next = queue.first {
+            guard await send(next) != nil else { break }
+            queue.removeFirst()
+            UserDefaults.standard.set(queue, forKey: Self.queueKey)
+        }
+    }
+
+    private var lastError: Error?
 
     func load() async {
         do {
@@ -46,9 +77,11 @@ final class ChatStore {
             )
             messages.append(reply)
             errorMessage = nil
+            lastError = nil
             return reply
         } catch {
             messages.removeAll { $0.id == local.id }
+            lastError = error
             errorMessage = error.localizedDescription
             return nil
         }

@@ -10,6 +10,8 @@ struct TodayView: View {
     @State private var showReserve = false
     @State private var capture = ""
     @State private var lastReply: String?
+    @State private var speech = SpeechInput()
+    @State private var spokenPrefix = ""
     @FocusState private var captureFocused: Bool
 
     var body: some View {
@@ -99,22 +101,37 @@ struct TodayView: View {
 
     /// Быстрая запись: всё уходит Илзи — она сама поймёт дату, время и что это вообще.
     private var captureBar: some View {
-        HStack(spacing: 8) {
-            TextField("Скажи Илзи: «позвонить маме завтра в 19»", text: $capture, axis: .vertical)
-                .lineLimit(1...4)
-                .focused($captureFocused)
-                .submitLabel(.send)
-                .onSubmit(sendCapture)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
-            if chat.isSending {
-                ProgressView().frame(width: 34)
-            } else {
-                Button(action: sendCapture) {
-                    Image(systemName: "arrow.up.circle.fill").font(.system(size: 34))
+        VStack(spacing: 4) {
+            if let error = speech.errorMessage {
+                Text(error).font(.footnote).foregroundStyle(.red)
+            }
+            HStack(spacing: 8) {
+                Button {
+                    spokenPrefix = capture.isEmpty ? "" : capture + " "
+                    Task {
+                        await speech.toggle { text in capture = spokenPrefix + text }
+                    }
+                } label: {
+                    Image(systemName: speech.isRecording ? "stop.circle.fill" : "mic.circle.fill")
+                        .font(.system(size: 34))
+                        .foregroundStyle(speech.isRecording ? Color.red : Color.accentColor)
+                        .symbolEffect(.pulse, isActive: speech.isRecording)
                 }
-                .disabled(capture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel(speech.isRecording ? "Остановить запись" : "Надиктовать")
+                TextField("Скажи Илзи: «позвонить маме завтра в 19»", text: $capture, axis: .vertical)
+                    .lineLimit(1...4)
+                    .focused($captureFocused)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
+                if chat.isSending {
+                    ProgressView().frame(width: 34)
+                } else {
+                    Button(action: sendCapture) {
+                        Image(systemName: "arrow.up.circle.fill").font(.system(size: 34))
+                    }
+                    .disabled(capture.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
             }
         }
         .padding(.horizontal)
@@ -123,12 +140,13 @@ struct TodayView: View {
     }
 
     private func sendCapture() {
+        speech.stop()
         let text = capture
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         capture = ""
         captureFocused = false
         Task {
-            if let reply = await chat.send(text) { lastReply = reply.content }
+            if let reply = await chat.capture(text) { lastReply = reply }
             await tasks.load()
         }
     }

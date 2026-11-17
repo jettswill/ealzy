@@ -4,7 +4,10 @@ import { createApp } from "../src/app.js";
 import { InMemoryRepository } from "../src/repository.js";
 import { createSession } from "../src/modules/auth/index.js";
 import { compactCalendar } from "../src/modules/assistant/companion-workspace.js";
-import { ScheduledMessageService } from "../src/modules/assistant/scheduled-messages.js";
+import {
+  calendarLine,
+  ScheduledMessageService,
+} from "../src/modules/assistant/scheduled-messages.js";
 import { pushPreview, type PushGateway } from "../src/infrastructure/apns.js";
 import type { TelegramGateway } from "../src/infrastructure/telegram.js";
 
@@ -128,5 +131,55 @@ describe("push to the iOS app", () => {
     const result = await service.run(new Date("2026-08-24T08:05:00.000Z"));
     expect(result.sent.morning_digest).toBe(1);
     expect(pushes).toEqual([{ ownerId: user.id, title: "План на сегодня" }]);
+  });
+});
+
+describe("morning plan follows the phone calendar", () => {
+  it("waits for the boxing session to end and mentions the calendar", async () => {
+    const repository = new InMemoryRepository();
+    const sent: string[] = [];
+    const tg: TelegramGateway = {
+      async sendMessage(_chatId, text) {
+        sent.push(text);
+      },
+      async answerCallbackQuery() {},
+    };
+    const user = await repository.upsertTelegramUser({ telegram_id: 777, name: "A" });
+    await repository.updateProfile(user.id, {
+      timezone: "Europe/Moscow",
+      morning_digest_enabled: true,
+      morning_digest_time: "08:30",
+    });
+    await repository.createTask(user.id, { title: "Дописать смету", due_at: "2026-11-17T09:00:00.000Z" });
+    await repository.replaceCalendarEvents(user.id, {
+      source: "ios",
+      from: "2026-11-16T21:00:00.000Z",
+      to: "2026-11-24T21:00:00.000Z",
+      events: [
+        {
+          external_id: "box",
+          title: "Бокс",
+          starts_at: "2026-11-17T06:00:00.000Z", // 09:00 МСК
+          ends_at: "2026-11-17T07:30:00.000Z", // 10:30 МСК
+          all_day: false,
+          location: null,
+          calendar_title: null,
+        },
+      ],
+    });
+    const service = new ScheduledMessageService(repository, tg);
+    // 08:35 МСК — до тренировки меньше получаса: ждём.
+    expect((await service.run(new Date("2026-11-17T05:35:00.000Z"))).sent.morning_digest).toBe(0);
+    // 09:40 — тренировка идёт, обычное окно (до 10:00) ещё открыто, но молчим.
+    expect((await service.run(new Date("2026-11-17T06:40:00.000Z"))).sent.morning_digest).toBe(0);
+    // 10:45 — после тренировки, обычное окно уже закрылось, но план приходит.
+    expect((await service.run(new Date("2026-11-17T07:45:00.000Z"))).sent.morning_digest).toBe(1);
+    expect(sent.at(-1)).toContain("В календаре: 09:00 Бокс");
+  });
+
+  it("formats at most three events", () => {
+    const events = ["А", "Б", "В", "Г"].map((title, i) => ({ title, start: `1${i}:00`, all_day: false }));
+    expect(calendarLine(events, true)).toBe("В календаре: 10:00 А, 11:00 Б, 12:00 В и ещё 1");
+    expect(calendarLine([], true)).toBeNull();
   });
 });

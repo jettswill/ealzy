@@ -1,3 +1,4 @@
+import { compactCalendar } from "./companion-workspace.js";
 import { pushPreview, type PushGateway } from "../../infrastructure/apns.js";
 import type { AppRepository } from "../../repository.js";
 import { withGoalStats, withPromiseStats } from "../../direction.js";
@@ -243,6 +244,37 @@ function personalMomentLine(dates: UpcomingDate[], ru: boolean): string | null {
     : `People: ${who}${item.label} (${when})${tail}`;
 }
 
+/** «В календаре: 09:00 Бокс, 14:00 Встреча» — не больше трёх событий. */
+export function calendarLine(
+  events: { title: string; start: string | null; all_day: boolean }[] | undefined,
+  ru: boolean,
+) {
+  if (!events?.length) return null;
+  const shown = events
+    .slice(0, 3)
+    .map((event) => (event.all_day || !event.start ? event.title : `${event.start} ${event.title}`));
+  const more = events.length > 3 ? (ru ? ` и ещё ${events.length - 3}` : ` and ${events.length - 3} more`) : "";
+  return `${ru ? "В календаре" : "In the calendar"}: ${shown.join(", ")}${more}`;
+}
+
+/** Идёт событие или начнётся в ближайшие полчаса — утренний план подождёт. */
+export function calendarBusy(
+  events: { starts_at: string; ends_at: string; all_day: boolean }[],
+  at: Date,
+  leadMinutes = 30,
+) {
+  const now = at.getTime();
+  return events.some(
+    (event) =>
+      !event.all_day &&
+      Date.parse(event.starts_at) - leadMinutes * 60_000 <= now &&
+      Date.parse(event.ends_at) > now,
+  );
+}
+
+/** Утро сдвигается из-за календаря, но не позже 13:00 по местному времени. */
+const MORNING_LATEST_MINUTES = 13 * 60;
+
 export function fallbackDigest(
   kind: ScheduledNotificationKind,
   profile: UserProfile,
@@ -259,6 +291,7 @@ export function fallbackDigest(
     push?: Task[];
     mail?: { from: string; subject: string; is_meeting: boolean }[];
     weekday?: string;
+    calendar?: { title: string; start: string | null; all_day: boolean }[];
   },
 ): string {
   const ru = localeOf(profile) === "ru";
@@ -317,6 +350,8 @@ export function fallbackDigest(
         ? `${load} ${plural(load, "дело", "дела", "дел")}`
         : `${load} task${load === 1 ? "" : "s"}`;
       lines.push(`${prefix}${mood}: ${count}${overdueTail}`);
+      const events = calendarLine(snapshot.calendar, ru);
+      if (events) lines.push(events);
 
       const isOverdue = snapshot.overdue.some((task) => task.id === focus.id);
       const label = `${focusLabel(focus, ru)}${isOverdue ? (ru ? " — просрочено" : " — overdue") : ""}`;
@@ -577,6 +612,21 @@ export async function buildDigestSnapshot(
           (item) => !item.handled && (item.is_important || item.is_meeting),
         )
       : [];
+  // Календарь телефона (iOS-приложение): утром — сегодняшние события, вечером — завтрашние.
+  const calendarDay =
+    kind === "morning_digest" ? local.date : kind === "evening_sync" ? addCalendarDays(local.date, 1) : null;
+  const calendar = calendarDay
+    ? compactCalendar(
+        await repository.listCalendarEvents(
+          profile.owner_id,
+          new Date(at.getTime() - 24 * 3600_000).toISOString(),
+          new Date(at.getTime() + 48 * 3600_000).toISOString(),
+        ),
+        profile.timezone,
+      )
+        .filter((event) => event.date === calendarDay)
+        .slice(0, 8)
+    : [];
   const snapshot = {
     // Строка дня в утреннем брифе начинается с дня недели — берём его из того
     // же локального времени, по которому считается сам день.
@@ -592,6 +642,7 @@ export async function buildDigestSnapshot(
     promises,
     self: { values: profile.values, theses: selfTheses },
     push: pushTasks(tasks),
+    calendar,
     mail: mailMessages.slice(0, 5).map((item) => ({
       from: item.from_name || item.from_address,
       subject: item.subject,
@@ -658,7 +709,9 @@ export class ScheduledMessageService {
     for (const profile of profiles) {
       await runWithUsageOwner(profile.owner_id, async () => {
         for (const kind of ["morning_digest", "weekly_digest", "evening_sync"] as const) {
-          if (!notificationDue(profile, kind, at)) continue;
+          if (kind === "morning_digest") {
+            if (!(await this.morningDue(profile, at))) continue;
+          } else if (!notificationDue(profile, kind, at)) continue;
           if (await guarded(profile.owner_id, kind, () => this.deliver(profile, kind, at))) {
             sent[kind] += 1;
           }
@@ -676,6 +729,24 @@ export class ScheduledMessageService {
       sent,
       reengagement: (reengagement as { sent: number } | undefined)?.sent ?? 0,
     };
+  }
+
+  /**
+   * Утренний план приходит в своё время, но не во время события из календаря:
+   * у человека в 9:00 бокс — план придёт после тренировки (до 13:00).
+   * Без календаря — как раньше.
+   */
+  private async morningDue(profile: UserProfile, at: Date) {
+    const scheduled = parseHm(profile.morning_digest_time);
+    const lateWindow = Math.max(NOTIFICATION_WINDOW_MINUTES, MORNING_LATEST_MINUTES - scheduled);
+    if (!notificationDue(profile, "morning_digest", at, lateWindow)) return false;
+    const events = await this.repository.listCalendarEvents(
+      profile.owner_id,
+      new Date(at.getTime() - 12 * 3600_000).toISOString(),
+      new Date(at.getTime() + 12 * 3600_000).toISOString(),
+    );
+    if (!events.length) return notificationDue(profile, "morning_digest", at);
+    return !calendarBusy(events, at);
   }
 
   private async maybeGoalCheckIn(profile: UserProfile, at: Date): Promise<boolean> {
