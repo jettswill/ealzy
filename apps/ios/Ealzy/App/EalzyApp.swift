@@ -36,6 +36,7 @@ struct EalzyApp: App {
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active where auth.isSignedIn:
+                focus.refreshExternal() // фаза помодоро могла смениться, пока приложение было закрыто
                 Task { await refreshAll() }
             case .background:
                 Self.scheduleRefresh()

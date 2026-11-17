@@ -10,6 +10,11 @@ struct FocusActivityAttributes: ActivityAttributes {
         var endsAt: Date?
         /// Сколько осталось, если на паузе.
         var pausedRemaining: TimeInterval?
+        /// Помодоро: сейчас перерыв.
+        var isBreak: Bool?
+        /// Помодоро: длина текущей фазы и номер помидора.
+        var phaseLength: TimeInterval?
+        var round: Int?
     }
 
     var taskId: String

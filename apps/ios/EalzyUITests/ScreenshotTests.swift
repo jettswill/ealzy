@@ -85,6 +85,22 @@ final class ScreenshotTests: XCTestCase {
         app.terminate()
     }
 
+    /// Помодоро включён: экран фокуса показывает помидор и формат.
+    func testPomodoroFocus() {
+        let app = launch("dark", extra: ["-pomodoroEnabled", "YES", "-pomodoroFormat", "30/10"])
+        let start = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Помодоро'")).firstMatch
+        if start.waitForExistence(timeout: 15) {
+            snap("11-today-pomodoro-dark")
+            app.buttons["Ещё"].firstMatch.tap(); sleep(1)
+            snap("13-settings-pomodoro-dark")
+            app.buttons["Готово"].firstMatch.tap(); sleep(1)
+            start.tap()
+            sleep(2)
+            snap("12-focus-pomodoro-dark")
+        }
+        app.terminate()
+    }
+
     func testLoginScreen() {
         for appearance in ["light", "dark"] {
             let app = XCUIApplication()

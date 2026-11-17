@@ -34,7 +34,7 @@ struct FocusLiveActivityWidget: Widget {
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 6) {
                         FocusProgress(attributes: context.attributes, state: context.state)
-                        Text(context.state.pausedRemaining != nil ? "На паузе" : "Не отвлекайся — остальное подождёт")
+                        Text(FocusLiveText.status(context.state))
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -51,7 +51,8 @@ struct FocusLiveActivityWidget: Widget {
                     .foregroundStyle(Palette.gold)
                     .frame(maxWidth: 52)
             } minimal: {
-                Image(systemName: context.state.pausedRemaining != nil ? "pause.fill" : "timer")
+                Image(systemName: context.state.pausedRemaining != nil ? "pause.fill"
+                      : (context.state.isBreak == true ? "cup.and.saucer.fill" : "timer"))
                     .foregroundStyle(Palette.gold)
             }
             .widgetURL(URL(string: "ealzy://focus"))
@@ -90,7 +91,7 @@ private struct FocusProgress: View {
     let state: FocusActivityAttributes.ContentState
 
     var body: some View {
-        let total = TimeInterval(attributes.plannedMinutes * 60)
+        let total = state.phaseLength ?? TimeInterval(attributes.plannedMinutes * 60)
         if let ends = state.endsAt {
             ProgressView(timerInterval: ends.addingTimeInterval(-total)...ends, countsDown: false) {
                 EmptyView()
@@ -117,7 +118,7 @@ private struct FocusLockScreen: View {
                     .frame(width: 24, height: 24)
                     .foregroundStyle(Palette.gold)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(state.pausedRemaining != nil ? "ФОКУС НА ПАУЗЕ" : "СЕЙЧАС В ФОКУСЕ")
+                    Text(FocusLiveText.header(state))
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(Palette.gold)
                     Text(attributes.title)
@@ -132,10 +133,26 @@ private struct FocusLockScreen: View {
                     .frame(maxWidth: 120, alignment: .trailing)
             }
             FocusProgress(attributes: attributes, state: state)
-            Text("Не отвлекайся — остальное подождёт")
+            Text(FocusLiveText.status(state))
                 .font(.caption)
                 .foregroundStyle(Color(red: 0.761, green: 0.725, blue: 0.651))
         }
         .padding(16)
+    }
+}
+
+/// Подписи живой активности: обычный фокус, помодоро, перерыв, пауза.
+enum FocusLiveText {
+    static func header(_ state: FocusActivityAttributes.ContentState) -> String {
+        if state.pausedRemaining != nil { return "ФОКУС НА ПАУЗЕ" }
+        if state.isBreak == true { return "ПЕРЕРЫВ" }
+        if let round = state.round { return "ПОМИДОР \(round)" }
+        return "СЕЙЧАС В ФОКУСЕ"
+    }
+
+    static func status(_ state: FocusActivityAttributes.ContentState) -> String {
+        if state.pausedRemaining != nil { return "На паузе" }
+        if state.isBreak == true { return "Встань, разомнись — потом снова в работу" }
+        return "Не отвлекайся — остальное подождёт"
     }
 }

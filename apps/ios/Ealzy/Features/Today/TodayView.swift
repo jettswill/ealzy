@@ -220,6 +220,8 @@ struct FocusHeader: View {
     let minutes: Int
     let start: () -> Void
     let change: () -> Void
+    @AppStorage(Pomodoro.enabledKey) private var pomodoroOn = false
+    @AppStorage(Pomodoro.formatKey) private var pomodoroFormat = Pomodoro.formats[1].key
     let open: () -> Void
 
     var body: some View {
@@ -237,7 +239,10 @@ struct FocusHeader: View {
                 .padding(.top, 12)
             HStack(spacing: 6) {
                 Button(action: start) {
-                    Label("Начать, \(TodayView.duration(TimeInterval(minutes * 60)))", systemImage: "play.fill")
+                    Label(pomodoroOn
+                          ? "Помодоро, \(Pomodoro.from(key: pomodoroFormat).workMinutes) мин"
+                          : "Начать, \(TodayView.duration(TimeInterval(minutes * 60)))",
+                          systemImage: "play.fill")
                         .font(.body.weight(.semibold))
                         .padding(.horizontal, 22)
                         .frame(height: 50)
