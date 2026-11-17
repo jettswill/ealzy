@@ -65,7 +65,7 @@ struct Pomodoro: Codable, Equatable {
 enum PomodoroAlerts {
     private static let prefix = "pomodoro-"
 
-    static func schedule(_ pomodoro: Pomodoro, title: String, elapsed: TimeInterval) {
+    static func schedule(_ pomodoro: Pomodoro, title: String, elapsed: TimeInterval, until total: TimeInterval) {
         cancel()
         let center = UNUserNotificationCenter.current()
         var offset: TimeInterval = 0
@@ -73,6 +73,8 @@ enum PomodoroAlerts {
         // Ближайшие восемь смен фазы — это 4 помидора, дальше человек всё равно откроет приложение.
         for index in 0..<8 {
             offset += phase.remaining
+            // Дальше конца выбранного времени не звеним: там уже «время вышло».
+            if elapsed + offset >= total - 1 { break }
             let next = pomodoro.phase(elapsed: elapsed + offset + 1)
             let content = UNMutableNotificationContent()
             content.title = next.isBreak ? "Перерыв \(pomodoro.breakMinutes) мин" : "Снова в работу · помидор \(next.round)"

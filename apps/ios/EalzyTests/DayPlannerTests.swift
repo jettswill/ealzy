@@ -80,6 +80,20 @@ final class DayPlannerTests: XCTestCase {
         XCTAssertTrue(finished.headline.hasPrefix("Всё на сегодня сделано"))
     }
 
+    func testFocusConflictWarnsBeforeAMeeting() {
+        let meeting = CalendarSlot(title: "Созвон", start: now.addingTimeInterval(80 * 60), hasLocation: false)
+        XCTAssertNil(DayPlanner.focusConflict(minutes: 60, now: now, events: [meeting]))
+        let conflict = DayPlanner.focusConflict(minutes: 90, now: now, events: [meeting])
+        XCTAssertEqual(conflict?.fitMinutes, 70)
+        XCTAssertEqual(conflict?.bufferMinutes, 10)
+        // С местом — закладываем дорогу.
+        let trip = CalendarSlot(title: "Ужин", start: now.addingTimeInterval(80 * 60), hasLocation: true)
+        XCTAssertEqual(DayPlanner.focusConflict(minutes: 60, now: now, events: [trip])?.fitMinutes, 50)
+        // Прошедшие события не мешают.
+        let past = CalendarSlot(title: "Бокс", start: now.addingTimeInterval(-3600), hasLocation: true)
+        XCTAssertNil(DayPlanner.focusConflict(minutes: 240, now: now, events: [past]))
+    }
+
     func testPomodoroPhasesGoInCircles() {
         let pomodoro = Pomodoro(workMinutes: 30, breakMinutes: 10)
         let start = pomodoro.phase(elapsed: 0)
