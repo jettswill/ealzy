@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Observation
 import UIKit
@@ -163,7 +164,14 @@ final class LocalBrain {
             } catch is CancellationError {
                 self.phase = .absent
             } catch {
-                self.phase = .failed("Не скачалось: \(error.localizedDescription) Попробуй ещё раз по Wi‑Fi.")
+                let networkCodes: [URLError.Code] = [
+                    .timedOut, .cannotConnectToHost, .cannotFindHost, .networkConnectionLost,
+                    .secureConnectionFailed, .badServerResponse,
+                ]
+                let network = (error as? URLError).map { networkCodes.contains($0.code) } ?? false
+                self.phase = .failed(network
+                    ? "Сервер с моделью не отвечает — похоже, провайдер его режет. Попробуй другую сеть или VPN и нажми «Скачать ещё раз»: уже скачанное не пропадёт."
+                    : "Не скачалось: \(error.localizedDescription) Попробуй ещё раз по Wi‑Fi.")
             }
             UIApplication.shared.isIdleTimerDisabled = false
             self.downloadTask = nil
@@ -192,8 +200,36 @@ final class LocalBrain {
         let path: String
         let size: Int64?
         let lfs: LFS?
-        struct LFS: Decodable { let size: Int64? }
+        struct LFS: Decodable {
+            let size: Int64?
+            let oid: String?
+        }
         var bytes: Int64 { lfs?.size ?? size ?? 0 }
+        /// sha256 большого файла — по нему проверяем, что зеркало отдало ровно то же.
+        var sha256: String? { lfs?.oid }
+    }
+
+    /// Откуда качаем: сначала Hugging Face, если он молчит — зеркало. Большие файлы сверяем по sha256.
+    private static let hosts = ["https://huggingface.co", "https://hf-mirror.com"]
+
+    /// Сколько ждём хотя бы байта, прежде чем пробовать другой адрес.
+    private static let stallSeconds: Double = 25
+
+    private func listFiles() async throws -> [RemoteFile] {
+        var lastError: Error = URLError(.cannotConnectToHost)
+        for host in Self.hosts {
+            guard let url = URL(string: "\(host)/api/models/\(spec.repo)/tree/main") else { continue }
+            var request = URLRequest(url: url)
+            request.timeoutInterval = 20
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard (response as? HTTPURLResponse)?.statusCode == 200 else { continue }
+                return try JSONDecoder().decode([RemoteFile].self, from: data)
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
     }
 
     private func downloadAll() async throws {
@@ -204,15 +240,15 @@ final class LocalBrain {
         values.isExcludedFromBackup = true
         try? rootURL.setResourceValues(values)
 
-        let listURL = URL(string: "https://huggingface.co/api/models/\(spec.repo)/tree/main")!
-        let (listData, _) = try await URLSession.shared.data(from: listURL)
-        let files = try JSONDecoder().decode([RemoteFile].self, from: listData)
+        let files = try await listFiles()
             .filter { $0.type == "file" }
             .filter { file in
                 let name = file.path
                 return !name.contains("/")
                     && (name.hasSuffix(".safetensors") || name.hasSuffix(".json") || name.hasSuffix(".jinja"))
             }
+            // Сначала маленькие файлы, потом тяжёлые.
+            .sorted { $0.bytes < $1.bytes }
         guard files.contains(where: { $0.path.hasSuffix(".safetensors") }) else {
             throw URLError(.fileDoesNotExist)
         }
@@ -229,32 +265,70 @@ final class LocalBrain {
                 phase = .downloading(received: done, total: total)
                 continue
             }
-            let remote = URL(string: "https://huggingface.co/\(spec.repo)/resolve/main/\(file.path)")!
             let base = done
-            let temp = try await download(remote) { [weak self] received in
-                Task { @MainActor in
-                    guard let self, case .downloading = self.phase else { return }
-                    self.phase = .downloading(received: base + received, total: total)
+            var saved: URL?
+            var lastError: Error = URLError(.cannotConnectToHost)
+            for host in Self.hosts {
+                guard let remote = URL(string: "\(host)/\(spec.repo)/resolve/main/\(file.path)") else { continue }
+                do {
+                    let temp = try await download(remote, stallAfter: Self.stallSeconds) { [weak self] received in
+                        Task { @MainActor in
+                            guard let self, case .downloading = self.phase else { return }
+                            self.phase = .downloading(received: base + received, total: total)
+                        }
+                    }
+                    if let expected = file.sha256, expected.count == 64 {
+                        let actual = try await Self.sha256(of: temp)
+                        guard actual == expected.lowercased() else {
+                            try? fm.removeItem(at: temp)
+                            throw URLError(.cannotDecodeContentData)
+                        }
+                    }
+                    saved = temp
+                    break
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    if Task.isCancelled { throw CancellationError() }
+                    lastError = error
+                    phase = .downloading(received: base, total: total)
                 }
             }
+            guard let saved else { throw lastError }
             try? fm.removeItem(at: target)
-            try fm.moveItem(at: temp, to: target)
+            try fm.moveItem(at: saved, to: target)
             done += file.bytes
             phase = .downloading(received: done, total: total)
         }
         fm.createFile(atPath: completeMarker.path, contents: Data())
     }
 
-    /// Один файл: обычная загрузка с прогрессом; отмена задачи останавливает её.
+    /// sha256 большого файла частями, чтобы не держать гигабайты в памяти.
+    private nonisolated static func sha256(of url: URL) async throws -> String {
+        try await Task.detached(priority: .utility) {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var hasher = SHA256()
+            while let chunk = try handle.read(upToCount: 8 * 1024 * 1024), !chunk.isEmpty {
+                hasher.update(data: chunk)
+            }
+            return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+        }.value
+    }
+
+    /// Один файл. Прогресс берём из счётчика байтов задачи; если байты не идут `stallAfter` секунд — бросаем.
     private nonisolated func download(
-        _ url: URL, progress: @escaping @Sendable (Int64) -> Void
+        _ url: URL, stallAfter: Double, progress: @escaping @Sendable (Int64) -> Void
     ) async throws -> URL {
         let box = DownloadBox()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-                let task = URLSession.shared.downloadTask(with: url) { location, response, error in
+                var request = URLRequest(url: url)
+                request.timeoutInterval = 60
+                let task = URLSession.shared.downloadTask(with: request) { location, response, error in
+                    box.finished = true
                     if let error {
-                        continuation.resume(throwing: error)
+                        continuation.resume(throwing: box.stalled ? URLError(.timedOut) : error)
                         return
                     }
                     let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -273,10 +347,25 @@ final class LocalBrain {
                     }
                 }
                 box.task = task
-                box.observation = task.progress.observe(\.completedUnitCount) { p, _ in
-                    progress(p.completedUnitCount)
-                }
                 task.resume()
+                // Сторож: раз в полсекунды отдаёт прогресс и замечает, что загрузка встала.
+                Task.detached {
+                    var lastBytes: Int64 = -1
+                    var lastChange = Date()
+                    while !box.finished {
+                        try? await Task.sleep(for: .milliseconds(500))
+                        let bytes = task.countOfBytesReceived
+                        if bytes != lastBytes {
+                            lastBytes = bytes
+                            lastChange = Date()
+                            progress(bytes)
+                        } else if Date().timeIntervalSince(lastChange) > stallAfter {
+                            box.stalled = true
+                            task.cancel()
+                            return
+                        }
+                    }
+                }
             }
         } onCancel: {
             box.task?.cancel()
@@ -374,7 +463,8 @@ final class LocalBrain {
 /// Держит задачу загрузки и наблюдателя прогресса.
 private final class DownloadBox: @unchecked Sendable {
     var task: URLSessionDownloadTask?
-    var observation: NSKeyValueObservation?
+    var finished = false
+    var stalled = false
 }
 
 /// Модель уже лежит на диске — сеть не нужна.
