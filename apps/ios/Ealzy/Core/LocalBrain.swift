@@ -164,10 +164,11 @@ final class LocalBrain {
             } catch is CancellationError {
                 self.phase = .absent
             } catch {
-                let network = (error as? URLError).map {
-                    [.timedOut, .cannotConnectToHost, .cannotFindHost, .networkConnectionLost,
-                     .secureConnectionFailed, .badServerResponse].contains($0.code)
-                } ?? false
+                let networkCodes: [URLError.Code] = [
+                    .timedOut, .cannotConnectToHost, .cannotFindHost, .networkConnectionLost,
+                    .secureConnectionFailed, .badServerResponse,
+                ]
+                let network = (error as? URLError).map { networkCodes.contains($0.code) } ?? false
                 self.phase = .failed(network
                     ? "Сервер с моделью не отвечает — похоже, провайдер его режет. Попробуй другую сеть или VPN и нажми «Скачать ещё раз»: уже скачанное не пропадёт."
                     : "Не скачалось: \(error.localizedDescription) Попробуй ещё раз по Wi‑Fi.")
