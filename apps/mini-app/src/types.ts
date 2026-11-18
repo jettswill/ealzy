@@ -659,7 +659,7 @@ export type PlaceEmotion = "wow" | "good" | "meh" | "bad";
 export type PlaceVisitStatus = "visited" | "want" | "skip";
 /** Место из поиска рядом — в базе его ещё нет. */
 export interface PlaceCandidate {
-  source: "2gis" | "osm";
+  source: "2gis" | "osm" | "web";
   source_id: string;
   name: string;
   address: string | null;
@@ -676,6 +676,7 @@ export interface PlaceCandidate {
   twogis_url: string | null;
   distance_m: number | null;
   maps_url: string;
+  note?: string | null;
 }
 export interface SavedPlace extends PlaceInfo {
   rating?: number | null;
@@ -689,6 +690,8 @@ export interface NearbyPlaces {
   saved: SavedPlace[];
   found: PlaceCandidate[];
   source: "2gis" | "osm";
+  /** Часть найденного — из интернета (под тип не нашлось на картах). */
+  web?: boolean;
 }
 export interface VisitInput {
   activity_type_id: string;

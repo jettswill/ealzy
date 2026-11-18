@@ -660,7 +660,8 @@ export interface Place {
 }
 /** Место из внешнего поиска: в базу попадает, только когда с ним что-то сделали. */
 export interface PlaceCandidate {
-  source: "2gis" | "osm";
+  /** web — найдено веб-поиском Илзи, когда в каталоге карт под тип пусто. */
+  source: "2gis" | "osm" | "web";
   source_id: string;
   name: string;
   address: string | null;
@@ -677,6 +678,8 @@ export interface PlaceCandidate {
   twogis_url: string | null;
   distance_m: number | null;
   maps_url: string;
+  /** Короткая строка «что это» — у мест из интернета. */
+  note?: string | null;
 }
 export type PlaceVisitStatus = "visited" | "want" | "skip";
 /** Впечатление после визита. */

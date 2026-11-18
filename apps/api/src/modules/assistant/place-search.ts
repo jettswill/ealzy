@@ -1,10 +1,12 @@
 import type { ActivityType, PlaceCandidate } from "../../types.js";
+import { type WebPlaceFinder, webCandidates } from "./web-places.js";
 
 // Поиск мест под тип активности рядом с человеком. Сами места в базу не
 // пишем: их там окажется только то, с чем человек что-то сделал («хочу»,
 // «был»). Источник — 2ГИС, если задан ключ (там есть рейтинг и фото), иначе
 // OpenStreetMap: бесплатно, без рейтинга, для популярных типов — по тегам
-// рядом с точкой, для остальных — по названию в окрестности.
+// рядом с точкой, для остальных — по названию в окрестности. Если и там
+// пусто — веб-поиск Илзи (web-places.ts).
 
 export interface NearbyQuery {
   type: Pick<ActivityType, "id" | "name" | "search_query">;
@@ -14,6 +16,8 @@ export interface NearbyQuery {
   limit?: number;
   /** «Сейчас» — ищем ближе. */
   radiusM?: number;
+  /** Можно ли идти в веб-поиск (он облачный и платный — только при живой квоте). */
+  allowWeb?: boolean;
 }
 export interface PlaceSearch {
   nearby(query: NearbyQuery): Promise<PlaceCandidate[]>;
@@ -368,24 +372,91 @@ export async function searchOsm(q: NearbyQuery, fetchImpl: Fetch = fetch) {
   return (await nominatim(params, q, fetchImpl)).slice(0, limit);
 }
 
-/** 2ГИС с ключом, иначе OpenStreetMap; сбой 2ГИС тоже уводит в OSM. */
-export function createPlaceSearch(options: { dgisKey?: string | null; fetch?: Fetch } = {}) {
+/** Меньше стольких находок на картах — добираем веб-поиском. */
+export const WEB_FALLBACK_BELOW = 3;
+const WEB_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const WEB_CACHE_MAX = 500;
+
+/**
+ * 2ГИС с ключом, иначе OpenStreetMap; сбой 2ГИС тоже уводит в OSM. Если карты
+ * под тип почти пусты и есть веб-поиск — добираем местами из интернета.
+ * Веб-находки по (тип, город) живут в памяти неделю: тот же запрос не стоит
+ * второго похода в интернет, а расстояние до человека пересчитываем каждый раз.
+ */
+export function createPlaceSearch(
+  options: {
+    dgisKey?: string | null;
+    fetch?: Fetch;
+    web?: WebPlaceFinder | null;
+    /** Пауза между запросами к геокодеру; в тестах — 0. */
+    geocodeGapMs?: number;
+  } = {},
+) {
   const fetchImpl = options.fetch ?? fetch;
+  type WebRow = Awaited<ReturnType<typeof webCandidates>>[number];
+  const webCache = new Map<string, { at: number; rows: Promise<WebRow[]> }>();
+
+  const fromWeb = (query: NearbyQuery): Promise<WebRow[]> => {
+    const city = query.city!;
+    const key = `${query.type.id}|${city.toLocaleLowerCase("ru")}`;
+    const hit = webCache.get(key);
+    if (hit && Date.now() - hit.at < WEB_CACHE_TTL_MS) return hit.rows;
+    const rows = options.web!({
+      type_name: query.type.name,
+      search_query: query.type.search_query ?? null,
+      city,
+    }).then((hits) =>
+      webCandidates(hits, city, { fetch: fetchImpl, gapMs: options.geocodeGapMs }),
+    );
+    if (webCache.size >= WEB_CACHE_MAX) webCache.delete(webCache.keys().next().value!);
+    webCache.set(key, { at: Date.now(), rows });
+    // Сбой не кэшируем: в следующий раз попробуем снова.
+    rows.catch(() => webCache.delete(key));
+    return rows;
+  };
+
+  const maps = async (query: NearbyQuery) => {
+    if (options.dgisKey) {
+      try {
+        const found = await search2gis(options.dgisKey, query, fetchImpl);
+        if (found.length) return found;
+      } catch {
+        // Каталог недоступен — идём в OpenStreetMap.
+      }
+    }
+    try {
+      return await searchOsm(query, fetchImpl);
+    } catch {
+      return [];
+    }
+  };
+
   return {
     async nearby(query: NearbyQuery) {
-      if (options.dgisKey) {
-        try {
-          const found = await search2gis(options.dgisKey, query, fetchImpl);
-          if (found.length) return found;
-        } catch {
-          // Каталог недоступен — идём в OpenStreetMap.
-        }
+      const found = await maps(query);
+      if (!options.web || !query.allowWeb || !query.city || found.length >= WEB_FALLBACK_BELOW) {
+        return found;
       }
+      let rows: WebRow[];
       try {
-        return await searchOsm(query, fetchImpl);
+        rows = await fromWeb(query);
       } catch {
-        return [];
+        return found;
       }
+      const names = new Set(found.map((place) => place.name.toLocaleLowerCase("ru")));
+      const hasPoint_ = hasPoint(query);
+      const extra: PlaceCandidate[] = rows
+        .filter((row) => !names.has(row.name.toLocaleLowerCase("ru")))
+        .map((row) => ({
+          ...row,
+          distance_m:
+            hasPoint_ && row.lat != null && row.lon != null
+              ? distanceMeters(query.lat!, query.lon!, row.lat, row.lon)
+              : null,
+          maps_url: yandexMapsUrl(row.name, row.address, row.city),
+        }))
+        .sort((a, b) => (a.distance_m ?? 1e9) - (b.distance_m ?? 1e9));
+      return [...found, ...extra].slice(0, Math.max(query.limit ?? 10, found.length));
     },
   } satisfies PlaceSearch;
 }
