@@ -344,6 +344,9 @@ const ru = {
     nearbyTitle: "Рядом с тобой",
     nothingNearby: "Рядом ничего не нашлось — посмотри на картах.",
     osmHint: "Места из OpenStreetMap — без рейтингов. Отметь, где был, — сохраним.",
+    fromWeb: "из интернета",
+    webHint:
+      "На картах такого мало — часть мест Илзи нашла в интернете. Проверь адрес по ссылке перед поездкой.",
     want: "Хочу",
     wanted: "В планах",
     been: "Я был",
@@ -1481,6 +1484,9 @@ const en: typeof ru = {
     nearbyTitle: "Near you",
     nothingNearby: "Nothing nearby — check the map.",
     osmHint: "Places from OpenStreetMap — no ratings. Mark where you've been and we'll keep it.",
+    fromWeb: "from the web",
+    webHint:
+      "Maps have little of this — Ilzi found some places on the web. Check the address via the link before you go.",
     want: "Want",
     wanted: "Planned",
     been: "I've been",

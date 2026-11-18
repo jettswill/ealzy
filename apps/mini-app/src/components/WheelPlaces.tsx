@@ -164,12 +164,16 @@ function PlaceRow({ row, typeId }: { row: Row; typeId: string }) {
     <div className="wheel-place">
       <a className="wheel-place-main" href={href} target="_blank" rel="noreferrer">
         <span className="list-row-title">{place.name}</span>
+        {row.kind === "found" && row.place.note && (
+          <span className="list-row-text">{row.place.note}</span>
+        )}
         <span className="list-row-text">
           {[
             place.address,
             distance,
             rating != null ? t("wheel.rating", { rating: Number(rating).toFixed(1) }) : null,
             count ? t("wheel.reviews", { n: count }) : null,
+            row.kind === "found" && row.place.source === "web" ? t("wheel.fromWeb") : null,
           ]
             .filter(Boolean)
             .join(" · ")}
@@ -274,8 +278,11 @@ export function WheelPlaces({
           {t("wheel.openMaps")}
         </a>
       </div>
-      {nearby?.source === "osm" && nearby.found.length > 0 && (
-        <p className="wheel-hint">{t("wheel.osmHint")}</p>
+      {nearby?.web ? (
+        <p className="wheel-hint">{t("wheel.webHint")}</p>
+      ) : (
+        nearby?.source === "osm" &&
+        nearby.found.length > 0 && <p className="wheel-hint">{t("wheel.osmHint")}</p>
       )}
       {error && <p className="wheel-error">{error}</p>}
     </section>

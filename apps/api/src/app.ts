@@ -1,3 +1,4 @@
+import { assertCloudQuota } from "./modules/billing/quota.js";
 import type { PushGateway } from "./infrastructure/apns.js";
 import express, { type Express, Router } from "express";
 import { rateLimit } from "express-rate-limit";
@@ -409,7 +410,13 @@ export interface AppDependencies {
 
 export function createApp(deps: AppDependencies): Express {
   const { repository, env } = deps;
-  const placeSearch = deps.placeSearch ?? createPlaceSearch({ dgisKey: env.DGIS_API_KEY });
+  const placeSearch =
+    deps.placeSearch ??
+    createPlaceSearch({
+      dgisKey: env.DGIS_API_KEY,
+      // Редкое, чего нет на картах, Илзи ищет в интернете.
+      web: deps.ai?.findPlacesOnWeb ? (query) => deps.ai!.findPlacesOnWeb!(query) : null,
+    });
   attachUsageSink(deps.ai, repository);
   const supabaseAuth: SupabaseAuthVerifier = deps.supabaseAuth ?? {
     async getUser() {
@@ -1059,7 +1066,7 @@ export function createApp(deps: AppDependencies): Express {
         .object({
           candidate: z
             .object({
-              source: z.enum(["2gis", "osm"]),
+              source: z.enum(["2gis", "osm", "web"]),
               source_id: z.string().trim().min(1).max(120),
               name: z.string().trim().min(1).max(300),
               address: z.string().trim().max(300).nullable(),
@@ -1074,6 +1081,7 @@ export function createApp(deps: AppDependencies): Express {
               website: z.string().trim().max(300).nullable(),
               hours: z.string().trim().max(300).nullable(),
               twogis_url: z.string().url().max(300).nullable(),
+              note: z.string().trim().max(300).nullable().optional(),
             })
             .passthrough(),
           ...visitFields,
@@ -1102,6 +1110,7 @@ export function createApp(deps: AppDependencies): Express {
           website: c.website,
           hours: c.hours,
           twogis_url: c.twogis_url,
+          note: c.note ?? null,
         },
         input.activity_type_id,
       );
@@ -1133,6 +1142,11 @@ export function createApp(deps: AppDependencies): Express {
       const city = await outingCity(owner(req), query.city);
       const point =
         query.lat != null && query.lon != null ? { lat: query.lat, lon: query.lon } : null;
+      // Веб-поиск облачный: при исчерпанном лимите — только карты.
+      const allowWeb = await assertCloudQuota(repository, owner(req)).then(
+        () => true,
+        () => false,
+      );
       const [known, visits, found_] = await Promise.all([
         repository.listPlaces({ typeIds: [type.id], city: point ? null : city, limit: 200 }),
         repository.listPlaceVisits(owner(req)),
@@ -1143,6 +1157,7 @@ export function createApp(deps: AppDependencies): Express {
           city,
           radiusM: query.radius,
           limit: 10,
+          allowWeb,
         }),
       ]);
       const radius = query.radius ?? 15_000;
@@ -1176,6 +1191,7 @@ export function createApp(deps: AppDependencies): Express {
               !knownNames.has(c.name.toLocaleLowerCase()),
           ),
           source: env.DGIS_API_KEY ? "2gis" : "osm",
+          web: found_.some((c) => c.source === "web"),
         },
       });
     }),

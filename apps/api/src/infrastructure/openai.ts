@@ -15,6 +15,11 @@ import {
   type AiTokenUsage,
 } from "../modules/billing/usage.js";
 import type { TasteEvidence, TasteInference } from "../modules/assistant/tastes.js";
+import {
+  parseWebPlaces,
+  type WebPlaceHit,
+  type WebPlaceQuery,
+} from "../modules/assistant/web-places.js";
 
 const decisionSchema = {
   type: "object",
@@ -693,6 +698,41 @@ export class OpenAiProvider implements AiProvider {
       summary: stripInlineLinks(content).slice(0, 2500),
       sources: dedupeSources([...cited, ...inline]),
     };
+  }
+  /**
+   * Заведения под тип активности в городе — из интернета, когда на картах
+   * пусто. Веб-модель с JSON-схемой не дружит, поэтому просим массив текстом и
+   * разбираем терпимо (parseWebPlaces).
+   */
+  async findPlacesOnWeb(query: WebPlaceQuery): Promise<WebPlaceHit[]> {
+    const what = query.search_query && query.search_query !== query.type_name
+      ? `${query.type_name} (${query.search_query})`
+      : query.type_name;
+    const result = await this.client.chat.completions.create(
+      {
+        model: this.webModel,
+        ...chatCompletionControls(this.webModel, { maxTokens: 900 }),
+        messages: [
+          {
+            role: "system",
+            content: [
+              "You find real, currently operating venues in a given city for a leisure activity.",
+              "Search the web (official sites, Яндекс Карты, 2ГИС, Афиша, KudaGo, city guides) and return ONLY a JSON array, no prose:",
+              '[{"name": "...", "address": "street and building, no city", "website": "https://... or null", "note": "what exactly is there, ≤ 12 words"}]',
+              "Up to 6 venues inside the city or its suburbs. Skip closed venues, one-off events and anything you are not sure exists. If nothing reliable — [].",
+              `Write name, address and note in the language of locale ${query.locale ?? "ru-RU"}.`,
+            ].join(" "),
+          },
+          { role: "user", content: `${what} — ${query.city}` },
+        ],
+        ...(this.webModel.startsWith("perplexity/")
+          ? {}
+          : ({ plugins: [{ id: "web", max_results: 6 }] } as Record<string, unknown>)),
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+      { timeout: WEB_RESEARCH_TIMEOUT_MS, maxRetries: 0 },
+    );
+    this.report("web_places", tokensFromCompletionUsage(result.usage));
+    return parseWebPlaces(result.choices[0]?.message?.content ?? "");
   }
   extractExperience(text: string, currentTime: string) {
     return this.structured("experience_extraction", experienceExtractionSchema, [
