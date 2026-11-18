@@ -1,6 +1,13 @@
 import type { ActivityCategory, ActivitySpin, ActivityType, Place } from "../../types.js";
 import type { AppRepository } from "../../repository.js";
 import {
+  tasteFor,
+  tasteIndex,
+  tasteMultiplier,
+  weightedShuffle,
+  type TasteVerdict,
+} from "./tastes.js";
+import {
   activityCategoryHint,
   fitsSeason,
   loadActivityCatalog,
@@ -151,6 +158,8 @@ export interface WheelPoolInput {
   /** Что уже выпадало сегодня — второй раз не кладём на колесо. */
   wonToday: Set<string>;
   last: ActivityType | null;
+  /** Личный вкус: «никогда» убирает тип с колеса. */
+  taste?: (type: ActivityType) => TasteVerdict;
 }
 
 /** Все типы, подходящие под запрос; конкретная просьба сужает, но не обнуляет выбор. */
@@ -173,7 +182,8 @@ export function wheelPoolDetailed(input: WheelPoolInput): {
       (!request.only_new || !input.tried.has(type.id)) &&
       fitsWhen(type, request.when) &&
       fitsCompany(type, request.company) &&
-      fitsFeedback(type, feedback),
+      fitsFeedback(type, feedback) &&
+      !input.taste?.(type).never,
   );
   const want = request.want?.trim();
   if (want) {
@@ -227,17 +237,24 @@ export function wheelSegments(
   rng: Rng,
   size = WHEEL_SEGMENTS,
   focused = new Set<string>(),
+  weight: (type: ActivityType) => number = () => 1,
 ) {
   if (focused.size) {
     // Названное — всё, что влезает; добивка — после, и порядок перемешан.
-    const named = shuffle(
+    const named = weightedShuffle(
       pool.filter((type) => focused.has(type.id)),
+      weight,
       rng,
     ).slice(0, size);
-    const rest = pool.filter((type) => !focused.has(type.id));
+    const rest = weightedShuffle(
+      pool.filter((type) => !focused.has(type.id)),
+      weight,
+      rng,
+    );
     return shuffle([...named, ...rest].slice(0, size), rng);
   }
-  const shuffled = shuffle(pool, rng);
+  // Любимое чаще попадает на колесо, нелюбимое — реже, но не исчезает.
+  const shuffled = weightedShuffle(pool, weight, rng);
   const picked: ActivityType[] = [];
   const perCategory = new Map<string, number>();
   for (const type of shuffled) {
@@ -286,12 +303,17 @@ type WheelRepository = Pick<
   | "listActivitySpins"
   | "createActivitySpin"
   | "isAdmin"
+  | "listActivityPreferences"
 >;
 
 export interface WheelSegment {
   id: string;
-  /** Доля колеса: названное человеком весит 2, добивка и обычные — 1. */
+  /**
+   * Доля колеса и шанс выпасть: названное человеком ×2, дальше личный вкус
+   * от ×0.33 до ×3 (лайки и хорошие оценки — шире, нелюбимое — уже).
+   */
   weight: number;
+  liked: boolean;
   name: string;
   emoji: string | null;
   category: string;
@@ -305,6 +327,10 @@ export interface WheelResult {
     category: ActivityCategory | null;
     places: Place[];
     maps_url: string;
+    /** Почему именно это, если есть что сказать про вкус. */
+    reason: string | null;
+    /** Что человек уже сказал про этот тип. */
+    verdict: "like" | "never" | null;
   };
   spins_used: number;
   /** null — без ограничения (администратор). */
@@ -349,12 +375,15 @@ export async function spinWheel(
   const now = options.now ?? new Date();
   const rng = options.rng ?? Math.random;
   const day = localDateKey(now, options.timezone);
-  const [spins, unlimited, catalog, visits] = await Promise.all([
+  const [spins, unlimited, catalog, visits, prefs] = await Promise.all([
     repository.listActivitySpins(ownerId, day),
     repository.isAdmin(ownerId),
     loadActivityCatalog(repository),
     repository.listPlaceVisits(ownerId),
+    repository.listActivityPreferences(ownerId),
   ]);
+  const tastes = tasteIndex(prefs);
+  const tasteOf = (type: ActivityType) => tasteFor(type, tastes);
   if (!unlimited && spins.length >= WHEEL_SPINS_PER_DAY)
     throw new WheelError(429, "WHEEL_LIMIT", "Колесо на сегодня всё — три вращения в день");
   const byId = new Map(catalog.types.map((type) => [type.id, type]));
@@ -373,6 +402,7 @@ export async function spinWheel(
     skipped,
     wonToday: new Set(spins.map((s) => s.result_type_id).filter((id): id is string => Boolean(id))),
     last,
+    taste: tasteOf,
   });
   if (!pool.length)
     throw new WheelError(
@@ -380,8 +410,10 @@ export async function spinWheel(
       "WHEEL_EMPTY",
       "Под такой запрос ничего не нашлось — ослабь условия или напиши по-другому",
     );
-  const segments = wheelSegments(pool, rng, WHEEL_SEGMENTS, focused);
-  const weights = segments.map((type) => (focused.has(type.id) ? 2 : 1));
+  const weightOf = (type: ActivityType) =>
+    Math.round((focused.has(type.id) ? 2 : 1) * tasteMultiplier(tasteOf(type).score) * 100) / 100;
+  const segments = wheelSegments(pool, rng, WHEEL_SEGMENTS, focused, weightOf);
+  const weights = segments.map(weightOf);
   const winnerIndex = weightedIndex(weights, rng);
   const winner = segments[winnerIndex]!;
   const candidates = await repository.listPlaces({
@@ -406,7 +438,8 @@ export async function spinWheel(
     spin_id: spin.id,
     segments: segments.map((type) => ({
       id: type.id,
-      weight: focused.has(type.id) ? 2 : 1,
+      weight: weightOf(type),
+      liked: tasteOf(type).liked,
       name: type.name,
       emoji: type.emoji,
       category: names.get(type.category_id)?.name ?? type.category_id,
@@ -417,6 +450,8 @@ export async function spinWheel(
       category: names.get(winner.category_id) ?? null,
       places,
       maps_url: mapsSearchUrl(winner.search_query || winner.name, options.city),
+      reason: tasteOf(winner).reason,
+      verdict: tastes.get(`type:${winner.id}`)?.verdict ?? null,
     },
     spins_used: used,
     spins_left: unlimited ? null : Math.max(0, WHEEL_SPINS_PER_DAY - used),

@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   ActivityCatalog,
+  ActivityPreference,
+  ActivityPreferencePatch,
+  ActivityTasteProfile,
+  PlaceUpsertInput,
   ActivitySpin,
   ActivitySpinInput,
   Place,
@@ -643,6 +647,24 @@ export interface AppRepository {
   /** Вращения колеса за местный день, по порядку. */
   listActivitySpins(ownerId: string, localDate: string): Promise<ActivitySpin[]>;
   createActivitySpin(ownerId: string, input: ActivitySpinInput): Promise<ActivitySpin>;
+  listActivityPreferences(ownerId: string): Promise<ActivityPreference[]>;
+  /** Меняет только переданные поля; строки нет — создаёт с нулями. */
+  patchActivityPreference(
+    ownerId: string,
+    patch: ActivityPreferencePatch,
+  ): Promise<ActivityPreference>;
+  /** Новые гипотезы нейросети целиком заменяют прежние; вердикты и оценки не трогает. */
+  replaceAiPreferences(
+    ownerId: string,
+    rows: Pick<ActivityPreference, "target_kind" | "target_id" | "ai_affinity" | "ai_reason">[],
+  ): Promise<void>;
+  getTasteProfile(ownerId: string): Promise<ActivityTasteProfile | null>;
+  saveTasteProfile(
+    ownerId: string,
+    input: Pick<ActivityTasteProfile, "summary" | "refreshed_at">,
+  ): Promise<ActivityTasteProfile>;
+  /** Место из внешнего поиска — по (source, source_id); тип добавляется к уже имеющимся. */
+  upsertPlace(input: PlaceUpsertInput, activityTypeId: string | null): Promise<Place>;
 }
 
 const sameCity = (a: string | null | undefined, b: string | null | undefined) =>
@@ -720,6 +742,8 @@ export class InMemoryRepository implements AppRepository {
   places: Place[] = [];
   placeVisits: PlaceVisit[] = [];
   activitySpins: ActivitySpin[] = [];
+  activityPreferences: ActivityPreference[] = [];
+  tasteProfiles: ActivityTasteProfile[] = [];
   people: Person[] = [];
   personLocations: PersonLocation[] = [];
   personDates: PersonDate[] = [];
@@ -2470,6 +2494,102 @@ export class InMemoryRepository implements AppRepository {
     this.activitySpins.push(spin);
     return spin;
   }
+  async listActivityPreferences(ownerId: string) {
+    return this.activityPreferences.filter((row) => row.owner_id === ownerId);
+  }
+  async patchActivityPreference(ownerId: string, patch: ActivityPreferencePatch) {
+    let row = this.activityPreferences.find(
+      (r) =>
+        r.owner_id === ownerId &&
+        r.target_kind === patch.target_kind &&
+        r.target_id === patch.target_id,
+    );
+    if (!row) {
+      row = {
+        owner_id: ownerId,
+        target_kind: patch.target_kind,
+        target_id: patch.target_id,
+        verdict: null,
+        visit_affinity: 0,
+        ai_affinity: 0,
+        ai_reason: null,
+        updated_at: now(),
+      };
+      this.activityPreferences.push(row);
+    }
+    for (const key of ["verdict", "visit_affinity", "ai_affinity", "ai_reason"] as const)
+      if (patch[key] !== undefined) (row as unknown as Record<string, unknown>)[key] = patch[key];
+    row.updated_at = now();
+    return row;
+  }
+  async replaceAiPreferences(
+    ownerId: string,
+    rows: Pick<ActivityPreference, "target_kind" | "target_id" | "ai_affinity" | "ai_reason">[],
+  ) {
+    for (const row of this.activityPreferences.filter((r) => r.owner_id === ownerId)) {
+      row.ai_affinity = 0;
+      row.ai_reason = null;
+    }
+    for (const row of rows) await this.patchActivityPreference(ownerId, row);
+  }
+  async getTasteProfile(ownerId: string) {
+    return this.tasteProfiles.find((row) => row.owner_id === ownerId) ?? null;
+  }
+  async saveTasteProfile(
+    ownerId: string,
+    input: Pick<ActivityTasteProfile, "summary" | "refreshed_at">,
+  ) {
+    const existing = this.tasteProfiles.find((row) => row.owner_id === ownerId);
+    if (existing) return Object.assign(existing, input);
+    const row = { owner_id: ownerId, ...input };
+    this.tasteProfiles.push(row);
+    return row;
+  }
+  async upsertPlace(input: PlaceUpsertInput, activityTypeId: string | null) {
+    let place = this.places.find(
+      (p) =>
+        p.source === input.source && (p as { source_id?: string }).source_id === input.source_id,
+    );
+    if (!place) {
+      place = {
+        id: randomUUID(),
+        name: input.name,
+        city: input.city,
+        address: input.address,
+        lat: input.lat,
+        lon: input.lon,
+        description: null,
+        image_url: input.image_url,
+        photos: input.photos,
+        phone: input.phone,
+        website: input.website,
+        hours: input.hours,
+        price_from: null,
+        yandex_org_id: null,
+        yandex_url: null,
+        yandex_rating: null,
+        yandex_reviews: null,
+        twogis_url: input.twogis_url,
+        source: input.source,
+        rating: input.rating,
+        rating_count: input.rating_count,
+        rating_source: input.rating == null ? null : input.source,
+        activity_type_ids: [],
+      };
+      Object.assign(place, { source_id: input.source_id });
+      this.places.push(place);
+    } else {
+      Object.assign(place, {
+        name: input.name,
+        address: input.address ?? place.address,
+        rating: input.rating ?? place.rating,
+        rating_count: input.rating_count ?? place.rating_count,
+      });
+    }
+    if (activityTypeId && !place.activity_type_ids.includes(activityTypeId))
+      place.activity_type_ids.push(activityTypeId);
+    return place;
+  }
 }
 
 export class SupabaseRepository implements AppRepository {
@@ -2591,6 +2711,141 @@ export class SupabaseRepository implements AppRepository {
         .select("*")
         .single(),
     );
+  }
+  async listActivityPreferences(ownerId: string) {
+    const rows = await this.many<ActivityPreference>(
+      this.db.from("activity_preferences").select("*").eq("owner_id", ownerId),
+    );
+    return rows.map((row) => ({
+      ...row,
+      visit_affinity: Number(row.visit_affinity),
+      ai_affinity: Number(row.ai_affinity),
+    }));
+  }
+  async patchActivityPreference(ownerId: string, patch: ActivityPreferencePatch) {
+    const fields = Object.fromEntries(
+      Object.entries(patch).filter(([, value]) => value !== undefined),
+    );
+    const existing = await this.many<ActivityPreference>(
+      this.db
+        .from("activity_preferences")
+        .select("*")
+        .eq("owner_id", ownerId)
+        .eq("target_kind", patch.target_kind)
+        .eq("target_id", patch.target_id)
+        .limit(1),
+    );
+    const query = existing[0]
+      ? this.db
+          .from("activity_preferences")
+          .update({ ...fields, updated_at: now() })
+          .eq("owner_id", ownerId)
+          .eq("target_kind", patch.target_kind)
+          .eq("target_id", patch.target_id)
+      : this.db.from("activity_preferences").insert({ ...fields, owner_id: ownerId });
+    const row = await this.one<ActivityPreference>(query.select("*").single());
+    return {
+      ...row,
+      visit_affinity: Number(row.visit_affinity),
+      ai_affinity: Number(row.ai_affinity),
+    };
+  }
+  async replaceAiPreferences(
+    ownerId: string,
+    rows: Pick<ActivityPreference, "target_kind" | "target_id" | "ai_affinity" | "ai_reason">[],
+  ) {
+    await this.one(
+      this.db
+        .from("activity_preferences")
+        .update({ ai_affinity: 0, ai_reason: null })
+        .eq("owner_id", ownerId)
+        .neq("ai_affinity", 0),
+    );
+    if (!rows.length) return;
+    const existing = await this.listActivityPreferences(ownerId);
+    const byKey = new Map(existing.map((row) => [`${row.target_kind}:${row.target_id}`, row]));
+    await this.one(
+      this.db.from("activity_preferences").upsert(
+        rows.map((row) => {
+          const old = byKey.get(`${row.target_kind}:${row.target_id}`);
+          return {
+            owner_id: ownerId,
+            target_kind: row.target_kind,
+            target_id: row.target_id,
+            verdict: old?.verdict ?? null,
+            visit_affinity: old?.visit_affinity ?? 0,
+            ai_affinity: row.ai_affinity,
+            ai_reason: row.ai_reason,
+            updated_at: now(),
+          };
+        }),
+        { onConflict: "owner_id,target_kind,target_id" },
+      ),
+    );
+  }
+  async getTasteProfile(ownerId: string) {
+    return this.one<ActivityTasteProfile | null>(
+      this.db
+        .from("activity_taste_profiles")
+        .select("owner_id,summary,refreshed_at")
+        .eq("owner_id", ownerId)
+        .maybeSingle(),
+    );
+  }
+  async saveTasteProfile(
+    ownerId: string,
+    input: Pick<ActivityTasteProfile, "summary" | "refreshed_at">,
+  ) {
+    return this.one<ActivityTasteProfile>(
+      this.db
+        .from("activity_taste_profiles")
+        .upsert({ owner_id: ownerId, ...input, updated_at: now() }, { onConflict: "owner_id" })
+        .select("owner_id,summary,refreshed_at")
+        .single(),
+    );
+  }
+  async upsertPlace(input: PlaceUpsertInput, activityTypeId: string | null) {
+    const row = await this.one<Omit<Place, "activity_type_ids">>(
+      this.db
+        .from("places")
+        .upsert(
+          {
+            source: input.source,
+            source_id: input.source_id,
+            name: input.name.slice(0, 300),
+            city: input.city,
+            address: input.address,
+            lat: input.lat,
+            lon: input.lon,
+            image_url: input.image_url,
+            photos: input.photos,
+            phone: input.phone,
+            website: input.website,
+            hours: input.hours,
+            twogis_url: input.twogis_url,
+            rating: input.rating,
+            rating_count: input.rating_count,
+            rating_source: input.rating == null ? null : input.source,
+            updated_at: now(),
+          },
+          { onConflict: "source,source_id" },
+        )
+        .select("*")
+        .single(),
+    );
+    if (activityTypeId)
+      await this.one(
+        this.db
+          .from("place_activity_types")
+          .upsert(
+            { place_id: row.id, activity_type_id: activityTypeId },
+            { onConflict: "place_id,activity_type_id", ignoreDuplicates: true },
+          ),
+      );
+    const links = await this.many<{ activity_type_id: string }>(
+      this.db.from("place_activity_types").select("activity_type_id").eq("place_id", row.id),
+    );
+    return { ...row, activity_type_ids: links.map((link) => link.activity_type_id) } as Place;
   }
   async upsertTelegramUser(input: { telegram_id: number; name: string; username?: string | null }) {
     const user = await this.one<User>(

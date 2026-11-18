@@ -18,6 +18,7 @@ import {
 } from "./recommendations.js";
 import { eventBundleLabels, parseOrganizeEventRequest, type EventKind } from "./organize-event.js";
 import { resolvePerson } from "./people.js";
+import type { TasteEvidence, TasteInference } from "./tastes.js";
 
 export { parseOrganizeEventRequest, eventBundleLabels } from "./organize-event.js";
 
@@ -215,6 +216,8 @@ export interface AssistantHandleResult {
 }
 
 export interface AiProvider {
+  /** Гипотезы о вкусах по активностям из того, что Илзи знает о человеке. */
+  inferActivityTastes?(evidence: TasteEvidence): Promise<TasteInference | null>;
   decide(text: string): Promise<unknown>;
   recommend(
     query: string,

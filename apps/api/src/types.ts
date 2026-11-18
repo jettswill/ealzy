@@ -652,9 +652,35 @@ export interface Place {
   yandex_reviews: number | null;
   twogis_url: string | null;
   source: string;
+  /** Рейтинг каталога, из которого место пришло (2ГИС и т. п.). */
+  rating?: number | null;
+  rating_count?: number | null;
+  rating_source?: string | null;
   activity_type_ids: string[];
 }
+/** Место из внешнего поиска: в базу попадает, только когда с ним что-то сделали. */
+export interface PlaceCandidate {
+  source: "2gis" | "osm";
+  source_id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  lat: number | null;
+  lon: number | null;
+  rating: number | null;
+  rating_count: number | null;
+  image_url: string | null;
+  photos: string[];
+  phone: string | null;
+  website: string | null;
+  hours: string | null;
+  twogis_url: string | null;
+  distance_m: number | null;
+  maps_url: string;
+}
 export type PlaceVisitStatus = "visited" | "want" | "skip";
+/** Впечатление после визита. */
+export type PlaceEmotion = "wow" | "good" | "meh" | "bad";
 /** Дневник человека: где был, куда хочет, что не предлагать. */
 export interface PlaceVisit {
   id: string;
@@ -665,6 +691,7 @@ export interface PlaceVisit {
   city: string | null;
   status: PlaceVisitStatus;
   rating: number | null;
+  emotion?: PlaceEmotion | null;
   note: string | null;
   visited_on: string | null;
   created_at: string;
@@ -672,8 +699,40 @@ export interface PlaceVisit {
 }
 export type PlaceVisitInput = Pick<
   PlaceVisit,
-  "place_id" | "activity_type_id" | "title" | "city" | "status" | "rating" | "note" | "visited_on"
+  | "place_id"
+  | "activity_type_id"
+  | "title"
+  | "city"
+  | "status"
+  | "rating"
+  | "emotion"
+  | "note"
+  | "visited_on"
 >;
+export type TasteTargetKind = "type" | "category";
+/** Вкус человека по типу или категории активностей. */
+export interface ActivityPreference {
+  owner_id: string;
+  target_kind: TasteTargetKind;
+  target_id: string;
+  /** Сказал сам. */
+  verdict: "like" | "never" | null;
+  /** Из оценок после визитов, −1…1. */
+  visit_affinity: number;
+  /** Гипотеза нейросети, −1…1. */
+  ai_affinity: number;
+  ai_reason: string | null;
+  updated_at: string;
+}
+export type ActivityPreferencePatch = Pick<ActivityPreference, "target_kind" | "target_id"> &
+  Partial<Pick<ActivityPreference, "verdict" | "visit_affinity" | "ai_affinity" | "ai_reason">>;
+export interface ActivityTasteProfile {
+  owner_id: string;
+  summary: string | null;
+  refreshed_at: string | null;
+}
+/** Что сохраняем из внешнего поиска, когда человек отметил место. */
+export type PlaceUpsertInput = Omit<PlaceCandidate, "distance_m" | "maps_url">;
 /** Идея «чем заняться», которую Илзи видит в workspace. */
 export interface ActivityIdea {
   type_id: string;
@@ -686,6 +745,8 @@ export interface ActivityIdea {
   setting: ActivitySetting;
   search_query: string | null;
   tried: boolean;
+  /** Что известно про вкус человека к этому: «тебе понравилось в прошлый раз». */
+  taste?: string | null;
   places: { id: string; name: string; address: string | null; rating: number | null }[];
 }
 

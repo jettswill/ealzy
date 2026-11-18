@@ -137,6 +137,141 @@ describe("surprise wheel", () => {
     );
   });
 
+  it("likes, finds places nearby and saves a visit with an impression", async () => {
+    vi.spyOn(api, "wheelStatus").mockResolvedValue({
+      spins_used: 0,
+      spins_left: 3,
+      spins_limit: 3,
+    });
+    vi.spyOn(api, "tastes").mockResolvedValue({
+      summary: null,
+      refreshed_at: null,
+      ai_available: false,
+      items: [],
+    });
+    vi.spyOn(api, "spinWheel").mockResolvedValue(
+      spinResult({
+        winner: { ...spinResult().winner, places: [], reason: "тебе понравилось в прошлый раз" },
+      }),
+    );
+    const setTaste = vi.spyOn(api, "setTaste").mockResolvedValue({
+      summary: null,
+      refreshed_at: null,
+      ai_available: false,
+      items: [],
+    });
+    const candidate = {
+      source: "osm" as const,
+      source_id: "node/7",
+      name: "Flow Coffee",
+      address: "Nevsky 1",
+      city: null,
+      lat: 59.9,
+      lon: 30.3,
+      rating: null,
+      rating_count: null,
+      image_url: null,
+      photos: [],
+      phone: null,
+      website: null,
+      hours: null,
+      twogis_url: null,
+      distance_m: 850,
+      maps_url: "https://yandex.ru/maps/?text=Flow",
+    };
+    vi.spyOn(api, "nearbyPlaces").mockResolvedValue({
+      city: "Saint Petersburg",
+      saved: [],
+      found: [candidate],
+      source: "osm",
+    });
+    const savePlace = vi.spyOn(api, "savePlace").mockResolvedValue({});
+    renderAt("/surprise");
+
+    await userEvent.click(await screen.findByRole("button", { name: "Spin the wheel" }));
+    const disc = await screen.findByRole("img", { name: /Coffee shop/ });
+    await screen.findByText("Spinning…");
+    fireEvent.transitionEnd(disc);
+    expect(await screen.findByText(/тебе понравилось в прошлый раз/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Like/ }));
+    expect(setTaste).toHaveBeenLastCalledWith({
+      target_kind: "type",
+      target_id: "kofeynya",
+      verdict: "like",
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "Find near me" }));
+    expect(await screen.findByText("Flow Coffee")).toBeInTheDocument();
+    expect(screen.getByText(/850 m/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "I've been" }));
+    await userEvent.click(screen.getByRole("radio", { name: /Loved it/ }));
+    await userEvent.click(screen.getByRole("radio", { name: "5" }));
+    await userEvent.type(screen.getByPlaceholderText(/What stuck with you/), "Great flat white");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(savePlace).toHaveBeenCalledWith(candidate, {
+      activity_type_id: "kofeynya",
+      status: "visited",
+      emotion: "wow",
+      rating: 5,
+      note: "Great flat white",
+    });
+    expect(await screen.findByText("✓ Been")).toBeInTheDocument();
+  });
+
+  it("shows what Ilzi thinks of your taste and lets you take a «never» back", async () => {
+    vi.spyOn(api, "wheelStatus").mockResolvedValue({
+      spins_used: 0,
+      spins_left: 3,
+      spins_limit: 3,
+    });
+    vi.spyOn(api, "tastes").mockResolvedValue({
+      summary: "Active team sports suit you; drawing — hardly.",
+      refreshed_at: "2026-11-18T10:00:00Z",
+      ai_available: true,
+      items: [
+        {
+          target_kind: "type",
+          target_id: "voleybol",
+          name: "Beach volleyball",
+          emoji: "🏐",
+          verdict: "like",
+          score: 1,
+          reason: null,
+          source: "you",
+        },
+        {
+          target_kind: "category",
+          target_id: "creative",
+          name: "Crafts",
+          emoji: "🎨",
+          verdict: "never",
+          score: -1,
+          reason: null,
+          source: "you",
+        },
+      ],
+    });
+    const setTaste = vi.spyOn(api, "setTaste").mockResolvedValue({
+      summary: null,
+      refreshed_at: null,
+      ai_available: true,
+      items: [],
+    });
+    renderAt("/surprise");
+    expect(await screen.findByText(/Active team sports suit you/)).toBeInTheDocument();
+    expect(screen.getByText(/Beach volleyball/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Remove «Crafts»" }));
+    expect(setTaste).toHaveBeenCalledWith({
+      target_kind: "category",
+      target_id: "creative",
+      verdict: null,
+    });
+    expect(
+      screen.getByRole("button", { name: "Update from what Ilzi knows about me" }),
+    ).toBeInTheDocument();
+  });
+
   it("stops after three spins a day", async () => {
     vi.spyOn(api, "wheelStatus").mockResolvedValue({
       spins_used: 3,
