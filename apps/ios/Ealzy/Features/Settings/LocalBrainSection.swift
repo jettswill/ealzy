@@ -67,7 +67,9 @@ struct LocalBrainSection: View {
                     .tint(Palette.gold)
                     .padding(.top, 4)
                 HStack(alignment: .firstTextBaseline) {
-                    note("Скачиваю \(Self.size(received)) из \(Self.size(total)). Лучше по Wi‑Fi, приложение держи открытым.")
+                    note(received < 1_000_000
+                         ? "Подключаюсь к серверу с моделью… Лучше по Wi‑Fi, приложение держи открытым."
+                         : "Скачиваю \(Self.size(received)) из \(Self.size(total)). Лучше по Wi‑Fi, приложение держи открытым.")
                     Spacer()
                     Button("Отменить") { brain.cancelDownload() }
                         .font(.footnote.weight(.semibold))
