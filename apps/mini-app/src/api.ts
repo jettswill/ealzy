@@ -42,6 +42,10 @@ import type {
   WheelRequest,
   WheelSpin,
   WheelStatus,
+  NearbyPlaces,
+  PlaceCandidate,
+  Tastes,
+  VisitInput,
 } from "./types";
 import {
   createLocalNote,
@@ -706,6 +710,52 @@ export class ApiClient {
 
   wheelStatus(): Promise<WheelStatus> {
     return this.request("/api/activities/wheel");
+  }
+
+  tastes(): Promise<Tastes> {
+    return this.request("/api/activities/tastes");
+  }
+
+  setTaste(body: {
+    target_kind: "type" | "category";
+    target_id: string;
+    verdict: "like" | "never" | null;
+  }): Promise<Tastes> {
+    return this.request("/api/activities/tastes", { method: "PUT", body: JSON.stringify(body) });
+  }
+
+  refreshTastes(): Promise<Tastes> {
+    return this.request("/api/activities/tastes/refresh", { method: "POST", timeoutMs: 60_000 });
+  }
+
+  nearbyPlaces(query: {
+    type: string;
+    lat?: number | null;
+    lon?: number | null;
+    city?: string | null;
+  }): Promise<NearbyPlaces> {
+    const params = new URLSearchParams({ type: query.type });
+    if (query.lat != null && query.lon != null) {
+      params.set("lat", String(query.lat));
+      params.set("lon", String(query.lon));
+    }
+    if (query.city) params.set("city", query.city);
+    return this.request(`/api/places/nearby?${params}`, { timeoutMs: 20_000 });
+  }
+
+  savePlace(candidate: PlaceCandidate, visit: VisitInput): Promise<unknown> {
+    const { distance_m: _distance, maps_url: _maps, ...place } = candidate;
+    return this.request("/api/places/save", {
+      method: "POST",
+      body: JSON.stringify({ candidate: place, ...visit }),
+    });
+  }
+
+  saveVisit(placeId: string, visit: VisitInput): Promise<unknown> {
+    return this.request("/api/places/visits", {
+      method: "POST",
+      body: JSON.stringify({ place_id: placeId, ...visit }),
+    });
   }
 
   spinWheel(body: WheelRequest): Promise<WheelSpin> {

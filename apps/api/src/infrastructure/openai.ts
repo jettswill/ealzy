@@ -14,6 +14,7 @@ import {
   tokensFromTranscriptionUsage,
   type AiTokenUsage,
 } from "../modules/billing/usage.js";
+import type { TasteEvidence, TasteInference } from "../modules/assistant/tastes.js";
 
 const decisionSchema = {
   type: "object",
@@ -175,6 +176,29 @@ const onboardingExtractSchema = {
     },
     goals: { type: "array", items: { type: "string" } },
     people: { type: "array", items: { type: "string" } },
+  },
+};
+
+const activityTastesSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["summary", "hypotheses"],
+  properties: {
+    summary: { type: "string" },
+    hypotheses: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["target_kind", "target_id", "affinity", "reason"],
+        properties: {
+          target_kind: { type: "string", enum: ["type", "category"] },
+          target_id: { type: "string" },
+          affinity: { type: "number" },
+          reason: { type: "string" },
+        },
+      },
+    },
   },
 };
 
@@ -705,6 +729,43 @@ export class OpenAiProvider implements AiProvider {
       { role: "user", content: JSON.stringify({ kind, snapshot }) },
     ]);
   }
+  async inferActivityTastes(evidence: TasteEvidence): Promise<TasteInference | null> {
+    const { categories, types, ...facts } = evidence;
+    const catalog = categories
+      .map(
+        (category) =>
+          `${category.id} (${category.name}): ` +
+          types
+            .filter((type) => type.category_id === category.id)
+            .map((type) => `${type.id}=${type.name}`)
+            .join("; "),
+      )
+      .join("\n");
+    const result = await this.structured(
+      "activity_tastes",
+      activityTastesSchema,
+      [
+        {
+          role: "system",
+          content: `You estimate which leisure activities fit ONE person, so a "where to go" wheel can show likely favourites more often and unlikely ones less often.
+Evidence: what the assistant knows about them (bio, values, portrait, memories), past experiences with what they liked/disliked, rated visits, and explicit verdicts.
+Return hypotheses about activity types or whole categories from the catalog below, by their exact ids.
+- affinity from -1 (they would dislike it) to 1 (they would love it). Direct evidence (they said it, rated a visit) may go to ±0.8; indirect guesses (a value, a personality trait, a related hobby) stay within ±0.4.
+- Prefer a category when the evidence is broad («не люблю творческое» → category creative), a type when it is specific («обожаю пляжный волейбол» → that type, plus a milder guess on similar team sports).
+- reason: a short phrase in ${evidence.locale} that names the evidence, addressed to the person («ты любишь командный спорт», «тебе понравилась волна»), max 100 chars.
+- Explicit verdicts are already applied — do not repeat them, but use them as evidence for similar things.
+- Never invent facts. If there is little evidence, return few hypotheses (or none). Max 25.
+- summary: 1–2 short sentences in ${evidence.locale}, addressed to the person, on what kind of leisure seems to suit them and why; empty if nothing is known.
+Catalog (category_id (name): type_id=name; …):
+${catalog}`,
+        },
+        { role: "user", content: JSON.stringify(facts) },
+      ],
+      45_000,
+    );
+    return result as TasteInference;
+  }
+
   async extractOnboardingFacts(
     text: string,
     locale: string,

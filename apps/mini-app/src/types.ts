@@ -627,6 +627,7 @@ export interface PlaceInfo {
 export interface WheelSegment {
   id: string;
   weight: number;
+  liked?: boolean;
   name: string;
   emoji: string | null;
   category: string;
@@ -640,6 +641,8 @@ export interface WheelSpin {
     category: { name: string; emoji: string | null } | null;
     places: PlaceInfo[];
     maps_url: string;
+    reason?: string | null;
+    verdict?: "like" | "never" | null;
   };
   spins_used: number;
   /** null — без ограничения. */
@@ -650,4 +653,63 @@ export interface WheelStatus {
   spins_used: number;
   spins_left: number | null;
   spins_limit: number;
+}
+
+export type PlaceEmotion = "wow" | "good" | "meh" | "bad";
+export type PlaceVisitStatus = "visited" | "want" | "skip";
+/** Место из поиска рядом — в базе его ещё нет. */
+export interface PlaceCandidate {
+  source: "2gis" | "osm";
+  source_id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  lat: number | null;
+  lon: number | null;
+  rating: number | null;
+  rating_count: number | null;
+  image_url: string | null;
+  photos: string[];
+  phone: string | null;
+  website: string | null;
+  hours: string | null;
+  twogis_url: string | null;
+  distance_m: number | null;
+  maps_url: string;
+}
+export interface SavedPlace extends PlaceInfo {
+  rating?: number | null;
+  rating_count?: number | null;
+  distance_m?: number | null;
+  my_status?: PlaceVisitStatus | null;
+  twogis_url?: string | null;
+}
+export interface NearbyPlaces {
+  city: string;
+  saved: SavedPlace[];
+  found: PlaceCandidate[];
+  source: "2gis" | "osm";
+}
+export interface VisitInput {
+  activity_type_id: string;
+  status: PlaceVisitStatus;
+  rating?: number | null;
+  emotion?: PlaceEmotion | null;
+  note?: string | null;
+}
+export interface TasteItem {
+  target_kind: "type" | "category";
+  target_id: string;
+  name: string;
+  emoji: string | null;
+  verdict: "like" | "never" | null;
+  score: number;
+  reason: string | null;
+  source: "you" | "visits" | "ai";
+}
+export interface Tastes {
+  summary: string | null;
+  refreshed_at: string | null;
+  ai_available: boolean;
+  items: TasteItem[];
 }

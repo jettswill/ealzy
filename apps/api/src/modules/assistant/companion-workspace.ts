@@ -414,6 +414,7 @@ export function toCompanionWorkspace(context: PersonalContext) {
             setting: idea.setting,
             search_query: idea.search_query,
             tried: idea.tried,
+            taste: idea.taste ?? null,
             places: idea.places.map((place) => ({
               name: place.name,
               address: place.address,

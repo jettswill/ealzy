@@ -22,6 +22,18 @@ import { withGoalStats, withPromiseStats } from "./direction.js";
 import { errorHandler, HttpError, notFound, requestId, asyncHandler } from "./middleware.js";
 import { loadActivityCatalog, surpriseActivity } from "./modules/assistant/activities.js";
 import { spinWheel, WheelError, wheelStatus } from "./modules/assistant/wheel.js";
+import {
+  createPlaceSearch,
+  distanceMeters,
+  type PlaceSearch,
+} from "./modules/assistant/place-search.js";
+import {
+  learnFromVisit,
+  refreshTastes,
+  tasteFor,
+  tasteIndex,
+  visitSignal,
+} from "./modules/assistant/tastes.js";
 import { cityForTimezone } from "./modules/assistant/discovery.js";
 import {
   applyWebClientContext,
@@ -382,6 +394,7 @@ export interface AppDependencies {
     | "TODOIST_CLIENT_ID"
     | "TODOIST_CLIENT_SECRET"
     | "TODOIST_REDIRECT_URI"
+    | "DGIS_API_KEY"
   >;
   supabaseAuth?: SupabaseAuthVerifier;
   telegram: TelegramGateway;
@@ -390,10 +403,13 @@ export interface AppDependencies {
   mail?: MailGateway;
   todoist?: TodoistGateway;
   push?: PushGateway;
+  /** Поиск мест рядом; по умолчанию — OpenStreetMap. */
+  placeSearch?: PlaceSearch;
 }
 
 export function createApp(deps: AppDependencies): Express {
   const { repository, env } = deps;
+  const placeSearch = deps.placeSearch ?? createPlaceSearch({ dgisKey: env.DGIS_API_KEY });
   attachUsageSink(deps.ai, repository);
   const supabaseAuth: SupabaseAuthVerifier = deps.supabaseAuth ?? {
     async getUser() {
@@ -887,6 +903,14 @@ export function createApp(deps: AppDependencies): Express {
     "/activities/wheel",
     asyncHandler(async (req, res) => {
       const profile = await repository.getProfile(owner(req));
+      // Колесо открыли — если появились новые факты, пересоберём гипотезы о
+      // вкусах в фоне; к следующему вращению они уже будут учтены.
+      if (deps.ai?.inferActivityTastes) {
+        const ownerId = owner(req);
+        void loadActivityCatalog(repository)
+          .then((catalog) => refreshTastes(repository, deps.ai, ownerId, { catalog }))
+          .catch(() => undefined);
+      }
       res.json({
         data: await wheelStatus(repository, owner(req), profile?.timezone || "Europe/Moscow"),
       });
@@ -957,43 +981,280 @@ export function createApp(deps: AppDependencies): Express {
       res.json({ data: await repository.listPlaceVisits(owner(req)) });
     }),
   );
+  const visitFields = {
+    activity_type_id: z.string().trim().max(80).nullable().optional(),
+    city: z.string().trim().max(80).nullable().optional(),
+    status: z.enum(["visited", "want", "skip"]).default("visited"),
+    rating: z.number().int().min(1).max(5).nullable().optional(),
+    emotion: z.enum(["wow", "good", "meh", "bad"]).nullable().optional(),
+    note: z.string().trim().max(2000).nullable().optional(),
+    visited_on: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
+  };
+  type VisitFields = {
+    activity_type_id?: string | null;
+    city?: string | null;
+    status: "visited" | "want" | "skip";
+    rating?: number | null;
+    emotion?: "wow" | "good" | "meh" | "bad" | null;
+    note?: string | null;
+    visited_on?: string | null;
+  };
+  // Запись дневника плюс урок для вкусов: оценка и впечатление после визита
+  // сдвигают вес этого типа (и слегка — его категории).
+  const recordVisit = async (
+    ownerId: string,
+    input: VisitFields & { place_id: string | null; title: string | null },
+  ) => {
+    const catalog = await loadActivityCatalog(repository);
+    const type = input.activity_type_id
+      ? catalog.types.find((t) => t.id === input.activity_type_id)
+      : undefined;
+    if (input.activity_type_id && !type)
+      throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
+    const visit = await repository.savePlaceVisit(ownerId, {
+      place_id: input.place_id,
+      activity_type_id: type?.id ?? null,
+      title: input.title,
+      city: input.city || null,
+      status: input.status,
+      rating: input.rating ?? null,
+      emotion: input.emotion ?? null,
+      note: input.note || null,
+      visited_on: input.visited_on ?? null,
+    });
+    const signal = input.status === "visited" ? visitSignal(input.rating, input.emotion) : null;
+    if (type && signal != null) await learnFromVisit(repository, ownerId, type, signal);
+    return visit;
+  };
   api.post(
     "/places/visits",
     asyncHandler(async (req, res) => {
       const input = z
         .object({
           place_id: z.string().uuid().nullable().optional(),
-          activity_type_id: z.string().trim().max(80).nullable().optional(),
           title: z.string().trim().min(1).max(300).nullable().optional(),
-          city: z.string().trim().max(80).nullable().optional(),
-          status: z.enum(["visited", "want", "skip"]).default("visited"),
-          rating: z.number().int().min(1).max(5).nullable().optional(),
-          note: z.string().trim().max(2000).nullable().optional(),
-          visited_on: z
-            .string()
-            .regex(/^\d{4}-\d{2}-\d{2}$/)
-            .nullable()
-            .optional(),
+          ...visitFields,
         })
         .strict()
         .refine((v) => Boolean(v.place_id || v.title), "place_id or title is required")
         .parse(req.body);
-      if (input.activity_type_id) {
-        const catalog = await loadActivityCatalog(repository);
-        if (!catalog.types.some((type) => type.id === input.activity_type_id))
-          throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
-      }
-      const visit = await repository.savePlaceVisit(owner(req), {
+      const visit = await recordVisit(owner(req), {
+        ...input,
         place_id: input.place_id ?? null,
-        activity_type_id: input.activity_type_id || null,
         title: input.title || null,
-        city: input.city || null,
-        status: input.status,
-        rating: input.rating ?? null,
-        note: input.note || null,
-        visited_on: input.visited_on ?? null,
       });
       res.status(201).json({ data: visit });
+    }),
+  );
+  // Место из поиска рядом попадает в общую базу только сейчас — когда человек
+  // сказал «хочу» или «был». Дальше оно видно и другим под этот тип.
+  api.post(
+    "/places/save",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          candidate: z
+            .object({
+              source: z.enum(["2gis", "osm"]),
+              source_id: z.string().trim().min(1).max(120),
+              name: z.string().trim().min(1).max(300),
+              address: z.string().trim().max(300).nullable(),
+              city: z.string().trim().max(80).nullable(),
+              lat: z.number().min(-90).max(90).nullable(),
+              lon: z.number().min(-180).max(180).nullable(),
+              rating: z.number().min(0).max(5).nullable(),
+              rating_count: z.number().int().min(0).nullable(),
+              image_url: z.string().url().max(1000).nullable(),
+              photos: z.array(z.string().url().max(1000)).max(10),
+              phone: z.string().trim().max(80).nullable(),
+              website: z.string().trim().max(300).nullable(),
+              hours: z.string().trim().max(300).nullable(),
+              twogis_url: z.string().url().max(300).nullable(),
+            })
+            .passthrough(),
+          ...visitFields,
+          activity_type_id: z.string().trim().max(80),
+        })
+        .strict()
+        .parse(req.body);
+      const catalog = await loadActivityCatalog(repository);
+      if (!catalog.types.some((t) => t.id === input.activity_type_id))
+        throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
+      const c = input.candidate;
+      const place = await repository.upsertPlace(
+        {
+          source: c.source,
+          source_id: c.source_id,
+          name: c.name,
+          address: c.address,
+          city: c.city,
+          lat: c.lat,
+          lon: c.lon,
+          rating: c.rating,
+          rating_count: c.rating_count,
+          image_url: c.image_url,
+          photos: c.photos,
+          phone: c.phone,
+          website: c.website,
+          hours: c.hours,
+          twogis_url: c.twogis_url,
+        },
+        input.activity_type_id,
+      );
+      const visit = await recordVisit(owner(req), {
+        ...input,
+        place_id: place.id,
+        title: null,
+        city: input.city ?? c.city,
+      });
+      res.status(201).json({ data: { place, visit } });
+    }),
+  );
+  // Места под тип рядом с человеком: сначала уже известные Ealzy (с ними кто-то
+  // что-то делал), потом найденные в каталоге — без записи в базу.
+  api.get(
+    "/places/nearby",
+    asyncHandler(async (req, res) => {
+      const query = z
+        .object({
+          type: z.string().trim().min(1).max(80),
+          lat: z.coerce.number().min(-90).max(90).optional(),
+          lon: z.coerce.number().min(-180).max(180).optional(),
+          city: z.string().trim().max(80).optional(),
+          radius: z.coerce.number().int().min(500).max(40_000).optional(),
+        })
+        .parse(req.query);
+      const catalog = await loadActivityCatalog(repository);
+      const type = found(catalog.types.find((t) => t.id === query.type) ?? null);
+      const city = await outingCity(owner(req), query.city);
+      const point =
+        query.lat != null && query.lon != null ? { lat: query.lat, lon: query.lon } : null;
+      const [known, visits, found_] = await Promise.all([
+        repository.listPlaces({ typeIds: [type.id], city: point ? null : city, limit: 200 }),
+        repository.listPlaceVisits(owner(req)),
+        placeSearch.nearby({
+          type,
+          lat: point?.lat ?? null,
+          lon: point?.lon ?? null,
+          city,
+          radiusM: query.radius,
+          limit: 10,
+        }),
+      ]);
+      const radius = query.radius ?? 15_000;
+      const status = new Map(
+        visits.filter((v) => v.place_id).map((v) => [v.place_id!, v.status] as const),
+      );
+      const saved = known
+        .map((place) => ({
+          ...place,
+          distance_m:
+            point && place.lat != null && place.lon != null
+              ? distanceMeters(point.lat, point.lon, place.lat, place.lon)
+              : null,
+          my_status: status.get(place.id) ?? null,
+        }))
+        .filter((place) => !point || place.distance_m == null || place.distance_m <= radius)
+        .sort((a, b) => (a.distance_m ?? 1e9) - (b.distance_m ?? 1e9))
+        .slice(0, 10);
+      const knownKeys = new Set(
+        known.map((p) => `${p.source}:${(p as { source_id?: string }).source_id ?? ""}`),
+      );
+      const knownNames = new Set(known.map((p) => p.name.toLocaleLowerCase()));
+      res.json({
+        data: {
+          type,
+          city,
+          saved,
+          found: found_.filter(
+            (c) =>
+              !knownKeys.has(`${c.source}:${c.source_id}`) &&
+              !knownNames.has(c.name.toLocaleLowerCase()),
+          ),
+          source: env.DGIS_API_KEY ? "2gis" : "osm",
+        },
+      });
+    }),
+  );
+  // Вкусы: «нравится» / «никогда» от человека, следы визитов и гипотезы нейросети.
+  const tastesPayload = async (ownerId: string) => {
+    const [catalog, prefs, profile] = await Promise.all([
+      loadActivityCatalog(repository),
+      repository.listActivityPreferences(ownerId),
+      repository.getTasteProfile(ownerId),
+    ]);
+    const types = new Map(catalog.types.map((t) => [t.id, t]));
+    const categories = new Map(catalog.categories.map((c) => [c.id, c]));
+    const index = tasteIndex(prefs);
+    const items = prefs
+      .map((pref) => {
+        const target =
+          pref.target_kind === "type" ? types.get(pref.target_id) : categories.get(pref.target_id);
+        if (!target) return null;
+        const score =
+          pref.target_kind === "type"
+            ? tasteFor(target as (typeof catalog.types)[number], index).score
+            : Math.max(-1, Math.min(1, pref.visit_affinity + 0.6 * pref.ai_affinity));
+        return {
+          target_kind: pref.target_kind,
+          target_id: pref.target_id,
+          name: target.name,
+          emoji: target.emoji,
+          verdict: pref.verdict,
+          score: Math.round(score * 100) / 100,
+          reason: pref.ai_reason,
+          source: pref.verdict ? "you" : pref.visit_affinity !== 0 ? "visits" : "ai",
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .filter((item) => item.verdict || Math.abs(item.score) >= 0.15)
+      .sort((a, b) => b.score - a.score);
+    return {
+      summary: profile?.summary ?? null,
+      refreshed_at: profile?.refreshed_at ?? null,
+      ai_available: Boolean(deps.ai?.inferActivityTastes),
+      items,
+    };
+  };
+  api.get(
+    "/activities/tastes",
+    asyncHandler(async (req, res) => {
+      res.json({ data: await tastesPayload(owner(req)) });
+    }),
+  );
+  api.put(
+    "/activities/tastes",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          target_kind: z.enum(["type", "category"]),
+          target_id: z.string().trim().min(1).max(80),
+          verdict: z.enum(["like", "never"]).nullable(),
+        })
+        .strict()
+        .parse(req.body);
+      const catalog = await loadActivityCatalog(repository);
+      const exists =
+        input.target_kind === "type"
+          ? catalog.types.some((t) => t.id === input.target_id)
+          : catalog.categories.some((c) => c.id === input.target_id);
+      if (!exists) throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
+      await repository.patchActivityPreference(owner(req), input);
+      res.json({ data: await tastesPayload(owner(req)) });
+    }),
+  );
+  api.post(
+    "/activities/tastes/refresh",
+    asyncHandler(async (req, res) => {
+      if (!deps.ai?.inferActivityTastes)
+        throw new HttpError(503, "AI_UNAVAILABLE", "AI is not configured");
+      const catalog = await loadActivityCatalog(repository);
+      await refreshTastes(repository, deps.ai, owner(req), { force: true, catalog });
+      res.json({ data: await tastesPayload(owner(req)) });
     }),
   );
   api.delete(

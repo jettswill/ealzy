@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth";
 import { Button, PageHeader } from "../components/ui";
+import { TastesPanel, WheelPlaces } from "../components/WheelPlaces";
 import { useI18n } from "../i18n";
 import type {
   WheelCompany,
@@ -191,6 +192,7 @@ export function WheelPage() {
   const [editing, setEditing] = useState(true);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [verdict, setVerdict] = useState<"like" | "never" | null>(null);
   const resultRef = useRef<HTMLDivElement>(null);
   const stopTimer = useRef<number | undefined>(undefined);
 
@@ -233,6 +235,7 @@ export function WheelPage() {
       });
       const arc = wheelArcs(result.segments)[result.winner_index]!;
       setSpin(result);
+      setVerdict(result.winner.verdict ?? null);
       setEditing(false);
       setLeft(result.spins_left);
       setLimit(result.spins_limit);
@@ -251,6 +254,19 @@ export function WheelPage() {
       const message = caught instanceof Error ? caught.message : String(caught);
       setError(message);
       if ((caught as { status?: number }).status === 429) setLeft(0);
+    }
+  };
+
+  // «Нравится» и «никогда» пишутся сразу: следующее вращение их учтёт.
+  const judge = async (next: "like" | "never" | null) => {
+    if (!spin) return;
+    const previous = verdict;
+    setVerdict(next);
+    try {
+      await api.setTaste({ target_kind: "type", target_id: spin.winner.type.id, verdict: next });
+    } catch (caught) {
+      setVerdict(previous);
+      setError(caught instanceof Error ? caught.message : String(caught));
     }
   };
 
@@ -347,6 +363,7 @@ export function WheelPage() {
           </Button>
           {counter && <p className="wheel-counter">{out ? t("wheel.noneLeft") : counter}</p>}
           {error && <p className="wheel-error">{error}</p>}
+          <TastesPanel />
         </form>
       ) : (
         spin && (
@@ -375,55 +392,35 @@ export function WheelPage() {
                     .filter(Boolean)
                     .join(" · ")}
                 </p>
+                {winner.reason && <p className="wheel-reason">✦ {winner.reason}</p>}
                 {winner.type.description && (
                   <p className="wheel-description">{winner.type.description}</p>
                 )}
-                <h3 className="settings-group-title mt-4">{t("wheel.places")}</h3>
-                {winner.places.length ? (
-                  <div className="list-stack">
-                    {winner.places.map((place) => (
-                      <a
-                        key={place.id}
-                        className="list-row"
-                        href={
-                          place.yandex_url ||
-                          `https://yandex.ru/maps/?text=${encodeURIComponent(
-                            [place.name, place.address, place.city].filter(Boolean).join(" "),
-                          )}`
-                        }
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        <span className="list-row-body">
-                          <span className="list-row-title">{place.name}</span>
-                          <span className="list-row-text">
-                            {[
-                              place.address,
-                              place.yandex_rating != null
-                                ? t("wheel.rating", { rating: place.yandex_rating.toFixed(1) })
-                                : null,
-                              place.yandex_reviews
-                                ? t("wheel.reviews", { n: place.yandex_reviews })
-                                : null,
-                            ]
-                              .filter(Boolean)
-                              .join(" · ")}
-                          </span>
-                        </span>
-                      </a>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="wheel-description">{t("wheel.noPlaces")}</p>
-                )}
-                <a
-                  className="button button-secondary wheel-maps"
-                  href={winner.maps_url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {t("wheel.openMaps")}
-                </a>
+                <div className="wheel-row mt-3" role="group" aria-label={t("wheel.tasteGroup")}>
+                  <button
+                    type="button"
+                    className={`chip ${verdict === "like" ? "chip-active" : ""}`}
+                    aria-pressed={verdict === "like"}
+                    onClick={() => void judge(verdict === "like" ? null : "like")}
+                  >
+                    👍 {verdict === "like" ? t("wheel.liked") : t("wheel.like")}
+                  </button>
+                  <button
+                    type="button"
+                    className={`chip ${verdict === "never" ? "chip-active" : ""}`}
+                    aria-pressed={verdict === "never"}
+                    onClick={() => void judge(verdict === "never" ? null : "never")}
+                  >
+                    🚫 {t("wheel.never")}
+                  </button>
+                </div>
+                {verdict === "never" && <p className="wheel-hint">{t("wheel.neverHint")}</p>}
+                <WheelPlaces
+                  typeId={winner.type.id}
+                  city={request.city?.trim() || null}
+                  initial={winner.places}
+                  mapsUrl={winner.maps_url}
+                />
 
                 {out ? (
                   <p className="wheel-counter">{t("wheel.noneLeft")}</p>

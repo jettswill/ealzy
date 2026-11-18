@@ -6,6 +6,7 @@ import type {
   PlaceVisit,
 } from "../../types.js";
 import type { AppRepository } from "../../repository.js";
+import { tasteFor, tasteIndex, weightedShuffle } from "./tastes.js";
 
 // Справочник «чем заняться» (supabase/migrations/041_activity_catalog_seed.sql):
 // ~400 типов активностей от кофейни до прыжка с парашютом. Илзи видит из него
@@ -79,6 +80,8 @@ export function shuffle<T>(items: T[], rng: Rng) {
 }
 
 export interface PickOptions {
+  /** Личный вкус: «никогда» убирает тип, вес двигает его вперёд или назад. */
+  taste?: (type: ActivityType) => { never: boolean; score: number; reason: string | null };
   catalog: ActivityCatalog;
   visits: PlaceVisit[];
   places?: Pick<Place, "id" | "activity_type_ids">[];
@@ -128,15 +131,19 @@ export function pickActivityIdeas(options: PickOptions): ActivityIdea[] {
       fitsSeason(type.season, options.month) &&
       !skipped.has(type.id) &&
       (!kids || type.kids_ok) &&
-      (!category || type.category_id === category),
+      (!category || type.category_id === category) &&
+      !options.taste?.(type).never,
   );
+  const weight = (type: ActivityType) => Math.exp(1.1 * (options.taste?.(type).score ?? 0));
   const ordered = [
-    ...shuffle(
+    ...weightedShuffle(
       pool.filter((type) => !tried.has(type.id)),
+      weight,
       rng,
     ),
-    ...shuffle(
+    ...weightedShuffle(
       pool.filter((type) => tried.has(type.id)),
+      weight,
       rng,
     ),
   ];
@@ -160,6 +167,7 @@ export function pickActivityIdeas(options: PickOptions): ActivityIdea[] {
     setting: type.setting,
     search_query: type.search_query,
     tried: tried.has(type.id),
+    taste: options.taste?.(type).reason ?? null,
     places: [],
   }));
 }
@@ -208,13 +216,20 @@ export function resetActivityCatalogCache() {
 
 /** Идеи с местами для workspace Илзи; пусто, если справочник ещё не залит. */
 export async function buildActivityIdeas(
-  repository: Pick<AppRepository, "listActivityCatalog" | "listPlaceVisits" | "listPlaces">,
+  repository: Pick<
+    AppRepository,
+    "listActivityCatalog" | "listPlaceVisits" | "listPlaces" | "listActivityPreferences"
+  >,
   ownerId: string,
   input: { text: string; city: string | null; timezone: string; now?: Date; limit?: number },
 ): Promise<ActivityIdea[]> {
   const catalog = await loadActivityCatalog(repository);
   if (!catalog.types.length) return [];
-  const visits = await repository.listPlaceVisits(ownerId);
+  const [visits, prefs] = await Promise.all([
+    repository.listPlaceVisits(ownerId),
+    repository.listActivityPreferences(ownerId),
+  ]);
+  const tastes = tasteIndex(prefs);
   const visitedPlaceIds = visits.filter((v) => v.place_id).map((v) => v.place_id!);
   const visitedPlaces = visitedPlaceIds.length
     ? (await repository.listPlaces({ limit: 200 })).filter((p) => visitedPlaceIds.includes(p.id))
@@ -226,6 +241,7 @@ export async function buildActivityIdeas(
     text: input.text,
     month: localMonth(input.now ?? new Date(), input.timezone),
     limit: input.limit ?? 8,
+    taste: (type) => tasteFor(type, tastes),
   });
   if (!ideas.length) return [];
   const places = await repository.listPlaces({

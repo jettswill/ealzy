@@ -26,6 +26,11 @@ export const EnvSchema = z.object({
   OPENAI_COMPANION_MODEL: z.string().min(1).optional(),
   OPENAI_WEB_MODEL: z.string().min(1).optional(),
   OPENAI_TRANSCRIPTION_MODEL: z.string().default("openai/gpt-4o-mini-transcribe"),
+  // Ключ 2ГИС для поиска мест рядом (рейтинг, фото). Нет — ищем в OpenStreetMap.
+  DGIS_API_KEY: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() ? value.trim() : undefined),
+    z.string().optional(),
+  ),
   CRON_SECRET: z.string().min(16).optional(),
   PUBLIC_APP_URL: z.string().url().optional(),
   GOOGLE_OAUTH_CLIENT_ID: z.string().min(1).optional(),
