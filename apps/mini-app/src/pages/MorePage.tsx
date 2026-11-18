@@ -9,6 +9,12 @@ export function MorePage() {
   const { t } = useI18n();
   const workspace = [
     {
+      to: "/surprise",
+      icon: "🎡",
+      title: t("wheel.eyebrow"),
+      description: t("wheel.moreText"),
+    },
+    {
       to: "/import",
       icon: "⤵",
       title: t("more.importTitle"),

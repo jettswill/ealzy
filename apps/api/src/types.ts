@@ -498,6 +498,8 @@ export interface PersonalContext {
   mail_playbooks: MailPlaybook[];
   /** События календаря с телефона на ближайшие дни; нет у тех, кто не подключал. */
   calendar_events?: CalendarEvent[];
+  /** Идеи «чем заняться» из справочника — только когда человек спрашивает, куда сходить. */
+  activity_ideas?: ActivityIdea[];
   upcoming_dates: {
     person: string | null;
     person_id?: string | null;
@@ -594,3 +596,111 @@ export type {
   NoteMutation,
   NoteRevision,
 } from "@lifeos/contracts";
+
+/** Справочник «чем заняться»: категории и типы активностей, общие для всех. */
+export interface ActivityCategory {
+  id: string;
+  name: string;
+  emoji: string | null;
+  sort: number;
+}
+export type ActivitySeason = "all" | "warm" | "summer" | "winter";
+export type ActivitySetting = "indoor" | "outdoor" | "both";
+export interface ActivityType {
+  id: string;
+  category_id: string;
+  name: string;
+  emoji: string | null;
+  description: string | null;
+  /** 1 — сидя, 5 — выжимает все силы. */
+  activity_level: number;
+  /** 1 — спокойно, 5 — адреналин. */
+  emotion_level: number;
+  /** 1 — до 1000 ₽, 2 — 1–3 тыс., 3 — 3–7 тыс., 4 — от 7 тыс. с человека. */
+  price_level: number;
+  duration_hours: number;
+  season: ActivitySeason;
+  setting: ActivitySetting;
+  min_people: number;
+  kids_ok: boolean;
+  search_query: string | null;
+  geo: string | null;
+  sort: number;
+}
+export interface ActivityCatalog {
+  categories: ActivityCategory[];
+  types: ActivityType[];
+}
+/** Конкретное место; activity_type_ids — все типы, под которые оно подходит. */
+export interface Place {
+  id: string;
+  name: string;
+  city: string | null;
+  address: string | null;
+  lat: number | null;
+  lon: number | null;
+  description: string | null;
+  image_url: string | null;
+  photos: string[];
+  phone: string | null;
+  website: string | null;
+  hours: string | null;
+  price_from: number | null;
+  yandex_org_id: string | null;
+  yandex_url: string | null;
+  yandex_rating: number | null;
+  yandex_reviews: number | null;
+  twogis_url: string | null;
+  source: string;
+  activity_type_ids: string[];
+}
+export type PlaceVisitStatus = "visited" | "want" | "skip";
+/** Дневник человека: где был, куда хочет, что не предлагать. */
+export interface PlaceVisit {
+  id: string;
+  owner_id: string;
+  place_id: string | null;
+  activity_type_id: string | null;
+  title: string | null;
+  city: string | null;
+  status: PlaceVisitStatus;
+  rating: number | null;
+  note: string | null;
+  visited_on: string | null;
+  created_at: string;
+  updated_at: string;
+}
+export type PlaceVisitInput = Pick<
+  PlaceVisit,
+  "place_id" | "activity_type_id" | "title" | "city" | "status" | "rating" | "note" | "visited_on"
+>;
+/** Идея «чем заняться», которую Илзи видит в workspace. */
+export interface ActivityIdea {
+  type_id: string;
+  name: string;
+  category: string;
+  emoji: string | null;
+  price_level: number;
+  activity_level: number;
+  emotion_level: number;
+  setting: ActivitySetting;
+  search_query: string | null;
+  tried: boolean;
+  places: { id: string; name: string; address: string | null; rating: number | null }[];
+}
+
+/** Вращение колеса «Удиви меня». */
+export interface ActivitySpin {
+  id: string;
+  owner_id: string;
+  local_date: string;
+  request: Record<string, unknown>;
+  feedback: string | null;
+  segment_ids: string[];
+  result_type_id: string | null;
+  created_at: string;
+}
+export type ActivitySpinInput = Pick<
+  ActivitySpin,
+  "local_date" | "request" | "feedback" | "segment_ids" | "result_type_id"
+>;

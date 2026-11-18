@@ -589,3 +589,65 @@ export type AdminUserQuota = {
   user: { id: string; name: string; username: string | null; email: string | null };
   quota: QuotaStatus;
 };
+
+/** Колесо «Удиви меня». */
+export type WheelMood = "calm" | "active" | "any";
+export type WheelWhen = "now" | "today" | "weekend";
+export type WheelCompany = "solo" | "pair" | "friends" | "kids";
+export interface WheelRequest {
+  mood: WheelMood;
+  want: string | null;
+  when: WheelWhen;
+  company: WheelCompany;
+  city: string | null;
+  only_new: boolean;
+  feedback: string | null;
+}
+export interface ActivityTypeInfo {
+  id: string;
+  name: string;
+  emoji: string | null;
+  description: string | null;
+  activity_level: number;
+  emotion_level: number;
+  price_level: number;
+  duration_hours: number;
+  setting: "indoor" | "outdoor" | "both";
+}
+export interface PlaceInfo {
+  id: string;
+  name: string;
+  city: string | null;
+  address: string | null;
+  image_url: string | null;
+  yandex_url: string | null;
+  yandex_rating: number | null;
+  yandex_reviews: number | null;
+}
+export interface WheelSegment {
+  id: string;
+  weight: number;
+  name: string;
+  emoji: string | null;
+  category: string;
+}
+export interface WheelSpin {
+  spin_id: string;
+  segments: WheelSegment[];
+  winner_index: number;
+  winner: {
+    type: ActivityTypeInfo;
+    category: { name: string; emoji: string | null } | null;
+    places: PlaceInfo[];
+    maps_url: string;
+  };
+  spins_used: number;
+  /** null — без ограничения. */
+  spins_left: number | null;
+  spins_limit: number;
+}
+export interface WheelStatus {
+  spins_used: number;
+  spins_left: number | null;
+  spins_limit: number;
+}
