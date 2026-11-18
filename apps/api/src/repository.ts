@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  ActivityCatalog,
+  ActivitySpin,
+  ActivitySpinInput,
+  Place,
+  PlaceVisit,
+  PlaceVisitInput,
   CalendarEvent,
   CalendarEventInput,
   Memory,
@@ -622,7 +628,27 @@ export interface AppRepository {
     input: Partial<MailPlaybookInput>,
   ): Promise<MailPlaybook | null>;
   deleteMailPlaybook(ownerId: string, id: string): Promise<boolean>;
+  /** Справочник «чем заняться» — категории и активные типы. */
+  listActivityCatalog(): Promise<ActivityCatalog>;
+  /** Видимые места; с typeIds — только подходящие под эти типы. Лучшие по рейтингу — первыми. */
+  listPlaces(filter: {
+    typeIds?: string[];
+    city?: string | null;
+    limit?: number;
+  }): Promise<Place[]>;
+  listPlaceVisits(ownerId: string): Promise<PlaceVisit[]>;
+  /** Запись дневника; для места из справочника — одна строка на место, повтор её обновляет. */
+  savePlaceVisit(ownerId: string, input: PlaceVisitInput): Promise<PlaceVisit>;
+  deletePlaceVisit(ownerId: string, id: string): Promise<boolean>;
+  /** Вращения колеса за местный день, по порядку. */
+  listActivitySpins(ownerId: string, localDate: string): Promise<ActivitySpin[]>;
+  createActivitySpin(ownerId: string, input: ActivitySpinInput): Promise<ActivitySpin>;
 }
+
+const sameCity = (a: string | null | undefined, b: string | null | undefined) =>
+  !b || (a ?? "").trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
+const byRating = (a: Place, b: Place) =>
+  (b.yandex_rating ?? -1) - (a.yandex_rating ?? -1) || a.name.localeCompare(b.name);
 
 const now = () => new Date().toISOString();
 
@@ -690,6 +716,10 @@ export class InMemoryRepository implements AppRepository {
   appLogins: AppLoginRow[] = [];
   calendarEvents: CalendarEvent[] = [];
   devices: Device[] = [];
+  activityCatalog: ActivityCatalog = { categories: [], types: [] };
+  places: Place[] = [];
+  placeVisits: PlaceVisit[] = [];
+  activitySpins: ActivitySpin[] = [];
   people: Person[] = [];
   personLocations: PersonLocation[] = [];
   personDates: PersonDate[] = [];
@@ -2388,6 +2418,58 @@ export class InMemoryRepository implements AppRepository {
       task: task ? { id: task.id, title: task.title } : null,
     };
   }
+  async listActivityCatalog() {
+    return {
+      categories: [...this.activityCatalog.categories].sort((a, b) => a.sort - b.sort),
+      types: [...this.activityCatalog.types].sort((a, b) => a.sort - b.sort),
+    };
+  }
+  async listPlaces(filter: { typeIds?: string[]; city?: string | null; limit?: number }) {
+    const types = filter.typeIds?.length ? new Set(filter.typeIds) : null;
+    return this.places
+      .filter((place) => sameCity(place.city, filter.city))
+      .filter((place) => !types || place.activity_type_ids.some((id) => types.has(id)))
+      .sort(byRating)
+      .slice(0, filter.limit ?? 50);
+  }
+  async listPlaceVisits(ownerId: string) {
+    return this.placeVisits
+      .filter((visit) => visit.owner_id === ownerId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+  }
+  async savePlaceVisit(ownerId: string, input: PlaceVisitInput) {
+    const existing = input.place_id
+      ? this.placeVisits.find((v) => v.owner_id === ownerId && v.place_id === input.place_id)
+      : undefined;
+    if (existing) {
+      Object.assign(existing, input, { updated_at: now() });
+      return existing;
+    }
+    const visit: PlaceVisit = {
+      id: randomUUID(),
+      owner_id: ownerId,
+      ...input,
+      created_at: now(),
+      updated_at: now(),
+    };
+    this.placeVisits.push(visit);
+    return visit;
+  }
+  async deletePlaceVisit(ownerId: string, id: string) {
+    const before = this.placeVisits.length;
+    this.placeVisits = this.placeVisits.filter((v) => !(v.owner_id === ownerId && v.id === id));
+    return this.placeVisits.length < before;
+  }
+  async listActivitySpins(ownerId: string, localDate: string) {
+    return this.activitySpins.filter(
+      (spin) => spin.owner_id === ownerId && spin.local_date === localDate,
+    );
+  }
+  async createActivitySpin(ownerId: string, input: ActivitySpinInput) {
+    const spin: ActivitySpin = { id: randomUUID(), owner_id: ownerId, ...input, created_at: now() };
+    this.activitySpins.push(spin);
+    return spin;
+  }
 }
 
 export class SupabaseRepository implements AppRepository {
@@ -2399,6 +2481,116 @@ export class SupabaseRepository implements AppRepository {
   }
   private async many<T>(q: PromiseLike<{ data: unknown; error: { message: string } | null }>) {
     return (await this.one<T[] | null>(q)) ?? [];
+  }
+  async listActivityCatalog() {
+    const [categories, types] = await Promise.all([
+      this.many<ActivityCatalog["categories"][number]>(
+        this.db.from("activity_categories").select("id,name,emoji,sort").order("sort"),
+      ),
+      this.many<ActivityCatalog["types"][number]>(
+        this.db
+          .from("activity_types")
+          .select(
+            "id,category_id,name,emoji,description,activity_level,emotion_level,price_level,duration_hours,season,setting,min_people,kids_ok,search_query,geo,sort",
+          )
+          .eq("is_active", true)
+          .order("sort"),
+      ),
+    ]);
+    return {
+      categories,
+      types: types.map((type) => ({ ...type, duration_hours: Number(type.duration_hours) })),
+    };
+  }
+  async listPlaces(filter: { typeIds?: string[]; city?: string | null; limit?: number }) {
+    const typed = Boolean(filter.typeIds?.length);
+    let query = this.db
+      .from("places")
+      .select(`*, place_activity_types${typed ? "!inner" : ""}(activity_type_id)`)
+      .eq("is_visible", true);
+    if (typed) query = query.in("place_activity_types.activity_type_id", filter.typeIds!);
+    if (filter.city?.trim()) query = query.ilike("city", filter.city.trim());
+    const rows = await this.many<
+      Omit<Place, "activity_type_ids"> & {
+        place_activity_types?: { activity_type_id: string }[];
+        yandex_rating: number | string | null;
+      }
+    >(
+      query
+        .order("yandex_rating", { ascending: false, nullsFirst: false })
+        .order("name")
+        .limit(Math.min(filter.limit ?? 50, 200)),
+    );
+    return rows.map(({ place_activity_types, ...row }) => ({
+      ...row,
+      yandex_rating: row.yandex_rating == null ? null : Number(row.yandex_rating),
+      activity_type_ids: (place_activity_types ?? []).map((link) => link.activity_type_id),
+    })) as Place[];
+  }
+  async listPlaceVisits(ownerId: string) {
+    return this.many<PlaceVisit>(
+      this.db
+        .from("place_visits")
+        .select("*")
+        .eq("owner_id", ownerId)
+        .order("updated_at", { ascending: false })
+        .limit(500),
+    );
+  }
+  async savePlaceVisit(ownerId: string, input: PlaceVisitInput) {
+    if (input.place_id) {
+      const existing = await this.many<PlaceVisit>(
+        this.db
+          .from("place_visits")
+          .select("id")
+          .eq("owner_id", ownerId)
+          .eq("place_id", input.place_id)
+          .limit(1),
+      );
+      if (existing[0]) {
+        return this.one<PlaceVisit>(
+          this.db
+            .from("place_visits")
+            .update({ ...input, updated_at: now() })
+            .eq("owner_id", ownerId)
+            .eq("id", existing[0].id)
+            .select("*")
+            .single(),
+        );
+      }
+    }
+    return this.one<PlaceVisit>(
+      this.db
+        .from("place_visits")
+        .insert({ ...input, owner_id: ownerId })
+        .select("*")
+        .single(),
+    );
+  }
+  async deletePlaceVisit(ownerId: string, id: string) {
+    const rows = await this.many<{ id: string }>(
+      this.db.from("place_visits").delete().eq("owner_id", ownerId).eq("id", id).select("id"),
+    );
+    return rows.length > 0;
+  }
+  async listActivitySpins(ownerId: string, localDate: string) {
+    return this.many<ActivitySpin>(
+      this.db
+        .from("activity_spins")
+        .select("*")
+        .eq("owner_id", ownerId)
+        .eq("local_date", localDate)
+        .order("created_at", { ascending: true }),
+    );
+  }
+  async createActivitySpin(ownerId: string, input: ActivitySpinInput) {
+    return this.one<ActivitySpin>(
+      this.db
+        .from("activity_spins")
+        .insert({ ...input, owner_id: ownerId })
+        .select("*")
+        .single(),
+    );
   }
   async upsertTelegramUser(input: { telegram_id: number; name: string; username?: string | null }) {
     const user = await this.one<User>(

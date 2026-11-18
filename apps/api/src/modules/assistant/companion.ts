@@ -7,6 +7,7 @@ import type { Message, PersonalContext, Reflection, SourceChannel, Task } from "
 import { withGoalStats, withPromiseStats } from "../../direction.js";
 import type { AiProvider } from "./index.js";
 import { attachWebSources, needsLiveWeb, type WebResearch } from "./web-research.js";
+import { buildActivityIdeas, isOutingRequest } from "./activities.js";
 import {
   giftActionHits,
   isGiftAdviceQuestion,
@@ -1828,6 +1829,13 @@ export class PersonalContextBuilder {
       new Date(),
       experiences,
     );
+    // Справочник «чем заняться» нужен, только когда спрашивают, куда сходить;
+    // сбой справочника не должен ломать ответ.
+    const activityIdeas = isOutingRequest(query)
+      ? await buildActivityIdeas(this.repository, ownerId, { text: query, city, timezone }).catch(
+          () => [],
+        )
+      : [];
     const focusedGoal = focusedGoalFromConversation(query, recentMessages, activeGoals, openTasks);
     // Обычно цель с планом ближе к разговору. Но на синке по целям смысл
     // ровно обратный: сверять надо те, у которых плана на неделю ещё нет —
@@ -1977,6 +1985,7 @@ export class PersonalContextBuilder {
       mail_playbooks: mailPlaybooks.slice(0, 8),
       upcoming_dates: upcomingDates,
       calendar_events: calendarEvents.slice(0, PersonalContextBuilder.limits.calendar),
+      ...(activityIdeas.length ? { activity_ideas: activityIdeas } : {}),
       city,
       overflow: {
         extra_tasks: Math.max(0, openTasks.length - selectedTasks.length),

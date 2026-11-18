@@ -20,6 +20,9 @@ import type { Env } from "./config.js";
 import type { AppRepository } from "./repository.js";
 import { withGoalStats, withPromiseStats } from "./direction.js";
 import { errorHandler, HttpError, notFound, requestId, asyncHandler } from "./middleware.js";
+import { loadActivityCatalog, surpriseActivity } from "./modules/assistant/activities.js";
+import { spinWheel, WheelError, wheelStatus } from "./modules/assistant/wheel.js";
+import { cityForTimezone } from "./modules/assistant/discovery.js";
 import {
   applyWebClientContext,
   authMiddleware,
@@ -838,6 +841,167 @@ export function createApp(deps: AppDependencies): Express {
       res.json({
         data: await repository.listCalendarEvents(owner(req), from.toISOString(), to.toISOString()),
       });
+    }),
+  );
+  // Справочник «чем заняться» и места под него.
+  const outingCity = async (ownerId: string, raw: unknown) => {
+    const asked = typeof raw === "string" ? raw.trim().slice(0, 80) : "";
+    if (asked) return asked;
+    const [self, profile] = await Promise.all([
+      repository.getSelfPerson(ownerId),
+      repository.getProfile(ownerId),
+    ]);
+    const withCity = (self?.locations ?? []).filter((l) => l.city);
+    const located = (withCity.find((l) => l.is_primary) ?? withCity[0])?.city;
+    return located || cityForTimezone(profile?.timezone, profile?.locale);
+  };
+  api.get(
+    "/activities",
+    asyncHandler(async (_req, res) => {
+      res.json({ data: await loadActivityCatalog(repository) });
+    }),
+  );
+  // Кнопка «Удиви меня»: случайный тип (можно сузить категорией) и места, где ещё не был.
+  api.get(
+    "/activities/surprise",
+    asyncHandler(async (req, res) => {
+      const query = z
+        .object({
+          category: z.string().trim().max(60).optional(),
+          type: z.string().trim().max(80).optional(),
+          city: z.string().trim().max(80).optional(),
+        })
+        .parse(req.query);
+      const profile = await repository.getProfile(owner(req));
+      const surprise = await surpriseActivity(repository, owner(req), {
+        category: query.category || null,
+        typeId: query.type || null,
+        city: await outingCity(owner(req), query.city),
+        timezone: profile?.timezone || "Europe/Moscow",
+      });
+      res.json({ data: found(surprise) });
+    }),
+  );
+  // Колесо «Удиви меня»: сколько вращений осталось сегодня и что уже выпадало.
+  api.get(
+    "/activities/wheel",
+    asyncHandler(async (req, res) => {
+      const profile = await repository.getProfile(owner(req));
+      res.json({
+        data: await wheelStatus(repository, owner(req), profile?.timezone || "Europe/Moscow"),
+      });
+    }),
+  );
+  api.post(
+    "/activities/wheel",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          mood: z.enum(["calm", "active", "any"]).default("any"),
+          want: z.string().trim().max(120).nullable().optional(),
+          when: z.enum(["now", "today", "weekend"]).default("today"),
+          company: z.enum(["solo", "pair", "friends", "kids"]).default("solo"),
+          city: z.string().trim().max(80).nullable().optional(),
+          only_new: z.boolean().default(false),
+          feedback: z.string().trim().max(500).nullable().optional(),
+        })
+        .strict()
+        .parse(req.body);
+      const profile = await repository.getProfile(owner(req));
+      const city = await outingCity(owner(req), input.city);
+      try {
+        const result = await spinWheel(
+          repository,
+          owner(req),
+          {
+            mood: input.mood,
+            want: input.want || null,
+            when: input.when,
+            company: input.company,
+            city,
+            only_new: input.only_new,
+            feedback: input.feedback || null,
+          },
+          { timezone: profile?.timezone || "Europe/Moscow", city },
+        );
+        res.status(201).json({ data: result });
+      } catch (error) {
+        if (error instanceof WheelError)
+          throw new HttpError(error.status, error.code, error.message);
+        throw error;
+      }
+    }),
+  );
+  api.get(
+    "/places",
+    asyncHandler(async (req, res) => {
+      const query = z
+        .object({
+          type: z.string().trim().max(80).optional(),
+          city: z.string().trim().max(80).optional(),
+          limit: z.coerce.number().int().min(1).max(200).optional(),
+        })
+        .parse(req.query);
+      res.json({
+        data: await repository.listPlaces({
+          typeIds: query.type ? [query.type] : undefined,
+          city: await outingCity(owner(req), query.city),
+          limit: query.limit ?? 50,
+        }),
+      });
+    }),
+  );
+  api.get(
+    "/places/visits",
+    asyncHandler(async (req, res) => {
+      res.json({ data: await repository.listPlaceVisits(owner(req)) });
+    }),
+  );
+  api.post(
+    "/places/visits",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          place_id: z.string().uuid().nullable().optional(),
+          activity_type_id: z.string().trim().max(80).nullable().optional(),
+          title: z.string().trim().min(1).max(300).nullable().optional(),
+          city: z.string().trim().max(80).nullable().optional(),
+          status: z.enum(["visited", "want", "skip"]).default("visited"),
+          rating: z.number().int().min(1).max(5).nullable().optional(),
+          note: z.string().trim().max(2000).nullable().optional(),
+          visited_on: z
+            .string()
+            .regex(/^\d{4}-\d{2}-\d{2}$/)
+            .nullable()
+            .optional(),
+        })
+        .strict()
+        .refine((v) => Boolean(v.place_id || v.title), "place_id or title is required")
+        .parse(req.body);
+      if (input.activity_type_id) {
+        const catalog = await loadActivityCatalog(repository);
+        if (!catalog.types.some((type) => type.id === input.activity_type_id))
+          throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
+      }
+      const visit = await repository.savePlaceVisit(owner(req), {
+        place_id: input.place_id ?? null,
+        activity_type_id: input.activity_type_id || null,
+        title: input.title || null,
+        city: input.city || null,
+        status: input.status,
+        rating: input.rating ?? null,
+        note: input.note || null,
+        visited_on: input.visited_on ?? null,
+      });
+      res.status(201).json({ data: visit });
+    }),
+  );
+  api.delete(
+    "/places/visits/:id",
+    asyncHandler(async (req, res) => {
+      const id = z.string().uuid().parse(req.params.id);
+      found((await repository.deletePlaceVisit(owner(req), id)) || null);
+      res.status(204).end();
     }),
   );
   api.post(

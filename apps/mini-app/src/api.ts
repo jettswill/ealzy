@@ -39,6 +39,9 @@ import type {
   QuotaPlan,
   AdminQuota,
   AdminUserQuota,
+  WheelRequest,
+  WheelSpin,
+  WheelStatus,
 } from "./types";
 import {
   createLocalNote,
@@ -699,6 +702,17 @@ export class ApiClient {
 
   billingQuota(): Promise<QuotaStatus> {
     return this.request("/api/billing/quota");
+  }
+
+  wheelStatus(): Promise<WheelStatus> {
+    return this.request("/api/activities/wheel");
+  }
+
+  spinWheel(body: WheelRequest): Promise<WheelSpin> {
+    return this.request("/api/activities/wheel", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   }
 
   adminQuota(): Promise<AdminQuota> {
