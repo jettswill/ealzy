@@ -23,19 +23,6 @@ struct WidgetGallery: View {
         return s
     }()
 
-    /// Как переключатель страниц в настоящем виджете.
-    private var dots: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<3, id: \.self) { index in
-                Circle().fill(index == 0 ? Palette.goldText : Palette.ink3.opacity(0.4)).frame(width: 5, height: 5)
-            }
-            Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Palette.ink3)
-        }
-        .padding(.horizontal, 8)
-        .frame(height: 24)
-        .background(Palette.rule.opacity(0.5), in: Capsule())
-    }
-
     private static let empty = WidgetSnapshot(updatedAt: Date(), headline: "", focus: [], next: [], quickCount: 0,
                                               reserveCount: 0, nextEvent: nil)
 
@@ -58,7 +45,7 @@ struct WidgetGallery: View {
 
     private func tile(_ snapshot: WidgetSnapshot, _ family: WidgetFamily, width: CGFloat, height: CGFloat,
                       mode: FreeDayView.Mode = .rest) -> some View {
-        FreeDayView(snapshot: snapshot, family: family, mode: mode, accessory: AnyView(dots))
+        FreeDayView(snapshot: snapshot, family: family, mode: mode)
             .padding(16)
             .frame(width: width, height: height)
             .background(Palette.ground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))

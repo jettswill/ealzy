@@ -48,18 +48,11 @@ struct FocusWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: SnapshotEntry
 
-    private var pages: Bool { family == .systemMedium || family == .systemLarge }
-    private var pager: AnyView? { pages ? AnyView(PagerDots(page: WidgetPage.current)) : nil }
-
     var body: some View {
         if let snapshot = entry.snapshot, let run = snapshot.focusRun {
             FocusRunView(run: run, now: entry.date, family: family)
-        } else if pages, let snapshot = entry.snapshot, WidgetPage.current == 1 {
-            FreeDayView(snapshot: snapshot, family: family, mode: .ahead, accessory: pager)
-        } else if pages, WidgetPage.current == 2 {
-            IlziPage(family: family, accessory: pager)
         } else if let snapshot = entry.snapshot, snapshot.focus.isEmpty && snapshot.next.isEmpty {
-            FreeDayView(snapshot: snapshot, family: family, accessory: pager)
+            FreeDayView(snapshot: snapshot, family: family)
         } else if let snapshot = entry.snapshot {
             switch family {
             case .accessoryInline:
@@ -77,16 +70,12 @@ struct FocusWidgetView: View {
             case .systemSmall:
                 SmallFocus(snapshot: snapshot)
             case .systemLarge:
-                DayList(snapshot: snapshot, titleLines: 3, rows: 6, showEvent: true, accessory: pager)
+                DayList(snapshot: snapshot, titleLines: 3, rows: 6, showEvent: true)
             default:
-                DayList(snapshot: snapshot, titleLines: 2, rows: 2, showEvent: false, accessory: pager)
+                DayList(snapshot: snapshot, titleLines: 2, rows: 2, showEvent: false)
             }
         } else {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Ealzy").font(.headline).foregroundStyle(Palette.ink)
-                Text("Открой приложение, чтобы увидеть план дня.").font(.caption).foregroundStyle(Palette.ink2)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            OpenAppHint()
         }
     }
 
@@ -219,69 +208,50 @@ private struct SmallFocus: View {
     }
 }
 
-/// Средний и большой: главное дело сверху, ниже — что дальше, строго в одну строку,
-/// чтобы ничего не обрезалось (виджет не прокручивается).
+/// Средний и большой: главное дело — своей карточкой, ниже отдельно «дальше сегодня»,
+/// строго в одну строку, чтобы ничего не обрезалось (виджет не прокручивается).
 private struct DayList: View {
     let snapshot: WidgetSnapshot
     let titleLines: Int
     let rows: Int
     let showEvent: Bool
-    var accessory: AnyView? = nil
 
     var body: some View {
-        let next = Array(snapshot.next.prefix(rows))
+        // Без фокуса первое дело и так главное — показываем его списком, без карточки.
+        let next = Array(snapshot.next.prefix(snapshot.focus.isEmpty ? rows + 1 : rows))
         let hidden = snapshot.next.count - next.count
         VStack(alignment: .leading, spacing: 0) {
             if let focus = snapshot.focus.first {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("ФОКУС").font(.caption2.weight(.semibold)).foregroundStyle(Palette.goldText)
-                        Text(focus.title)
-                            .font(Typeface.display(titleLines > 2 ? 22 : 18))
-                            .foregroundStyle(Palette.ink)
-                            .lineLimit(titleLines)
-                            .minimumScaleFactor(0.85)
-                    }
-                    Spacer(minLength: 0)
-                    Button(intent: CompleteTaskIntent(taskId: focus.id)) {
-                        Image(systemName: "checkmark.circle")
-                            .font(.title3)
-                            .foregroundStyle(Palette.goldText)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Готово")
-                }
-            } else {
-                Text(snapshot.next.isEmpty ? FocusWidgetView.emptyLine(snapshot) : "На сегодня")
-                    .font(Typeface.display(17))
-                    .foregroundStyle(Palette.ink)
-                    .lineLimit(2)
+                FocusCard(item: focus, titleLines: titleLines)
             }
 
             if showEvent, let event = snapshot.nextEvent {
                 Row(icon: "calendar", title: event.title, meta: event.meta, taskId: nil)
                     .padding(.top, 10)
+                    .padding(.horizontal, 2)
             }
             if !next.isEmpty {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(snapshot.focus.isEmpty ? "НА СЕГОДНЯ" : "ДАЛЬШЕ СЕГОДНЯ")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(Palette.ink3)
+                    Spacer(minLength: 4)
+                    if hidden > 0 {
+                        Text("ещё \(hidden)")
+                            .font(.caption2)
+                            .foregroundStyle(Palette.ink3)
+                    }
+                }
+                .padding(.top, snapshot.focus.isEmpty ? 0 : 10)
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(next) { item in
                         Row(icon: nil, title: item.title, meta: Self.short(item.meta), taskId: item.id)
                     }
                 }
-                .padding(.top, 10)
+                .padding(.top, 5)
+                .padding(.horizontal, 2)
             }
             Spacer(minLength: 0)
-            HStack(alignment: .center) {
-                if hidden > 0 || snapshot.doneCount > 0 {
-                    Text([hidden > 0 ? "ещё \(hidden) на сегодня" : nil,
-                          snapshot.doneCount > 0 ? "сделано \(snapshot.doneCount)" : nil]
-                        .compactMap { $0 }.joined(separator: " · "))
-                        .font(.caption2)
-                        .foregroundStyle(Palette.ink3)
-                }
-                Spacer(minLength: 0)
-                if let accessory { accessory }
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -291,6 +261,43 @@ private struct DayList: View {
         guard let meta else { return nil }
         let first = meta.components(separatedBy: " · ").first ?? meta
         return first.hasPrefix("~") ? nil : first
+    }
+}
+
+/// Главное дело дня — отдельной карточкой. Кружок пустой: дело ещё не сделано,
+/// нажал — отметил.
+private struct FocusCard: View {
+    let item: WidgetSnapshot.Item
+    let titleLines: Int
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Button(intent: CompleteTaskIntent(taskId: item.id)) {
+                Image(systemName: "circle")
+                    .font(.system(size: 22, weight: .regular))
+                    .foregroundStyle(Palette.goldText)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Отметить «\(item.title)» сделанным")
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("ФОКУС").font(.caption2.weight(.semibold)).foregroundStyle(Palette.goldText)
+                    if let meta = DayList.short(item.meta) {
+                        Text(meta).font(.caption2).foregroundStyle(Palette.ink2)
+                    }
+                }
+                Text(item.title)
+                    .font(Typeface.display(titleLines > 2 ? 21 : 17))
+                    .foregroundStyle(Palette.ink)
+                    .lineLimit(titleLines)
+                    .minimumScaleFactor(0.85)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.pool, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -326,56 +333,50 @@ private struct Row: View {
     }
 }
 
-// MARK: Карусель
+// MARK: Впереди — отдельный виджет. Его, «Фокус дня» и «Илзи» можно сложить
+// в одну стопку на экране и листать пальцем вверх-вниз (сам виджет свайпы не ловит).
 
-/// Страницы виджета: 0 — день, 1 — «Впереди», 2 — Илзи. Листаются кнопкой с точками
-/// (виджеты iOS не прокручиваются, но кнопки в них работают).
-enum WidgetPage {
-    static let count = 3
-    static let key = "widgetPage"
-    static var current: Int { UserDefaults.standard.integer(forKey: key) % count }
-}
-
-struct NextWidgetPageIntent: AppIntent {
-    static var title: LocalizedStringResource = "Следующая страница"
-    static var isDiscoverable = false
-
-    func perform() async throws -> some IntentResult {
-        UserDefaults.standard.set((WidgetPage.current + 1) % WidgetPage.count, forKey: WidgetPage.key)
-        return .result()
+struct AheadWidget: Widget {
+    var body: some WidgetConfiguration {
+        StaticConfiguration(kind: "EalzyAhead", provider: SnapshotProvider()) { entry in
+            Group {
+                if let snapshot = entry.snapshot {
+                    AheadWidgetView(snapshot: snapshot)
+                } else {
+                    OpenAppHint()
+                }
+            }
+            .containerBackground(for: .widget) { Palette.ground }
+            .widgetURL(URL(string: "ealzy://today"))
+        }
+        .configurationDisplayName("Впереди")
+        .description("Что ещё сегодня в календаре, завтра и на неделе.")
+        .supportedFamilies([.systemMedium, .systemLarge])
     }
 }
 
-/// Точки страниц + стрелка: нажал — следующая страница.
-private struct PagerDots: View {
-    let page: Int
+private struct AheadWidgetView: View {
+    @Environment(\.widgetFamily) private var family
+    let snapshot: WidgetSnapshot
 
     var body: some View {
-        Button(intent: NextWidgetPageIntent()) {
-            HStack(spacing: 4) {
-                ForEach(0..<WidgetPage.count, id: \.self) { index in
-                    Circle()
-                        .fill(index == page ? Palette.goldText : Palette.ink3.opacity(0.4))
-                        .frame(width: 5, height: 5)
-                }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(Palette.ink3)
-                    .padding(.leading, 2)
-            }
-            .padding(.horizontal, 8)
-            .frame(height: 24)
-            .background(Palette.rule.opacity(0.5), in: Capsule())
+        FreeDayView(snapshot: snapshot, family: family, mode: .ahead)
+    }
+}
+
+private struct OpenAppHint: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Ealzy").font(.headline).foregroundStyle(Palette.ink)
+            Text("Открой приложение, чтобы увидеть план дня.").font(.caption).foregroundStyle(Palette.ink2)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Следующая страница виджета")
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
 /// Страница «Илзи»: большая кнопка — сразу говорить, и пара быстрых вопросов.
 private struct IlziPage: View {
     let family: WidgetFamily
-    let accessory: AnyView?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -404,7 +405,6 @@ private struct IlziPage: View {
                 chip("Что завтра?", FreeDayView.ask("Что у меня завтра? Календарь и дела"))
                 chip("Спланируй неделю", FreeDayView.ask("Давай спланируем неделю"))
                 Spacer(minLength: 0)
-                if let accessory { accessory }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -434,7 +434,7 @@ struct VoiceWidget: Widget {
         }
         .configurationDisplayName("Илзи — голосом")
         .description("Одно касание — и говоришь с Илзи: записать дело, спросить, попросить.")
-        .supportedFamilies([.systemSmall, .accessoryCircular])
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular])
     }
 }
 
@@ -448,6 +448,8 @@ struct VoiceWidgetView: View {
                 Image(systemName: "mic.fill").font(.title2)
             }
             .accessibilityLabel("Сказать Илзи")
+        } else if family == .systemMedium {
+            IlziPage(family: family)
         } else {
             VStack(spacing: 10) {
                 ZStack {
@@ -509,6 +511,7 @@ struct CaptureWidgetView: View {
 struct EalzyWidgetBundle: WidgetBundle {
     var body: some Widget {
         FocusWidget()
+        AheadWidget()
         VoiceWidget()
         CaptureWidget()
         FocusLiveActivityWidget()
