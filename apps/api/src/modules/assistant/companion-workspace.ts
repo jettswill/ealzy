@@ -255,6 +255,17 @@ export function compactCalendar(
   });
 }
 
+/** Заметки, которые человек писал на встречах, — в его местном времени. */
+export function compactMeetingNotes(
+  notes: NonNullable<PersonalContext["meeting_notes"]>,
+  timezone: string,
+) {
+  return notes.map((note) => {
+    const start = companionClock(timezone, new Date(note.starts_at));
+    return { meeting: note.title, date: start.date, start: start.time, notes: note.notes };
+  });
+}
+
 export function toCompanionWorkspace(context: PersonalContext) {
   const focused = context.relevant_people.length
     ? context.relevant_people
@@ -354,6 +365,9 @@ export function toCompanionWorkspace(context: PersonalContext) {
     },
     upcoming_dates: context.upcoming_dates,
     calendar: compactCalendar(context.calendar_events ?? [], timezone),
+    ...(context.meeting_notes?.length
+      ? { meeting_notes: compactMeetingNotes(context.meeting_notes, timezone) }
+      : {}),
     mail: {
       accounts: context.mail_accounts.map((account) => ({
         id: account.id,

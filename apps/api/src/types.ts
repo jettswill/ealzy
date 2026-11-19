@@ -446,6 +446,25 @@ export interface CalendarEvent {
   calendar_title: string | null;
   created_at: string;
 }
+/** Привязка обычной заметки к встрече из календаря телефона. */
+export interface MeetingNoteLink {
+  owner_id: string;
+  note_id: string;
+  event_external_id: string;
+  event_starts_at: string;
+  event_ends_at: string;
+  event_title: string;
+  created_at: string;
+  updated_at: string;
+}
+/** Заметка со встречи — то, что видит Илзи. */
+export interface MeetingNoteContext {
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  notes: string;
+  updated_at: string;
+}
 export type CalendarEventInput = Pick<
   CalendarEvent,
   "external_id" | "title" | "starts_at" | "ends_at" | "all_day" | "location" | "calendar_title"
@@ -498,6 +517,8 @@ export interface PersonalContext {
   mail_playbooks: MailPlaybook[];
   /** События календаря с телефона на ближайшие дни; нет у тех, кто не подключал. */
   calendar_events?: CalendarEvent[];
+  /** Свежие заметки, которые человек писал на встречах. */
+  meeting_notes?: MeetingNoteContext[];
   /** Идеи «чем заняться» из справочника — только когда человек спрашивает, куда сходить. */
   activity_ideas?: ActivityIdea[];
   upcoming_dates: {

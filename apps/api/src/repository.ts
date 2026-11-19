@@ -13,6 +13,7 @@ import type {
   PlaceVisitInput,
   CalendarEvent,
   CalendarEventInput,
+  MeetingNoteLink,
   Memory,
   Message,
   Person,
@@ -553,6 +554,19 @@ export interface AppRepository {
     input: { source: "ios"; from: string; to: string; events: CalendarEventInput[] },
   ): Promise<number>;
   listCalendarEvents(ownerId: string, from: string, to: string): Promise<CalendarEvent[]>;
+  getMeetingNoteLink(
+    ownerId: string,
+    externalId: string,
+    startsAt: string,
+  ): Promise<MeetingNoteLink | null>;
+  saveMeetingNoteLink(
+    ownerId: string,
+    input: Pick<
+      MeetingNoteLink,
+      "note_id" | "event_external_id" | "event_starts_at" | "event_ends_at" | "event_title"
+    >,
+  ): Promise<MeetingNoteLink>;
+  listMeetingNoteLinks(ownerId: string, limit: number): Promise<MeetingNoteLink[]>;
   listDevices(ownerId: string): Promise<Device[]>;
   createAppLoginRequest(nonce: string): Promise<void>;
   approveAppLoginRequest(nonce: string, ownerId: string): Promise<boolean>;
@@ -737,6 +751,7 @@ export class InMemoryRepository implements AppRepository {
   users: User[] = [];
   appLogins: AppLoginRow[] = [];
   calendarEvents: CalendarEvent[] = [];
+  meetingNoteLinks: MeetingNoteLink[] = [];
   devices: Device[] = [];
   activityCatalog: ActivityCatalog = { categories: [], types: [] };
   places: Place[] = [];
@@ -943,6 +958,7 @@ export class InMemoryRepository implements AppRepository {
     this.mailDrafts = this.mailDrafts.filter((x) => x.owner_id !== ownerId);
     this.mailPlaybooks = this.mailPlaybooks.filter((x) => x.owner_id !== ownerId);
     this.notes = this.notes.filter((x) => x.owner_id !== ownerId);
+    this.meetingNoteLinks = this.meetingNoteLinks.filter((x) => x.owner_id !== ownerId);
     this.noteRevisions = this.noteRevisions.filter((x) => x.owner_id !== ownerId);
     this.noteActions = this.noteActions.filter((x) => x.owner_id !== ownerId);
     this.importSessions = this.importSessions.filter((x) => x.owner_id !== ownerId);
@@ -2028,6 +2044,50 @@ export class InMemoryRepository implements AppRepository {
           x.owner_id === ownerId && Date.parse(x.starts_at) < end && Date.parse(x.ends_at) > start,
       )
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  }
+  async getMeetingNoteLink(ownerId: string, externalId: string, startsAt: string) {
+    const at = Date.parse(startsAt);
+    return (
+      this.meetingNoteLinks.find(
+        (x) =>
+          x.owner_id === ownerId &&
+          x.event_external_id === externalId &&
+          Date.parse(x.event_starts_at) === at,
+      ) ?? null
+    );
+  }
+  async saveMeetingNoteLink(
+    ownerId: string,
+    input: Pick<
+      MeetingNoteLink,
+      "note_id" | "event_external_id" | "event_starts_at" | "event_ends_at" | "event_title"
+    >,
+  ) {
+    const existing = await this.getMeetingNoteLink(
+      ownerId,
+      input.event_external_id,
+      input.event_starts_at,
+    );
+    const timestamp = now();
+    if (existing) {
+      Object.assign(existing, input, { updated_at: timestamp });
+      return { ...existing };
+    }
+    const link: MeetingNoteLink = {
+      ...input,
+      owner_id: ownerId,
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+    this.meetingNoteLinks.push(link);
+    return { ...link };
+  }
+  async listMeetingNoteLinks(ownerId: string, limit: number) {
+    return this.meetingNoteLinks
+      .filter((x) => x.owner_id === ownerId)
+      .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+      .slice(0, limit)
+      .map((x) => ({ ...x }));
   }
   async listDevices(ownerId: string) {
     return this.devices.filter((x) => x.owner_id === ownerId);
@@ -4198,6 +4258,45 @@ export class SupabaseRepository implements AppRepository {
         .gt("ends_at", from)
         .order("starts_at", { ascending: true })
         .limit(200),
+    );
+  }
+  async getMeetingNoteLink(ownerId: string, externalId: string, startsAt: string) {
+    return this.one<MeetingNoteLink | null>(
+      this.db
+        .from("meeting_notes")
+        .select("*")
+        .eq("owner_id", ownerId)
+        .eq("event_external_id", externalId)
+        .eq("event_starts_at", startsAt)
+        .maybeSingle(),
+    );
+  }
+  async saveMeetingNoteLink(
+    ownerId: string,
+    input: Pick<
+      MeetingNoteLink,
+      "note_id" | "event_external_id" | "event_starts_at" | "event_ends_at" | "event_title"
+    >,
+  ) {
+    return this.one<MeetingNoteLink>(
+      this.db
+        .from("meeting_notes")
+        .upsert(
+          { ...input, owner_id: ownerId, updated_at: new Date().toISOString() },
+          { onConflict: "owner_id,event_external_id,event_starts_at" },
+        )
+        .select("*")
+        .single(),
+    );
+  }
+  async listMeetingNoteLinks(ownerId: string, limit: number) {
+    return this.many<MeetingNoteLink>(
+      this.db
+        .from("meeting_notes")
+        .select("*")
+        .eq("owner_id", ownerId)
+        .order("updated_at", { ascending: false })
+        .limit(limit),
     );
   }
   async listDevices(ownerId: string) {

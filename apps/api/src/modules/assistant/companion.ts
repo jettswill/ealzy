@@ -1,3 +1,4 @@
+import { recentMeetingNotes } from "./meeting-notes.js";
 import { assertCloudQuota } from "../billing/quota.js";
 import { z } from "zod";
 import type { AppRepository } from "../../repository.js";
@@ -1771,6 +1772,7 @@ export class PersonalContextBuilder {
       mailDrafts,
       mailPlaybooks,
       calendarEvents,
+      meetingNotes,
     ] = await Promise.all([
       this.repository.getProfile(ownerId),
       this.repository.getUser(ownerId),
@@ -1798,6 +1800,7 @@ export class PersonalContextBuilder {
         new Date(Date.now() - 3600_000).toISOString(),
         new Date(Date.now() + 3 * 24 * 3600_000).toISOString(),
       ),
+      recentMeetingNotes(this.repository, ownerId).catch(() => []),
     ]);
     if (!profile || !self) throw new Error("Personal context is not provisioned");
     const selfMemories = selectSelfTheses(
@@ -1985,6 +1988,7 @@ export class PersonalContextBuilder {
       mail_playbooks: mailPlaybooks.slice(0, 8),
       upcoming_dates: upcomingDates,
       calendar_events: calendarEvents.slice(0, PersonalContextBuilder.limits.calendar),
+      ...(meetingNotes.length ? { meeting_notes: meetingNotes } : {}),
       ...(activityIdeas.length ? { activity_ideas: activityIdeas } : {}),
       city,
       overflow: {

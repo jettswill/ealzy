@@ -37,6 +37,7 @@ import {
   visitSignal,
 } from "./modules/assistant/tastes.js";
 import { cityForTimezone } from "./modules/assistant/discovery.js";
+import { getMeetingNote, saveMeetingNote } from "./modules/assistant/meeting-notes.js";
 import {
   applyWebClientContext,
   authMiddleware,
@@ -877,6 +878,59 @@ export function createApp(deps: AppDependencies): Express {
       const to = new Date(from.getTime() + 7 * 24 * 3600_000);
       res.json({
         data: await repository.listCalendarEvents(owner(req), from.toISOString(), to.toISOString()),
+      });
+    }),
+  );
+  // Заметки со встречи: открыл встречу в приложении — пишешь, что обсудили.
+  api.get(
+    "/calendar/meeting-note",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          external_id: z.string().trim().min(1).max(300),
+          starts_at: z.string().datetime({ offset: true }),
+        })
+        .parse(req.query);
+      res.json({
+        data: await getMeetingNote(
+          repository,
+          owner(req),
+          input.external_id,
+          new Date(input.starts_at).toISOString(),
+        ),
+      });
+    }),
+  );
+  api.put(
+    "/calendar/meeting-note",
+    asyncHandler(async (req, res) => {
+      const iso = z.string().datetime({ offset: true });
+      const input = z
+        .object({
+          external_id: z.string().trim().min(1).max(300),
+          starts_at: iso,
+          ends_at: iso,
+          title: z.string().trim().min(1).max(300),
+          body: z.string().max(50_000),
+          client_mutation_id: z.string().uuid(),
+        })
+        .strict()
+        .parse(req.body);
+      const profile = await repository.getProfile(owner(req));
+      res.json({
+        data: await saveMeetingNote(
+          repository,
+          owner(req),
+          {
+            external_id: input.external_id,
+            starts_at: input.starts_at,
+            ends_at: input.ends_at,
+            title: input.title,
+          },
+          input.body,
+          input.client_mutation_id,
+          profile?.timezone || "Europe/Moscow",
+        ),
       });
     }),
   );

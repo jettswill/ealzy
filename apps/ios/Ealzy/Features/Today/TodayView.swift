@@ -34,6 +34,15 @@ struct TodayView: View {
                 )
                 .padding(.top, 14)
 
+                if let live = calendar.todayEvents.first(where: {
+                    !$0.isAllDay && $0.startDate <= now && now < $0.endDate
+                }) {
+                    LiveMeetingChip(title: live.title ?? "Встреча", ends: live.endDate) {
+                        openedEvent = OpenedEvent(event: live)
+                    }
+                    .padding(.top, 12)
+                }
+
                 Text(note(plan: plan, busy: busy, now: now))
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
