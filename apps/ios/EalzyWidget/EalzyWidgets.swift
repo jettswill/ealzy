@@ -30,7 +30,10 @@ struct SnapshotProvider: TimelineProvider {
             let now = Date()
             let snapshot = WidgetSnapshot.load()
             let weather = await Self.freshWeather()
-            var entries = [SnapshotEntry(date: now, snapshot: snapshot, weather: weather)]
+            // Черта «сейчас» на ленте дня сдвигается каждые 10 минут.
+            var entries = stride(from: 0, to: 30 * 60, by: 10 * 60).map {
+                SnapshotEntry(date: now.addingTimeInterval(TimeInterval($0)), snapshot: snapshot, weather: weather)
+            }
             if let ends = snapshot?.focusRun?.endsAt, ends > now {
                 entries.append(SnapshotEntry(date: ends, snapshot: snapshot, weather: weather))
             }
@@ -87,12 +90,17 @@ struct FocusWidgetView: View {
                         FreeDayView(snapshot: snapshot, family: family, mode: .ahead)
                     } else if page == 2 {
                         IlziPage(family: family)
+                    } else if let snapshot = entry.snapshot, snapshot.focusRun == nil {
+                        VStack(alignment: .leading, spacing: family == .systemLarge ? 12 : 8) {
+                            WidgetRibbon(snapshot: snapshot, now: entry.date, large: family == .systemLarge)
+                            day
+                        }
                     } else {
                         day
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                PagerRail(page: page, weather: entry.weather)
+                PagerRail(page: page, weather: entry.weather, now: entry.date)
             }
         } else {
             day
@@ -122,9 +130,9 @@ struct FocusWidgetView: View {
             case .systemSmall:
                 SmallFocus(snapshot: snapshot)
             case .systemLarge:
-                DayList(snapshot: snapshot, rows: 8, showEvent: true)
+                DayList(snapshot: snapshot, rows: 9, showEvent: false)
             default:
-                DayList(snapshot: snapshot, rows: 4, showEvent: false)
+                DayList(snapshot: snapshot, rows: 3, showEvent: false)
             }
         } else {
             OpenAppHint()
@@ -283,22 +291,29 @@ private struct DayList: View {
                 Row(icon: nil, title: focus.title, meta: Self.short(focus.meta), taskId: focus.id, isMain: true)
             }
             if !next.isEmpty {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(focus == nil ? "НА СЕГОДНЯ" : "ЕЩЁ НА СЕГОДНЯ")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Palette.ink3)
-                    Spacer(minLength: 4)
-                    if hidden > 0 {
-                        Text("+\(hidden)").font(.caption2).foregroundStyle(Palette.ink3)
+                if focus != nil {
+                    // Главное отделено тонкой чертой; сколько ещё не влезло — мелко на ней.
+                    HStack(spacing: 6) {
+                        Rectangle().fill(Palette.rule).frame(height: 1)
+                        if hidden > 0 {
+                            Text("ещё \(hidden)").font(.caption2).foregroundStyle(Palette.ink3).fixedSize()
+                        }
                     }
+                    .frame(height: 12)
+                    .padding(.vertical, 3)
                 }
-                .padding(.top, focus == nil ? 0 : 10)
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(next) { item in
                         Row(icon: nil, title: item.title, meta: Self.short(item.meta), taskId: item.id)
                     }
                 }
-                .padding(.top, 5)
+                if focus == nil, hidden > 0 {
+                    Text("ещё \(hidden)")
+                        .font(.caption2)
+                        .foregroundStyle(Palette.ink3)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .padding(.top, 2)
+                }
             } else if focus == nil {
                 Text(FocusWidgetView.emptyLine(snapshot))
                     .font(Typeface.display(17))
@@ -322,7 +337,7 @@ private struct Row: View {
     let title: String
     let meta: String?
     let taskId: String?
-    /// Главное дело дня: золотой кружок и звёздочка, размер — как у остальных.
+    /// Главное дело дня: золотой кружок и звёздочка; шрифт — как у остальных.
     var isMain = false
 
     var body: some View {
@@ -339,7 +354,7 @@ private struct Row: View {
                 Image(systemName: icon).font(.footnote).foregroundStyle(Palette.ink3)
             }
             Text(title)
-                .font(isMain ? .subheadline.weight(.semibold) : .subheadline)
+                .font(.subheadline)
                 .foregroundStyle(Palette.ink)
                 .lineLimit(1)
             if isMain {
@@ -394,62 +409,171 @@ struct PreviousWidgetPageIntent: AppIntent {
     }
 }
 
-/// Узкая колонка справа: сверху погода там, где ты, по центру ▲, точки страниц, ▼.
-/// Не двигается между страницами.
+/// Колонка справа: день недели и число, погода там, где ты, и переключатель
+/// страниц — одна плашка с точками: нажал — следующий экран (по кругу).
 private struct PagerRail: View {
     let page: Int
     let weather: WeatherNow?
+    let now: Date
+
+    private static let weekday: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ru_RU")
+        f.dateFormat = "EEEEEE"
+        return f
+    }()
 
     var body: some View {
         VStack(spacing: 0) {
-            Group {
-                if let weather {
-                    VStack(spacing: 1) {
-                        Image(systemName: weather.symbol)
-                            .symbolRenderingMode(.multicolor)
-                            .font(.system(size: 13))
-                        Text(weather.tempText)
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(Palette.ink2)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                    .accessibilityElement(children: .combine)
-                    .accessibilityLabel("Погода: \(weather.tempText)")
-                } else {
-                    Color.clear
-                }
+            VStack(spacing: 1) {
+                Text(Self.weekday.string(from: now).uppercased())
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Palette.dayMark)
+                Text(now.formatted(.dateTime.day()))
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.ink)
             }
-            .frame(height: 28)
-            Spacer(minLength: 2)
-            VStack(spacing: 5) {
-                Button(intent: PreviousWidgetPageIntent()) { arrow("chevron.up") }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Предыдущая страница виджета")
+            .accessibilityElement(children: .combine)
+            if let weather {
+                VStack(spacing: 1) {
+                    Image(systemName: weather.symbol)
+                        .symbolRenderingMode(.multicolor)
+                        .font(.system(size: 12))
+                    Text(weather.tempText)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(Palette.ink2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .padding(.top, 7)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Погода: \(weather.tempText)")
+            }
+            Spacer(minLength: 6)
+            Button(intent: NextWidgetPageIntent()) {
                 VStack(spacing: 4) {
                     ForEach(0..<WidgetPage.count, id: \.self) { index in
-                        Circle()
-                            .fill(index == page ? Palette.goldText : Palette.ink3.opacity(0.4))
-                            .frame(width: 5, height: 5)
+                        Capsule()
+                            .fill(index == page ? Palette.goldText : Palette.ink3.opacity(0.45))
+                            .frame(width: 5, height: index == page ? 11 : 5)
                     }
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Palette.ink2)
+                        .padding(.top, 1)
                 }
-                Button(intent: NextWidgetPageIntent()) { arrow("chevron.down") }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Следующая страница виджета")
+                .padding(.vertical, 7)
+                .frame(width: 24)
+                .background(Palette.rule, in: Capsule())
+                .contentShape(Capsule())
             }
-            Spacer(minLength: 2)
+            .buttonStyle(.plain)
+            .accessibilityLabel("Следующая страница виджета")
         }
-        .frame(width: 30)
+        .frame(width: 32)
         .frame(maxHeight: .infinity)
     }
+}
 
-    private func arrow(_ name: String) -> some View {
-        Image(systemName: name)
-            .font(.system(size: 12, weight: .bold))
-            .foregroundStyle(Palette.ink2)
-            .frame(width: 26, height: 26)
-            .background(Palette.rule.opacity(0.5), in: Circle())
+/// Лента дня 8:00–23:00 — схематично, как на «Сегодня» в приложении:
+/// цвет полосы — время суток, встречи — капсулы, золотая — окно под главное дело,
+/// черта — «сейчас». В большом виджете крупнее и со временем на капсулах.
+private struct WidgetRibbon: View {
+    let snapshot: WidgetSnapshot
+    let now: Date
+    let large: Bool
+    @Environment(\.colorScheme) private var scheme
+
+    private let startHour = 8
+    private let endHour = 23
+
+    private var laneHeight: CGFloat { large ? 26 : 16 }
+    private var pillHeight: CGFloat { large ? 18 : 12 }
+
+    var body: some View {
+        VStack(spacing: 2) {
+            GeometryReader { proxy in
+                let width = proxy.size.width
+                ZStack(alignment: .topLeading) {
+                    Capsule()
+                        .fill(Palette.lane(scheme))
+                        .frame(width: width, height: laneHeight)
+                    ForEach(Array(snapshot.dayEvents.enumerated()), id: \.offset) { _, span in
+                        pill(span, width: width, fill: span.end <= now ? Palette.pillPast : Palette.pill,
+                             ink: span.end <= now ? Palette.ink2 : Palette.ink)
+                    }
+                    if let focus = snapshot.focusWindow {
+                        pill(focus, width: width, fill: Palette.gold, ink: Palette.goldInk)
+                    }
+                    if let x = position(now, width: width) {
+                        Capsule()
+                            .fill(Palette.ink)
+                            .frame(width: 2, height: laneHeight + 4)
+                            .offset(x: x - 1, y: -2)
+                    }
+                }
+            }
+            .frame(height: laneHeight)
+            HStack(spacing: 0) {
+                ForEach(Array(stride(from: startHour, through: endHour, by: 3)), id: \.self) { hour in
+                    Text("\(hour)")
+                    if hour < endHour { Spacer(minLength: 0) }
+                }
+            }
+            .font(.system(size: large ? 9 : 8.5))
+            .monospacedDigit()
+            .foregroundStyle(Palette.ink3)
+        }
+        .padding(.top, 2)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var dayStart: Date {
+        Calendar.current.date(bySettingHour: startHour, minute: 0, second: 0, of: now) ?? now
+    }
+
+    private var span: TimeInterval { TimeInterval((endHour - startHour) * 3600) }
+
+    private func fraction(_ date: Date) -> CGFloat {
+        CGFloat(min(max(date.timeIntervalSince(dayStart) / span, 0), 1))
+    }
+
+    private func position(_ date: Date, width: CGFloat) -> CGFloat? {
+        let f = date.timeIntervalSince(dayStart) / span
+        return (0...1).contains(f) ? CGFloat(f) * width : nil
+    }
+
+    @ViewBuilder
+    private func pill(_ item: WidgetSnapshot.Span, width: CGFloat, fill: Color, ink: Color) -> some View {
+        let minWidth: CGFloat = large ? 34 : 12
+        let x = fraction(item.start) * width
+        let w = max((fraction(item.end) - fraction(item.start)) * width, minWidth)
+        if item.end > dayStart, fraction(item.start) < 1 {
+            let left = max(min(x, width - w - 2), 2)
+            ZStack {
+                Capsule().fill(fill)
+                if large && w >= 34 {
+                    Text(item.start.formatted(date: .omitted, time: .shortened))
+                        .font(.system(size: 9, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(ink)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.horizontal, 3)
+                }
+            }
+            .frame(width: w, height: pillHeight)
+            .offset(x: left, y: (laneHeight - pillHeight) / 2)
+        }
+    }
+
+    private var accessibilityText: String {
+        let time = { (d: Date) in d.formatted(date: .omitted, time: .shortened) }
+        let parts = snapshot.dayEvents.map { "\(time($0.start)) \($0.title)" }
+        return (["Лента дня"] + parts).joined(separator: ", ")
     }
 }
 

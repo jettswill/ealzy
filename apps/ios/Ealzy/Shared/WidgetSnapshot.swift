@@ -13,6 +13,13 @@ struct WidgetSnapshot: Codable, Equatable {
         let meta: String?
     }
 
+    /// Отрезок на ленте дня: встреча из календаря или окно под главное дело.
+    struct Span: Codable, Equatable {
+        let start: Date
+        let end: Date
+        let title: String
+    }
+
     /// Идущий фокус: виджет повторяет то, что сейчас в приложении.
     struct FocusRun: Codable, Equatable {
         let taskId: String
@@ -43,6 +50,10 @@ struct WidgetSnapshot: Codable, Equatable {
     var week: [Item] = []
     /// Дела без срока — «когда-нибудь».
     var somedayCount: Int = 0
+    /// Встречи сегодня (без событий на весь день) — для ленты дня вверху виджета.
+    var dayEvents: [Span] = []
+    /// Окно под главное дело — золотая капсула на ленте.
+    var focusWindow: Span?
 
     init(updatedAt: Date, headline: String, focus: [Item], next: [Item], quickCount: Int, reserveCount: Int,
          nextEvent: Item?, doneCount: Int = 0, focusRun: FocusRun? = nil, tomorrow: [Item] = [], overdueCount: Int = 0,
@@ -82,6 +93,8 @@ struct WidgetSnapshot: Codable, Equatable {
         tomorrowEvents = try c.decodeIfPresent([Item].self, forKey: .tomorrowEvents) ?? []
         week = try c.decodeIfPresent([Item].self, forKey: .week) ?? []
         somedayCount = try c.decodeIfPresent(Int.self, forKey: .somedayCount) ?? 0
+        dayEvents = try c.decodeIfPresent([Span].self, forKey: .dayEvents) ?? []
+        focusWindow = try c.decodeIfPresent(Span.self, forKey: .focusWindow)
     }
 
     static let appGroup = "group.ru.ealzy.app"
@@ -127,6 +140,22 @@ struct WidgetSnapshot: Codable, Equatable {
     }
 
     static func make(plan: DayPlan, agenda info: WidgetCalendar, calendar: Calendar = .current) -> WidgetSnapshot {
+        var snapshot = makeBase(plan: plan, agenda: info, calendar: calendar)
+        let now = Date()
+        snapshot.dayEvents = info.today
+        if let main = plan.focus.first,
+           let dayEnd = calendar.date(bySettingHour: 22, minute: 0, second: 0, of: now),
+           let window = DayPlanner.focusWindow(
+               minutes: main.estimateMinutes ?? 60,
+               busy: info.today.map { TimeSpan(start: $0.start, end: $0.end) },
+               now: now, dayEnd: dayEnd, calendar: calendar
+           ) {
+            snapshot.focusWindow = Span(start: window.start, end: window.end, title: main.title)
+        }
+        return snapshot
+    }
+
+    private static func makeBase(plan: DayPlan, agenda info: WidgetCalendar, calendar: Calendar) -> WidgetSnapshot {
         let nextEvent = info.next
         let next = (plan.today + plan.quick).prefix(8).map {
             Item(id: $0.id, title: $0.title, meta: TaskMeta.text(for: $0))
@@ -201,6 +230,8 @@ struct WidgetCalendar: Equatable {
     var next: WidgetSnapshot.Item?
     var laterToday: [WidgetSnapshot.Item] = []
     var tomorrow: [WidgetSnapshot.Item] = []
+    /// Все встречи сегодня со временем — для ленты дня.
+    var today: [WidgetSnapshot.Span] = []
 }
 
 /// Подпись к делу: время, «завтра», оценка. Одна на приложение и виджет.

@@ -21,6 +21,8 @@ enum Palette {
     static let goldInk = Color(hex: 0x1C1810)
     /// Золото как текст: на светлом фоне темнее, чтобы читалось.
     static let goldText = dynamic(light: 0x7A5E1C, dark: 0xD4BC82)
+    /// День недели в виджете — как на иконке «Календаря», но тёплый.
+    static let dayMark = dynamic(light: 0xC4553A, dark: 0xE07A5F)
     /// Свет лампы над главным делом.
     static let pool = dynamic(light: 0xD4BC82, dark: 0xD4BC82, alphaLight: 0.42, alphaDark: 0.30)
     static let pill = dynamic(light: 0xFFFFFF, dark: 0xF1EBDD, alphaLight: 0.86, alphaDark: 0.16)
