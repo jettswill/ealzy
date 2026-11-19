@@ -30,7 +30,11 @@ import {
   type PlaceSearch,
 } from "./modules/assistant/place-search.js";
 import {
+  collectTasteEvidence,
+  inferenceFromLocal,
   learnFromVisit,
+  localTasteCatalog,
+  localTasteFacts,
   refreshTastes,
   tasteFor,
   tasteIndex,
@@ -1358,6 +1362,60 @@ export function createApp(deps: AppDependencies): Express {
         throw new HttpError(503, "AI_UNAVAILABLE", "AI is not configured");
       const catalog = await loadActivityCatalog(repository);
       await refreshTastes(repository, deps.ai, owner(req), { force: true, catalog });
+      res.json({ data: await tastesPayload(owner(req)) });
+    }),
+  );
+  // Гипотезы о вкусах строит модель на iPhone: бесплатно и без облачного лимита.
+  // Телефон забирает факты и справочник, считает у себя и присылает итог.
+  api.get(
+    "/activities/tastes/evidence",
+    asyncHandler(async (req, res) => {
+      const catalog = await loadActivityCatalog(repository);
+      const { evidence } = await collectTasteEvidence(repository, owner(req), catalog);
+      res.json({
+        data: { facts: localTasteFacts(evidence), catalog: localTasteCatalog(catalog) },
+      });
+    }),
+  );
+  api.post(
+    "/activities/tastes/local",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          summary: z.string().trim().max(600).nullable().optional(),
+          hypotheses: z
+            .array(
+              z
+                .object({
+                  name: z.string().trim().max(120).optional(),
+                  kind: z.enum(["type", "category"]).optional(),
+                  target_id: z.string().trim().max(80).optional(),
+                  affinity: z.number().min(-1).max(1),
+                  reason: z.string().trim().max(300).nullable().optional(),
+                })
+                .strict(),
+            )
+            .max(40),
+        })
+        .strict()
+        .parse(req.body);
+      const catalog = await loadActivityCatalog(repository);
+      const inference = inferenceFromLocal(input, catalog);
+      if (inference) {
+        await repository.replaceAiPreferences(
+          owner(req),
+          inference.hypotheses.map((h) => ({
+            target_kind: h.target_kind,
+            target_id: h.target_id,
+            ai_affinity: h.affinity,
+            ai_reason: h.reason || null,
+          })),
+        );
+        await repository.saveTasteProfile(owner(req), {
+          summary: inference.summary || null,
+          refreshed_at: new Date().toISOString(),
+        });
+      }
       res.json({ data: await tastesPayload(owner(req)) });
     }),
   );

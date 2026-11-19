@@ -5,6 +5,7 @@ import { InMemoryRepository } from "../src/repository.js";
 import { createSession } from "../src/modules/auth/index.js";
 import { resetActivityCatalogCache } from "../src/modules/assistant/activities.js";
 import {
+  inferenceFromLocal,
   needsTasteRefresh,
   sanitizeInference,
   tasteFor,
@@ -346,5 +347,66 @@ describe("tastes API", () => {
       (i: { target_id: string }) => i.target_id === "creative",
     );
     expect(creative).toMatchObject({ source: "ai", reason: "ты не любишь рисовать" });
+  });
+
+  it("гипотезы с телефона: факты и справочник туда, названия обратно", async () => {
+    const { app, auth, repository, user } = await setup();
+    const self = await repository.getSelfPerson(user.id);
+    await repository.createMemory(user.id, self!.id, {
+      content: "Любит волейбол",
+      category: "preference",
+    } as never);
+    const evidence = await request(app)
+      .get("/api/activities/tastes/evidence")
+      .set(auth)
+      .expect(200);
+    expect(evidence.body.data.facts).toContain("Любит волейбол");
+    expect(evidence.body.data.catalog).toContain("Спорт: Пляжный волейбол; Мини-футбол");
+
+    const res = await request(app)
+      .post("/api/activities/tastes/local")
+      .set(auth)
+      .send({
+        summary: "Тебе подходит командный спорт.",
+        hypotheses: [
+          { name: "пляжный  волейбол", affinity: 0.9, reason: "ты любишь волейбол" },
+          { name: "Творчество", kind: "category", affinity: -0.3, reason: "не похоже на тебя" },
+          { name: "Прыжки с парашютом", affinity: 0.5 },
+        ],
+      })
+      .expect(200);
+    expect(res.body.data.summary).toBe("Тебе подходит командный спорт.");
+    const volley = res.body.data.items.find(
+      (i: { target_id: string }) => i.target_id === "voleybol",
+    );
+    // Телефонной догадке больше ±0,6 не верим.
+    expect(volley).toMatchObject({ source: "ai", reason: "ты любишь волейбол" });
+    expect(volley.score).toBeLessThanOrEqual(0.6);
+    expect(res.body.data.items.some((i: { target_id: string }) => i.target_id === "creative")).toBe(
+      true,
+    );
+  });
+});
+
+describe("inferenceFromLocal", () => {
+  it("находит по названию и по id, неизвестное выбрасывает", () => {
+    const result = inferenceFromLocal(
+      {
+        summary: "s",
+        hypotheses: [
+          { name: "Сёрфинг на искусственной волне", affinity: 0.4, reason: "r" },
+          { target_id: "futbol", affinity: -0.2 },
+          { name: "Вода", affinity: 0.3 },
+          { name: "Нет такого", affinity: 0.3 },
+          { name: "Живопись", affinity: "много" },
+        ],
+      },
+      catalog,
+    );
+    expect(result!.hypotheses.map((h) => `${h.target_kind}:${h.target_id}`)).toEqual([
+      "type:volna",
+      "type:futbol",
+      "category:water",
+    ]);
   });
 });
