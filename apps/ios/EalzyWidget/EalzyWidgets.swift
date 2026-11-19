@@ -48,7 +48,32 @@ struct FocusWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: SnapshotEntry
 
+    /// Средний и большой листаются стрелками справа: день → впереди → Илзи.
+    private var pages: Bool { family == .systemMedium || family == .systemLarge }
+
     var body: some View {
+        if pages {
+            let page = WidgetPage.current
+            HStack(alignment: .top, spacing: 10) {
+                Group {
+                    if page == 1, let snapshot = entry.snapshot {
+                        FreeDayView(snapshot: snapshot, family: family, mode: .ahead)
+                    } else if page == 2 {
+                        IlziPage(family: family)
+                    } else {
+                        day
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                PagerRail(page: page)
+            }
+        } else {
+            day
+        }
+    }
+
+    @ViewBuilder
+    private var day: some View {
         if let snapshot = entry.snapshot, let run = snapshot.focusRun {
             FocusRunView(run: run, now: entry.date, family: family)
         } else if let snapshot = entry.snapshot, snapshot.focus.isEmpty && snapshot.next.isEmpty {
@@ -70,9 +95,9 @@ struct FocusWidgetView: View {
             case .systemSmall:
                 SmallFocus(snapshot: snapshot)
             case .systemLarge:
-                DayList(snapshot: snapshot, titleLines: 3, rows: 6, showEvent: true)
+                DayList(snapshot: snapshot, rows: 8, showEvent: true)
             default:
-                DayList(snapshot: snapshot, titleLines: 2, rows: 2, showEvent: false)
+                DayList(snapshot: snapshot, rows: 4, showEvent: false)
             }
         } else {
             OpenAppHint()
@@ -208,48 +233,49 @@ private struct SmallFocus: View {
     }
 }
 
-/// Средний и большой: главное дело — своей карточкой, ниже отдельно «дальше сегодня»,
-/// строго в одну строку, чтобы ничего не обрезалось (виджет не прокручивается).
+/// Средний и большой: все дела одинаковыми строками. Главное — первым, с золотой
+/// звёздочкой; ниже подпись «Ещё на сегодня» и остальные. Строго в одну строку,
+/// чтобы ничего не обрезалось (виджет не прокручивается).
 private struct DayList: View {
     let snapshot: WidgetSnapshot
-    let titleLines: Int
+    /// Сколько строк помещается всего, вместе с главным делом.
     let rows: Int
     let showEvent: Bool
 
     var body: some View {
-        // Без фокуса первое дело и так главное — показываем его списком, без карточки.
-        let next = Array(snapshot.next.prefix(snapshot.focus.isEmpty ? rows + 1 : rows))
+        let focus = snapshot.focus.first
+        let room = max(rows - (focus == nil ? 0 : 1) - (showEvent && snapshot.nextEvent != nil ? 1 : 0), 0)
+        let next = Array(snapshot.next.prefix(room))
         let hidden = snapshot.next.count - next.count
         VStack(alignment: .leading, spacing: 0) {
-            if let focus = snapshot.focus.first {
-                FocusCard(item: focus, titleLines: titleLines)
-            }
-
             if showEvent, let event = snapshot.nextEvent {
                 Row(icon: "calendar", title: event.title, meta: event.meta, taskId: nil)
-                    .padding(.top, 10)
-                    .padding(.horizontal, 2)
+                    .padding(.bottom, 8)
+            }
+            if let focus {
+                Row(icon: nil, title: focus.title, meta: Self.short(focus.meta), taskId: focus.id, isMain: true)
             }
             if !next.isEmpty {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(snapshot.focus.isEmpty ? "НА СЕГОДНЯ" : "ДАЛЬШЕ СЕГОДНЯ")
+                    Text(focus == nil ? "НА СЕГОДНЯ" : "ЕЩЁ НА СЕГОДНЯ")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(Palette.ink3)
                     Spacer(minLength: 4)
                     if hidden > 0 {
-                        Text("ещё \(hidden)")
-                            .font(.caption2)
-                            .foregroundStyle(Palette.ink3)
+                        Text("+\(hidden)").font(.caption2).foregroundStyle(Palette.ink3)
                     }
                 }
-                .padding(.top, snapshot.focus.isEmpty ? 0 : 10)
+                .padding(.top, focus == nil ? 0 : 10)
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(next) { item in
                         Row(icon: nil, title: item.title, meta: Self.short(item.meta), taskId: item.id)
                     }
                 }
                 .padding(.top, 5)
-                .padding(.horizontal, 2)
+            } else if focus == nil {
+                Text(FocusWidgetView.emptyLine(snapshot))
+                    .font(Typeface.display(17))
+                    .foregroundStyle(Palette.ink)
             }
             Spacer(minLength: 0)
         }
@@ -264,63 +290,37 @@ private struct DayList: View {
     }
 }
 
-/// Главное дело дня — отдельной карточкой. Кружок пустой: дело ещё не сделано,
-/// нажал — отметил.
-private struct FocusCard: View {
-    let item: WidgetSnapshot.Item
-    let titleLines: Int
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Button(intent: CompleteTaskIntent(taskId: item.id)) {
-                Image(systemName: "circle")
-                    .font(.system(size: 22, weight: .regular))
-                    .foregroundStyle(Palette.goldText)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Отметить «\(item.title)» сделанным")
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text("ФОКУС").font(.caption2.weight(.semibold)).foregroundStyle(Palette.goldText)
-                    if let meta = DayList.short(item.meta) {
-                        Text(meta).font(.caption2).foregroundStyle(Palette.ink2)
-                    }
-                }
-                Text(item.title)
-                    .font(Typeface.display(titleLines > 2 ? 21 : 17))
-                    .foregroundStyle(Palette.ink)
-                    .lineLimit(titleLines)
-                    .minimumScaleFactor(0.85)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.pool, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-}
-
 private struct Row: View {
     let icon: String?
     let title: String
     let meta: String?
     let taskId: String?
+    /// Главное дело дня: золотой кружок и звёздочка, размер — как у остальных.
+    var isMain = false
 
     var body: some View {
         HStack(spacing: 8) {
             if let taskId {
                 Button(intent: CompleteTaskIntent(taskId: taskId)) {
-                    Image(systemName: "circle").font(.footnote).foregroundStyle(Palette.ink3)
+                    Image(systemName: "circle")
+                        .font(.footnote.weight(isMain ? .semibold : .regular))
+                        .foregroundStyle(isMain ? Palette.goldText : Palette.ink3)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Отметить «\(title)» сделанным")
             } else if let icon {
                 Image(systemName: icon).font(.footnote).foregroundStyle(Palette.ink3)
             }
             Text(title)
-                .font(.subheadline)
+                .font(isMain ? .subheadline.weight(.semibold) : .subheadline)
                 .foregroundStyle(Palette.ink)
                 .lineLimit(1)
+            if isMain {
+                Image(systemName: "star.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Palette.goldText)
+                    .accessibilityLabel("главное")
+            }
             Spacer(minLength: 4)
             if let meta {
                 Text(meta)
@@ -330,6 +330,73 @@ private struct Row: View {
                     .layoutPriority(1)
             }
         }
+    }
+}
+
+// MARK: Листание
+
+/// Страницы виджета: 0 — день, 1 — «Впереди», 2 — Илзи.
+/// Свайпы виджет iOS не ловит, поэтому — стрелки ▲▼ справа, всегда на одном месте.
+enum WidgetPage {
+    static let count = 3
+    static let key = "widgetPage"
+    static var current: Int { ((UserDefaults.standard.integer(forKey: key) % count) + count) % count }
+
+    static func move(_ step: Int) {
+        UserDefaults.standard.set(((current + step) % count + count) % count, forKey: key)
+    }
+}
+
+struct NextWidgetPageIntent: AppIntent {
+    static var title: LocalizedStringResource = "Следующая страница"
+    static var isDiscoverable = false
+
+    func perform() async throws -> some IntentResult {
+        WidgetPage.move(1)
+        return .result()
+    }
+}
+
+struct PreviousWidgetPageIntent: AppIntent {
+    static var title: LocalizedStringResource = "Предыдущая страница"
+    static var isDiscoverable = false
+
+    func perform() async throws -> some IntentResult {
+        WidgetPage.move(-1)
+        return .result()
+    }
+}
+
+/// Узкая колонка справа: ▲, точки страниц, ▼. Не двигается между страницами.
+private struct PagerRail: View {
+    let page: Int
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Button(intent: PreviousWidgetPageIntent()) { arrow("chevron.up") }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Предыдущая страница виджета")
+            VStack(spacing: 4) {
+                ForEach(0..<WidgetPage.count, id: \.self) { index in
+                    Circle()
+                        .fill(index == page ? Palette.goldText : Palette.ink3.opacity(0.4))
+                        .frame(width: 5, height: 5)
+                }
+            }
+            Button(intent: NextWidgetPageIntent()) { arrow("chevron.down") }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Следующая страница виджета")
+        }
+        .frame(width: 28)
+        .frame(maxHeight: .infinity)
+    }
+
+    private func arrow(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(Palette.ink2)
+            .frame(width: 28, height: 28)
+            .background(Palette.rule.opacity(0.5), in: Circle())
     }
 }
 
