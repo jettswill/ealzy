@@ -78,19 +78,14 @@ struct FocusWidgetView: View {
     @Environment(\.widgetFamily) private var family
     let entry: SnapshotEntry
 
-    /// Средний и большой листаются стрелками справа: день → впереди → Илзи.
-    private var pages: Bool { family == .systemMedium || family == .systemLarge }
+    /// Средний и большой: лента дня и дела, справа колонка — дата, погода и кнопка Илзи.
+    private var withRail: Bool { family == .systemMedium || family == .systemLarge }
 
     var body: some View {
-        if pages {
-            let page = WidgetPage.current
+        if withRail {
             HStack(alignment: .top, spacing: 10) {
                 Group {
-                    if page == 1, let snapshot = entry.snapshot {
-                        FreeDayView(snapshot: snapshot, family: family, mode: .ahead)
-                    } else if page == 2 {
-                        IlziPage(family: family)
-                    } else if let snapshot = entry.snapshot, snapshot.focusRun == nil {
+                    if let snapshot = entry.snapshot, snapshot.focusRun == nil {
                         VStack(alignment: .leading, spacing: family == .systemLarge ? 12 : 8) {
                             WidgetRibbon(snapshot: snapshot, now: entry.date, large: family == .systemLarge)
                             day
@@ -100,7 +95,7 @@ struct FocusWidgetView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                PagerRail(page: page, weather: entry.weather, now: entry.date)
+                SideRail(weather: entry.weather, now: entry.date)
             }
         } else {
             day
@@ -375,44 +370,11 @@ private struct Row: View {
     }
 }
 
-// MARK: Листание
+// MARK: Колонка справа
 
-/// Страницы виджета: 0 — день, 1 — «Впереди», 2 — Илзи.
-/// Свайпы виджет iOS не ловит, поэтому — стрелки ▲▼ справа, всегда на одном месте.
-enum WidgetPage {
-    static let count = 3
-    static let key = "widgetPage"
-    static var current: Int { ((UserDefaults.standard.integer(forKey: key) % count) + count) % count }
-
-    static func move(_ step: Int) {
-        UserDefaults.standard.set(((current + step) % count + count) % count, forKey: key)
-    }
-}
-
-struct NextWidgetPageIntent: AppIntent {
-    static var title: LocalizedStringResource = "Следующая страница"
-    static var isDiscoverable = false
-
-    func perform() async throws -> some IntentResult {
-        WidgetPage.move(1)
-        return .result()
-    }
-}
-
-struct PreviousWidgetPageIntent: AppIntent {
-    static var title: LocalizedStringResource = "Предыдущая страница"
-    static var isDiscoverable = false
-
-    func perform() async throws -> some IntentResult {
-        WidgetPage.move(-1)
-        return .result()
-    }
-}
-
-/// Колонка справа: день недели и число, погода там, где ты, и переключатель
-/// страниц — одна плашка с точками: нажал — следующий экран (по кругу).
-private struct PagerRail: View {
-    let page: Int
+/// Колонка справа: день недели и число, погода там, где ты, и кнопка Илзи —
+/// нажал и говоришь (открывает приложение сразу на голосе).
+private struct SideRail: View {
     let weather: WeatherNow?
     let now: Date
 
@@ -452,25 +414,18 @@ private struct PagerRail: View {
                 .accessibilityLabel("Погода: \(weather.tempText)")
             }
             Spacer(minLength: 6)
-            Button(intent: NextWidgetPageIntent()) {
-                VStack(spacing: 4) {
-                    ForEach(0..<WidgetPage.count, id: \.self) { index in
-                        Capsule()
-                            .fill(index == page ? Palette.goldText : Palette.ink3.opacity(0.45))
-                            .frame(width: 5, height: index == page ? 11 : 5)
-                    }
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(Palette.ink2)
-                        .padding(.top, 1)
+            Link(destination: URL(string: "ealzy://voice")!) {
+                ZStack {
+                    Circle().fill(Palette.gold)
+                    Image("IlziMark")
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 16, height: 16)
+                        .foregroundStyle(Palette.goldInk)
                 }
-                .padding(.vertical, 7)
-                .frame(width: 24)
-                .background(Palette.rule, in: Capsule())
-                .contentShape(Capsule())
+                .frame(width: 30, height: 30)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Следующая страница виджета")
+            .accessibilityLabel("Сказать Илзи")
         }
         .frame(width: 32)
         .frame(maxHeight: .infinity)
@@ -574,37 +529,6 @@ private struct WidgetRibbon: View {
         let time = { (d: Date) in d.formatted(date: .omitted, time: .shortened) }
         let parts = snapshot.dayEvents.map { "\(time($0.start)) \($0.title)" }
         return (["Лента дня"] + parts).joined(separator: ", ")
-    }
-}
-
-// MARK: Впереди — отдельный виджет. Его, «Фокус дня» и «Илзи» можно сложить
-// в одну стопку на экране и листать пальцем вверх-вниз (сам виджет свайпы не ловит).
-
-struct AheadWidget: Widget {
-    var body: some WidgetConfiguration {
-        StaticConfiguration(kind: "EalzyAhead", provider: SnapshotProvider()) { entry in
-            Group {
-                if let snapshot = entry.snapshot {
-                    AheadWidgetView(snapshot: snapshot)
-                } else {
-                    OpenAppHint()
-                }
-            }
-            .containerBackground(for: .widget) { Palette.ground }
-            .widgetURL(URL(string: "ealzy://today"))
-        }
-        .configurationDisplayName("Впереди")
-        .description("Что ещё сегодня в календаре, завтра и на неделе.")
-        .supportedFamilies([.systemMedium, .systemLarge])
-    }
-}
-
-private struct AheadWidgetView: View {
-    @Environment(\.widgetFamily) private var family
-    let snapshot: WidgetSnapshot
-
-    var body: some View {
-        FreeDayView(snapshot: snapshot, family: family, mode: .ahead)
     }
 }
 
@@ -755,7 +679,6 @@ struct CaptureWidgetView: View {
 struct EalzyWidgetBundle: WidgetBundle {
     var body: some Widget {
         FocusWidget()
-        AheadWidget()
         VoiceWidget()
         CaptureWidget()
         FocusLiveActivityWidget()
