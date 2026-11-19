@@ -194,6 +194,18 @@ export function attachPlaces(
   }));
 }
 
+/** Яндекс Карты с поиском вокруг точки: масштаб — под радиус. */
+export function mapsAreaUrl(query: string, area: { lat: number; lon: number; radius_m: number }) {
+  const zoom =
+    area.radius_m <= 1_500 ? 15 : area.radius_m <= 4_000 ? 14 : area.radius_m <= 9_000 ? 13 : 12;
+  const params = new URLSearchParams({
+    text: query,
+    ll: `${area.lon.toFixed(5)},${area.lat.toFixed(5)}`,
+    z: String(zoom),
+  });
+  return `https://yandex.ru/maps/?${params}`;
+}
+
 export function mapsSearchUrl(query: string, city?: string | null) {
   const text = [query, city].filter(Boolean).join(" ");
   return `https://yandex.ru/maps/?text=${encodeURIComponent(text)}`;

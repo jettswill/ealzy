@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../auth";
 import { Button } from "./ui";
 import { useI18n } from "../i18n";
 import type {
   NearbyPlaces,
+  WheelArea,
   PlaceCandidate,
   PlaceEmotion,
   PlaceInfo,
@@ -209,11 +210,14 @@ function PlaceRow({ row, typeId }: { row: Row; typeId: string }) {
 export function WheelPlaces({
   typeId,
   city,
+  area,
   initial,
   mapsUrl,
 }: {
   typeId: string;
   city: string | null;
+  /** Район с радиусом — ищем вокруг него сразу; без него — геолокация по кнопке. */
+  area?: WheelArea;
   initial: PlaceInfo[];
   mapsUrl: string;
 }) {
@@ -232,14 +236,30 @@ export function WheelPlaces({
     setLoading(true);
     setError(null);
     try {
-      const point = await currentPoint();
-      setNearby(await api.nearbyPlaces({ type: typeId, lat: point?.lat, lon: point?.lon, city }));
+      const point = area === undefined ? await currentPoint() : area;
+      setNearby(
+        await api.nearbyPlaces({
+          type: typeId,
+          lat: point?.lat,
+          lon: point?.lon,
+          city,
+          radius: area?.radius_m,
+          near: area?.label,
+        }),
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
     } finally {
       setLoading(false);
     }
   };
+  const lookRef = useRef(look);
+  lookRef.current = look;
+
+  // Район задан — места вокруг него ищем сразу, без кнопки.
+  useEffect(() => {
+    if (area) void lookRef.current();
+  }, [typeId, area?.lat, area?.lon, area?.radius_m, area?.label]);
 
   const rows: Row[] = nearby
     ? [

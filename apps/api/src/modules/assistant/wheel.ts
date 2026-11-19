@@ -1,5 +1,6 @@
 import type { ActivityCategory, ActivitySpin, ActivityType, Place } from "../../types.js";
 import type { AppRepository } from "../../repository.js";
+import { distanceMeters } from "./place-search.js";
 import {
   tasteFor,
   tasteIndex,
@@ -12,6 +13,7 @@ import {
   fitsSeason,
   loadActivityCatalog,
   localMonth,
+  mapsAreaUrl,
   mapsSearchUrl,
   shuffle,
   visitedTypes,
@@ -37,6 +39,15 @@ export interface WheelRequest {
   city: string | null;
   only_new: boolean;
   feedback: string | null;
+}
+
+/** Где искать: точка (геолокация или выбранная на карте) и радиус. */
+export interface WheelArea {
+  lat: number;
+  lon: number;
+  radius_m: number;
+  /** «Петроградская», «м. Чкаловская» — что человек сам назвал. */
+  label?: string | null;
 }
 
 type Rng = () => number;
@@ -370,7 +381,13 @@ export async function spinWheel(
   repository: WheelRepository,
   ownerId: string,
   request: WheelRequest,
-  options: { timezone: string; city: string | null; now?: Date; rng?: Rng },
+  options: {
+    timezone: string;
+    city: string | null;
+    area?: WheelArea | null;
+    now?: Date;
+    rng?: Rng;
+  },
 ): Promise<WheelResult> {
   const now = options.now ?? new Date();
   const rng = options.rng ?? Math.random;
@@ -416,15 +433,25 @@ export async function spinWheel(
   const weights = segments.map(weightOf);
   const winnerIndex = weightedIndex(weights, rng);
   const winner = segments[winnerIndex]!;
+  const area = options.area ?? null;
   const candidates = await repository.listPlaces({
     typeIds: [winner.id],
     city: options.city,
-    limit: 60,
+    limit: area ? 200 : 60,
   });
-  const places = shuffle(
-    candidates.filter((place) => !request.only_new || !visitedPlaceIds.has(place.id)),
-    rng,
-  ).slice(0, 3);
+  const fresh = candidates.filter((place) => !request.only_new || !visitedPlaceIds.has(place.id));
+  // С точкой — ближайшие в радиусе, по расстоянию; без неё — случайные в городе.
+  const places: (Place & { distance_m?: number })[] = area
+    ? fresh
+        .filter((place) => place.lat != null && place.lon != null)
+        .map((place) => ({
+          ...place,
+          distance_m: distanceMeters(area.lat, area.lon, place.lat!, place.lon!),
+        }))
+        .filter((place) => place.distance_m <= area.radius_m)
+        .sort((a, b) => a.distance_m - b.distance_m)
+        .slice(0, 3)
+    : shuffle(fresh, rng).slice(0, 3);
   const spin = await repository.createActivitySpin(ownerId, {
     local_date: day,
     request: { ...request },
@@ -449,7 +476,9 @@ export async function spinWheel(
       type: winner,
       category: names.get(winner.category_id) ?? null,
       places,
-      maps_url: mapsSearchUrl(winner.search_query || winner.name, options.city),
+      maps_url: area
+        ? mapsAreaUrl(winner.search_query || winner.name, area)
+        : mapsSearchUrl(winner.search_query || winner.name, options.city),
       reason: tasteOf(winner).reason,
       verdict: tastes.get(`type:${winner.id}`)?.verdict ?? null,
     },

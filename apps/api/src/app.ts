@@ -1,3 +1,4 @@
+import { cachedAreaGeocoder, type GeoArea } from "./modules/assistant/web-places.js";
 import { assertCloudQuota } from "./modules/billing/quota.js";
 import type { PushGateway } from "./infrastructure/apns.js";
 import express, { type Express, Router } from "express";
@@ -406,7 +407,19 @@ export interface AppDependencies {
   push?: PushGateway;
   /** Поиск мест рядом; по умолчанию — OpenStreetMap. */
   placeSearch?: PlaceSearch;
+  /** Район словами → точка; по умолчанию Nominatim. */
+  placeGeocoder?: (text: string, city: string | null) => Promise<GeoArea | null>;
 }
+
+/** Где искать: точка (геолокация или на карте) и радиус. */
+const areaSchema = z
+  .object({
+    lat: z.number().min(-90).max(90),
+    lon: z.number().min(-180).max(180),
+    radius_m: z.number().int().min(300).max(40_000),
+    label: z.string().trim().max(80).nullable().optional(),
+  })
+  .strict();
 
 export function createApp(deps: AppDependencies): Express {
   const { repository, env } = deps;
@@ -417,6 +430,7 @@ export function createApp(deps: AppDependencies): Express {
       // Редкое, чего нет на картах, Илзи ищет в интернете.
       web: deps.ai?.findPlacesOnWeb ? (query) => deps.ai!.findPlacesOnWeb!(query) : null,
     });
+  const placeGeocoder = deps.placeGeocoder ?? cachedAreaGeocoder();
   attachUsageSink(deps.ai, repository);
   const supabaseAuth: SupabaseAuthVerifier = deps.supabaseAuth ?? {
     async getUser() {
@@ -935,6 +949,7 @@ export function createApp(deps: AppDependencies): Express {
           city: z.string().trim().max(80).nullable().optional(),
           only_new: z.boolean().default(false),
           feedback: z.string().trim().max(500).nullable().optional(),
+          area: areaSchema.nullable().optional(),
         })
         .strict()
         .parse(req.body);
@@ -953,7 +968,7 @@ export function createApp(deps: AppDependencies): Express {
             only_new: input.only_new,
             feedback: input.feedback || null,
           },
-          { timezone: profile?.timezone || "Europe/Moscow", city },
+          { timezone: profile?.timezone || "Europe/Moscow", city, area: input.area ?? null },
         );
         res.status(201).json({ data: result });
       } catch (error) {
@@ -1125,6 +1140,23 @@ export function createApp(deps: AppDependencies): Express {
   );
   // Места под тип рядом с человеком: сначала уже известные Ealzy (с ними кто-то
   // что-то делал), потом найденные в каталоге — без записи в базу.
+  // Район, метро или адрес словами → точка для поиска «где-то здесь».
+  api.get(
+    "/places/geocode",
+    asyncHandler(async (req, res) => {
+      const query = z
+        .object({
+          q: z.string().trim().min(2).max(120),
+          city: z.string().trim().max(80).optional(),
+        })
+        .parse(req.query);
+      const city = await outingCity(owner(req), query.city);
+      const area = await placeGeocoder(query.q, city);
+      if (!area)
+        throw new HttpError(404, "PLACE_NOT_FOUND", "Не нашли такое место — попробуй иначе");
+      res.json({ data: { ...area, city } });
+    }),
+  );
   api.get(
     "/places/nearby",
     asyncHandler(async (req, res) => {
@@ -1134,7 +1166,8 @@ export function createApp(deps: AppDependencies): Express {
           lat: z.coerce.number().min(-90).max(90).optional(),
           lon: z.coerce.number().min(-180).max(180).optional(),
           city: z.string().trim().max(80).optional(),
-          radius: z.coerce.number().int().min(500).max(40_000).optional(),
+          radius: z.coerce.number().int().min(300).max(40_000).optional(),
+          near: z.string().trim().max(80).optional(),
         })
         .parse(req.query);
       const catalog = await loadActivityCatalog(repository);
@@ -1158,6 +1191,7 @@ export function createApp(deps: AppDependencies): Express {
           radiusM: query.radius,
           limit: 10,
           allowWeb,
+          near: query.near || null,
         }),
       ]);
       const radius = query.radius ?? 15_000;

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "../auth";
 import { Button, PageHeader } from "../components/ui";
+import { AreaPicker, loadAreaChoice, type AreaChoice } from "../components/AreaPicker";
 import { TastesPanel, WheelPlaces } from "../components/WheelPlaces";
 import { useI18n } from "../i18n";
 import type {
@@ -183,6 +184,8 @@ export function WheelPage() {
   const { api } = useAuth();
   const { t } = useI18n();
   const [request, setRequest] = useState<WheelRequest>(DEFAULT_REQUEST);
+  const [where, setWhere] = useState<AreaChoice>(loadAreaChoice);
+  const area = where.mode === "city" ? null : where.area;
   const [left, setLeft] = useState<number | null | undefined>(undefined);
   const [limit, setLimit] = useState(3);
   const [spin, setSpin] = useState<WheelSpin | null>(null);
@@ -232,6 +235,7 @@ export function WheelPage() {
         want: request.want?.trim() || null,
         city: request.city?.trim() || null,
         feedback: withFeedback ? feedback.trim() || null : null,
+        area,
       });
       const arc = wheelArcs(result.segments)[result.winner_index]!;
       setSpin(result);
@@ -350,6 +354,7 @@ export function WheelPage() {
               onChange={(event) => patch({ city: event.target.value })}
             />
           </label>
+          <AreaPicker city={request.city?.trim() || null} value={where} onChange={setWhere} />
           <label className="wheel-check">
             <input
               type="checkbox"
@@ -418,6 +423,7 @@ export function WheelPage() {
                 <WheelPlaces
                   typeId={winner.type.id}
                   city={request.city?.trim() || null}
+                  area={area ?? undefined}
                   initial={winner.places}
                   mapsUrl={winner.maps_url}
                 />
