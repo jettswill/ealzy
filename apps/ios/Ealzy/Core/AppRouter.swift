@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-/// Навигация: две вкладки («Сегодня», «Запас»), шторка Илзи и «Ещё».
+/// Навигация: три вкладки («Сегодня», «Все дела», «Удиви меня»), шторка Илзи и «Ещё».
 /// Сюда же ведут виджет «Записать», кнопка действия, push и ссылки ealzy://.
 @MainActor
 @Observable
@@ -9,15 +9,13 @@ final class AppRouter {
     static let shared = AppRouter()
 
     enum Tab: Hashable {
-        case today, reserve
+        case today, reserve, surprise
     }
 
     var tab: Tab = .today
     /// Шторка Илзи (полэкрана, во весь — когда печатаешь).
     var isIlziOpen = false
     var showSettings = false
-    /// Колесо «Удиви меня» — куда сходить.
-    var showSurprise = false
     /// Счётчик «сразу печатать/говорить» — шторка ставит курсор в поле.
     private(set) var captureRequest = 0
     /// Текст, который надо сразу отправить Илзи (например, «Разобрать» из запаса).
@@ -38,18 +36,11 @@ final class AppRouter {
         isIlziOpen = true
     }
 
-    /// Открыть колесо. Из «Ещё» — после того как шторка закроется: две сразу iOS не показывает.
+    /// Открыть колесо «Удиви меня» — третья вкладка, рядом с Илзи.
     func openSurprise() {
-        if showSettings || isIlziOpen {
-            showSettings = false
-            isIlziOpen = false
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(450))
-                self.showSurprise = true
-            }
-        } else {
-            showSurprise = true
-        }
+        showSettings = false
+        isIlziOpen = false
+        tab = .surprise
     }
 
     func openCapture() {

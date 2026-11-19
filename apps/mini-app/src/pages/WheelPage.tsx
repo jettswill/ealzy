@@ -1,142 +1,20 @@
-import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../auth";
 import { Button, PageHeader } from "../components/ui";
 import { AreaPicker, loadAreaChoice, type AreaChoice } from "../components/AreaPicker";
+import { CityInput } from "../components/CityInput";
+import { PREVIEW_ICONS, WheelArc } from "../components/WheelArc";
 import { TastesPanel, WheelPlaces } from "../components/WheelPlaces";
 import { useI18n } from "../i18n";
-import type {
-  WheelCompany,
-  WheelMood,
-  WheelRequest,
-  WheelSegment,
-  WheelSpin,
-  WheelWhen,
-} from "../types";
+import type { WheelCompany, WheelMood, WheelRequest, WheelSpin, WheelWhen } from "../types";
+import { easedSpin, planSpin, wheelSlots, type SpinTrack } from "../wheelPhysics";
 
-// Колесо «Удиви меня»: человек говорит, чего хочет, — сервер собирает типы
-// под запрос и сам решает, где колесо остановится. Здесь — только форма,
-// анимация до выпавшего сектора и карточка с местами.
+// Колесо «Удиви меня». Человек говорит, чего хочет, — сервер выбирает вариант,
+// колесо (верхняя треть, иконки, колышки) докручивается до него само. Дальше
+// главное — «Пойду»: показываем, куда именно; «Поискать ещё» — что не так,
+// настройки и новое вращение.
 
-const SPIN_MS = 4600;
-const COLORS = [
-  { fill: "#d4bc82", text: "#1c1810" },
-  { fill: "#3a332a", text: "#f1ebdd" },
-  { fill: "#b99a5c", text: "#1c1810" },
-  { fill: "#2a251e", text: "#e9dcbc" },
-];
-
-export interface WheelArc {
-  start: number;
-  end: number;
-  mid: number;
-}
-
-/** Секторы по часовой от верха (0° — где стрелка), доля — по весу. */
-export function wheelArcs(segments: Pick<WheelSegment, "weight">[]): WheelArc[] {
-  const total = segments.reduce((sum, s) => sum + Math.max(1, s.weight), 0) || 1;
-  let angle = 0;
-  return segments.map((segment) => {
-    const size = (Math.max(1, segment.weight) / total) * 360;
-    const arc = { start: angle, end: angle + size, mid: angle + size / 2 };
-    angle += size;
-    return arc;
-  });
-}
-
-/** Новый угол поворота: пять полных оборотов и сектор с центром mid под стрелкой. */
-export function targetRotation(previous: number, mid: number, turns = 5) {
-  const settled = previous - (((previous % 360) + 360) % 360);
-  return settled + turns * 360 + ((360 - mid) % 360);
-}
-
-function point(angle: number, radius: number) {
-  const rad = ((angle - 90) * Math.PI) / 180;
-  return [100 + radius * Math.cos(rad), 100 + radius * Math.sin(rad)] as const;
-}
-
-function sectorPath(arc: WheelArc, radius = 96) {
-  if (arc.end - arc.start >= 359.99) return `M 100 4 A 96 96 0 1 1 99.99 4 Z`;
-  const [x1, y1] = point(arc.start, radius);
-  const [x2, y2] = point(arc.end, radius);
-  const large = arc.end - arc.start > 180 ? 1 : 0;
-  return `M 100 100 L ${x1} ${y1} A ${radius} ${radius} 0 ${large} 1 ${x2} ${y2} Z`;
-}
-
-const shortName = (name: string) => {
-  const clean = name.replace(/\s*\(.*?\)\s*/g, " ").trim();
-  return clean.length > 18 ? `${clean.slice(0, 17).trim()}…` : clean;
-};
-
-export function Wheel({
-  segments,
-  rotation,
-  spinning,
-  onStop,
-  pointerLabel,
-}: {
-  segments: WheelSegment[];
-  rotation: number;
-  spinning: boolean;
-  onStop: () => void;
-  pointerLabel: string;
-}) {
-  const arcs = wheelArcs(segments);
-  return (
-    <div className="wheel">
-      <div className="wheel-pointer" aria-label={pointerLabel} />
-      <svg
-        viewBox="0 0 200 200"
-        className="wheel-disc"
-        style={{
-          transform: `rotate(${rotation}deg)`,
-          transition: spinning ? `transform ${SPIN_MS}ms cubic-bezier(0.15, 0.7, 0.12, 1)` : "none",
-        }}
-        onTransitionEnd={() => spinning && onStop()}
-        role="img"
-        aria-label={segments.map((s) => s.name).join(", ")}
-      >
-        <circle cx="100" cy="100" r="99" fill="var(--app-gold)" opacity="0.35" />
-        {segments.map((segment, index) => {
-          const arc = arcs[index]!;
-          const color = COLORS[index % COLORS.length]!;
-          const [ex, ey] = point(arc.mid, 74);
-          return (
-            <g key={segment.id}>
-              <path d={sectorPath(arc)} fill={color.fill} stroke="#191714" strokeWidth="0.6" />
-              <text
-                x={ex}
-                y={ey}
-                fontSize="13"
-                textAnchor="middle"
-                dominantBaseline="central"
-                transform={`rotate(${arc.mid} ${ex} ${ey})`}
-              >
-                {segment.emoji ?? "✦"}
-              </text>
-              <text
-                x="100"
-                y="100"
-                fill={color.text}
-                fontSize={segments.length > 6 ? 6.2 : 7}
-                fontWeight="600"
-                textAnchor="end"
-                dominantBaseline="central"
-                transform={`rotate(${arc.mid - 90} 100 100) translate(62 0)`}
-              >
-                {shortName(segment.name)}
-              </text>
-            </g>
-          );
-        })}
-        <circle cx="100" cy="100" r="13" fill="#191714" stroke="var(--app-gold)" strokeWidth="2" />
-        <text x="100" y="100" fontSize="11" textAnchor="middle" dominantBaseline="central">
-          🎲
-        </text>
-      </svg>
-    </div>
-  );
-}
+type Phase = "setup" | "spinning" | "result" | "going" | "more";
 
 const DEFAULT_REQUEST: WheelRequest = {
   mood: "any",
@@ -147,6 +25,19 @@ const DEFAULT_REQUEST: WheelRequest = {
   only_new: true,
   feedback: null,
 };
+
+const reducedMotion = () =>
+  typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+/** Быстрые ответы «что не так» — сервер понимает эти слова. */
+const QUICK_REASONS = [
+  { id: "Expensive", word: "дорого" },
+  { id: "Far", word: "далеко" },
+  { id: "Boring", word: "скучно" },
+  { id: "Tired", word: "устал" },
+  { id: "Move", word: "хочу подвигаться" },
+  { id: "Long", word: "долго" },
+] as const;
 
 function Choice<T extends string>({
   title,
@@ -188,16 +79,16 @@ export function WheelPage() {
   const area = where.mode === "city" ? null : where.area;
   const [left, setLeft] = useState<number | null | undefined>(undefined);
   const [limit, setLimit] = useState(3);
+  const [phase, setPhase] = useState<Phase>("setup");
   const [spin, setSpin] = useState<WheelSpin | null>(null);
+  const [track, setTrack] = useState<SpinTrack | null>(null);
   const [rotation, setRotation] = useState(0);
-  const [spinning, setSpinning] = useState(false);
-  const [revealed, setRevealed] = useState(false);
-  const [editing, setEditing] = useState(true);
+  const [reasons, setReasons] = useState<string[]>([]);
   const [feedback, setFeedback] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<"like" | "never" | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
   const resultRef = useRef<HTMLDivElement>(null);
-  const stopTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     let alive = true;
@@ -207,61 +98,63 @@ export function WheelPage() {
         if (!alive) return;
         setLeft(status.spins_left);
         setLimit(status.spins_limit);
+        const known = status.city ?? status.city_guess ?? null;
+        if (known) setRequest((current) => (current.city ? current : { ...current, city: known }));
       })
       .catch(() => alive && setLeft(null));
     return () => {
       alive = false;
-      window.clearTimeout(stopTimer.current);
     };
   }, [api]);
+
+  const segments = spin?.segments;
+  const slots = useMemo(
+    () => wheelSlots(segments ? segments.map((s) => s.weight) : PREVIEW_ICONS.map(() => 1)),
+    [segments],
+  );
+  const icons = segments ? segments.map((s) => s.emoji ?? "✦") : PREVIEW_ICONS;
 
   const out = left === 0;
   const patch = (next: Partial<WheelRequest>) => setRequest((current) => ({ ...current, ...next }));
 
-  const stop = () => {
-    window.clearTimeout(stopTimer.current);
-    setSpinning(false);
-    setRevealed(true);
-    window.setTimeout(() => resultRef.current?.scrollIntoView?.({ behavior: "smooth" }), 60);
-  };
-
-  const go = async (withFeedback: boolean) => {
-    if (spinning || out) return;
+  const go = async (again: boolean) => {
+    if (phase === "spinning" || out) return;
     setError(null);
-    setRevealed(false);
+    const why = [...reasons, feedback.trim()].filter(Boolean).join(", ");
     try {
       const result = await api.spinWheel({
         ...request,
         want: request.want?.trim() || null,
         city: request.city?.trim() || null,
-        feedback: withFeedback ? feedback.trim() || null : null,
+        feedback: again ? why || null : null,
         area,
       });
-      const arc = wheelArcs(result.segments)[result.winner_index]!;
+      const nextSlots = wheelSlots(result.segments.map((s) => s.weight));
+      const plan = reducedMotion()
+        ? easedSpin(nextSlots, rotation, result.winner_index, Math.random, undefined, 0.6, 1)
+        : planSpin(nextSlots, rotation, result.winner_index);
       setSpin(result);
+      setTrack(plan);
       setVerdict(result.winner.verdict ?? null);
-      setEditing(false);
       setLeft(result.spins_left);
       setLimit(result.spins_limit);
+      setReasons([]);
       setFeedback("");
-      // Новый набор секторов рисуем с прежнего угла, потом запускаем оборот.
-      // Два кадра: сначала React рисует новые секторы на прежнем угле.
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          setSpinning(true);
-          setRotation((previous) => targetRotation(previous, arc.mid));
-          // Если transitionend не пришёл (вкладка в фоне) — всё равно показываем итог.
-          stopTimer.current = window.setTimeout(stop, SPIN_MS + 400);
-        }),
-      );
+      setShowSettings(false);
+      setPhase("spinning");
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : String(caught);
-      setError(message);
+      setError(caught instanceof Error ? caught.message : String(caught));
       if ((caught as { status?: number }).status === 429) setLeft(0);
     }
   };
 
-  // «Нравится» и «никогда» пишутся сразу: следующее вращение их учтёт.
+  const stopped = () => {
+    if (track) setRotation(track.frames[track.frames.length - 1] ?? rotation);
+    setPhase("result");
+    window.setTimeout(() => resultRef.current?.scrollIntoView?.({ behavior: "smooth" }), 80);
+  };
+
+  // «Не предлагать» пишется сразу: следующее вращение это учтёт.
   const judge = async (next: "like" | "never" | null) => {
     if (!spin) return;
     const previous = verdict;
@@ -284,18 +177,80 @@ export function WheelPage() {
   const winner = spin?.winner;
   const priceKey = winner ? `wheel.price${Math.min(4, Math.max(1, winner.type.price_level))}` : "";
 
+  const settings = (
+    <>
+      <Choice<WheelMood>
+        title={t("wheel.moodTitle")}
+        value={request.mood}
+        onChange={(mood) => patch({ mood })}
+        options={[
+          { value: "calm", label: t("wheel.moodCalm") },
+          { value: "active", label: t("wheel.moodActive") },
+          { value: "any", label: t("wheel.moodAny") },
+        ]}
+      />
+      <label className="wheel-field">
+        <span className="wheel-label">{t("wheel.wantLabel")}</span>
+        <input
+          className="input"
+          value={request.want ?? ""}
+          maxLength={120}
+          placeholder={t("wheel.wantPlaceholder")}
+          onChange={(event) => patch({ want: event.target.value })}
+        />
+      </label>
+      <Choice<WheelWhen>
+        title={t("wheel.whenTitle")}
+        value={request.when}
+        onChange={(when) => patch({ when })}
+        options={[
+          { value: "now", label: t("wheel.whenNow") },
+          { value: "today", label: t("wheel.whenToday") },
+          { value: "weekend", label: t("wheel.whenWeekend") },
+        ]}
+      />
+      <Choice<WheelCompany>
+        title={t("wheel.companyTitle")}
+        value={request.company}
+        onChange={(company) => patch({ company })}
+        options={[
+          { value: "solo", label: t("wheel.companySolo") },
+          { value: "pair", label: t("wheel.companyPair") },
+          { value: "friends", label: t("wheel.companyFriends") },
+          { value: "kids", label: t("wheel.companyKids") },
+        ]}
+      />
+      <div className="wheel-field">
+        <span className="wheel-label">{t("wheel.cityLabel")}</span>
+        <CityInput value={request.city} onChange={(city) => patch({ city })} />
+      </div>
+      <AreaPicker city={request.city?.trim() || null} value={where} onChange={setWhere} />
+      <label className="wheel-check">
+        <input
+          type="checkbox"
+          checked={request.only_new}
+          onChange={(event) => patch({ only_new: event.target.checked })}
+        />
+        <span>{t("wheel.onlyNew")}</span>
+      </label>
+    </>
+  );
+
   return (
     <>
-      <Link className="back-link" to="/more">
-        {t("common.back")}
-      </Link>
-      <PageHeader
-        eyebrow={t("wheel.eyebrow")}
-        title={t("wheel.title")}
-        description={t("wheel.description")}
-      />
+      <PageHeader eyebrow={t("wheel.eyebrow")} title={t("wheel.title")} />
 
-      {editing ? (
+      <WheelArc
+        slots={slots}
+        icons={icons}
+        track={phase === "spinning" ? track : null}
+        onDone={stopped}
+        label={segments ? segments.map((s) => s.name).join(", ") : t("wheel.description")}
+        rotation={rotation}
+      />
+      {phase === "spinning" && <p className="wheel-counter">{t("wheel.spinning")}</p>}
+
+      {phase === "setup" && (
         <form
           className="wheel-form"
           onSubmit={(event) => {
@@ -303,164 +258,133 @@ export function WheelPage() {
             void go(false);
           }}
         >
-          <Choice<WheelMood>
-            title={t("wheel.moodTitle")}
-            value={request.mood}
-            onChange={(mood) => patch({ mood })}
-            options={[
-              { value: "calm", label: t("wheel.moodCalm") },
-              { value: "active", label: t("wheel.moodActive") },
-              { value: "any", label: t("wheel.moodAny") },
-            ]}
-          />
-          <label className="wheel-field">
-            <span className="wheel-label">{t("wheel.wantLabel")}</span>
-            <input
-              className="input"
-              value={request.want ?? ""}
-              maxLength={120}
-              placeholder={t("wheel.wantPlaceholder")}
-              onChange={(event) => patch({ want: event.target.value })}
-            />
-          </label>
-          <Choice<WheelWhen>
-            title={t("wheel.whenTitle")}
-            value={request.when}
-            onChange={(when) => patch({ when })}
-            options={[
-              { value: "now", label: t("wheel.whenNow") },
-              { value: "today", label: t("wheel.whenToday") },
-              { value: "weekend", label: t("wheel.whenWeekend") },
-            ]}
-          />
-          <Choice<WheelCompany>
-            title={t("wheel.companyTitle")}
-            value={request.company}
-            onChange={(company) => patch({ company })}
-            options={[
-              { value: "solo", label: t("wheel.companySolo") },
-              { value: "pair", label: t("wheel.companyPair") },
-              { value: "friends", label: t("wheel.companyFriends") },
-              { value: "kids", label: t("wheel.companyKids") },
-            ]}
-          />
-          <label className="wheel-field">
-            <span className="wheel-label">{t("wheel.cityLabel")}</span>
-            <input
-              className="input"
-              value={request.city ?? ""}
-              maxLength={80}
-              placeholder={t("wheel.cityPlaceholder")}
-              onChange={(event) => patch({ city: event.target.value })}
-            />
-          </label>
-          <AreaPicker city={request.city?.trim() || null} value={where} onChange={setWhere} />
-          <label className="wheel-check">
-            <input
-              type="checkbox"
-              checked={request.only_new}
-              onChange={(event) => patch({ only_new: event.target.checked })}
-            />
-            <span>{t("wheel.onlyNew")}</span>
-          </label>
-          <Button type="submit" className="wheel-go" disabled={out || spinning}>
+          <p className="wheel-lead">{t("wheel.description")}</p>
+          {settings}
+          <Button type="submit" className="wheel-go" disabled={out}>
             {t("wheel.spin")}
           </Button>
           {counter && <p className="wheel-counter">{out ? t("wheel.noneLeft") : counter}</p>}
           {error && <p className="wheel-error">{error}</p>}
           <TastesPanel />
         </form>
-      ) : (
-        spin && (
-          <>
-            <Wheel
-              segments={spin.segments}
-              rotation={rotation}
-              spinning={spinning}
-              onStop={stop}
-              pointerLabel={t("wheel.pointer")}
-            />
-            {spinning && <p className="wheel-counter">{t("wheel.spinning")}</p>}
-            {revealed && winner && (
-              <div ref={resultRef} className="wheel-result">
-                <p className="eyebrow">{t("wheel.result")}</p>
-                <h2 className="wheel-result-title">
-                  <span aria-hidden>{winner.type.emoji ?? "✦"}</span> {winner.type.name}
-                </h2>
-                <p className="wheel-meta">
-                  {[
-                    winner.category?.name,
-                    t(priceKey),
-                    t("wheel.hours", { n: winner.type.duration_hours }),
-                    t(`wheel.${winner.type.setting}`),
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                {winner.reason && <p className="wheel-reason">✦ {winner.reason}</p>}
-                {winner.type.description && (
-                  <p className="wheel-description">{winner.type.description}</p>
-                )}
-                <div className="wheel-row mt-3" role="group" aria-label={t("wheel.tasteGroup")}>
-                  <button
-                    type="button"
-                    className={`chip ${verdict === "like" ? "chip-active" : ""}`}
-                    aria-pressed={verdict === "like"}
-                    onClick={() => void judge(verdict === "like" ? null : "like")}
-                  >
-                    👍 {verdict === "like" ? t("wheel.liked") : t("wheel.like")}
-                  </button>
-                  <button
-                    type="button"
-                    className={`chip ${verdict === "never" ? "chip-active" : ""}`}
-                    aria-pressed={verdict === "never"}
-                    onClick={() => void judge(verdict === "never" ? null : "never")}
-                  >
-                    🚫 {t("wheel.never")}
-                  </button>
-                </div>
-                {verdict === "never" && <p className="wheel-hint">{t("wheel.neverHint")}</p>}
-                <WheelPlaces
-                  typeId={winner.type.id}
-                  city={request.city?.trim() || null}
-                  area={area ?? undefined}
-                  initial={winner.places}
-                  mapsUrl={winner.maps_url}
-                />
+      )}
 
-                {out ? (
-                  <p className="wheel-counter">{t("wheel.noneLeft")}</p>
-                ) : (
-                  <form
-                    className="wheel-again"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void go(true);
-                    }}
-                  >
-                    <label className="wheel-field">
-                      <span className="wheel-label">{t("wheel.whyTitle")}</span>
-                      <textarea
-                        className="input min-h-20"
-                        value={feedback}
-                        maxLength={500}
-                        placeholder={t("wheel.whyPlaceholder")}
-                        onChange={(event) => setFeedback(event.target.value)}
-                      />
-                    </label>
-                    <Button type="submit" disabled={spinning}>
-                      {left == null ? t("wheel.again") : t("wheel.againLeft", { n: left })}
-                    </Button>
-                  </form>
-                )}
-                {error && <p className="wheel-error">{error}</p>}
-                <button type="button" className="wheel-link" onClick={() => setEditing(true)}>
-                  {t("wheel.change")}
+      {winner && (phase === "result" || phase === "going" || phase === "more") && (
+        <div ref={resultRef} className="wheel-result">
+          <h2 className="wheel-result-title">
+            <span aria-hidden>{winner.type.emoji ?? "✦"}</span> {winner.type.name}
+          </h2>
+          <p className="wheel-meta">
+            {[
+              winner.category?.name,
+              t(priceKey),
+              t("wheel.hours", { n: winner.type.duration_hours }),
+              t(`wheel.${winner.type.setting}`),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+          {winner.reason && <p className="wheel-reason">✦ {winner.reason}</p>}
+          {winner.type.description && phase !== "going" && (
+            <p className="wheel-description">{winner.type.description}</p>
+          )}
+
+          {phase === "result" && (
+            <div className="wheel-choice">
+              <Button type="button" className="wheel-go" onClick={() => setPhase("going")}>
+                {t("wheel.going")}
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setPhase("more")}>
+                {t("wheel.searchMore")}
+              </Button>
+            </div>
+          )}
+
+          {phase === "going" && (
+            <>
+              <p className="wheel-going">{t("wheel.goingLead")}</p>
+              <WheelPlaces
+                typeId={winner.type.id}
+                city={request.city?.trim() || null}
+                area={area ?? undefined}
+                initial={winner.places}
+                mapsUrl={winner.maps_url}
+              />
+              <button type="button" className="wheel-link" onClick={() => setPhase("more")}>
+                {t("wheel.notThis")}
+              </button>
+            </>
+          )}
+
+          {phase === "more" && (
+            <form
+              className="wheel-again"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void go(true);
+              }}
+            >
+              <span className="wheel-label">{t("wheel.whyTitle")}</span>
+              <div className="wheel-row" role="group" aria-label={t("wheel.whyTitle")}>
+                {QUICK_REASONS.map(({ id, word }) => {
+                  const on = reasons.includes(word);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      className={`chip ${on ? "chip-active" : ""}`}
+                      aria-pressed={on}
+                      onClick={() =>
+                        setReasons((current) =>
+                          on ? current.filter((r) => r !== word) : [...current, word],
+                        )
+                      }
+                    >
+                      {t(`wheel.reason${id}`)}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  className={`chip ${verdict === "never" ? "chip-active" : ""}`}
+                  aria-pressed={verdict === "never"}
+                  onClick={() => void judge(verdict === "never" ? null : "never")}
+                >
+                  🚫 {t("wheel.never")}
                 </button>
               </div>
-            )}
-          </>
-        )
+              {verdict === "never" && <p className="wheel-hint">{t("wheel.neverHint")}</p>}
+              <textarea
+                className="input min-h-16"
+                value={feedback}
+                maxLength={500}
+                placeholder={t("wheel.whyPlaceholder")}
+                aria-label={t("wheel.whyTitle")}
+                onChange={(event) => setFeedback(event.target.value)}
+              />
+              <button
+                type="button"
+                className="wheel-link"
+                aria-expanded={showSettings}
+                onClick={() => setShowSettings((open) => !open)}
+              >
+                {showSettings ? t("wheel.hideSettings") : t("wheel.change")}
+              </button>
+              {showSettings && <div className="wheel-form">{settings}</div>}
+              {out ? (
+                <p className="wheel-counter">{t("wheel.noneLeft")}</p>
+              ) : (
+                <Button type="submit">
+                  {left == null ? t("wheel.again") : t("wheel.againLeft", { n: left })}
+                </Button>
+              )}
+              <button type="button" className="wheel-link" onClick={() => setPhase("going")}>
+                {t("wheel.backToGoing")}
+              </button>
+            </form>
+          )}
+          {error && <p className="wheel-error">{error}</p>}
+        </div>
       )}
     </>
   );

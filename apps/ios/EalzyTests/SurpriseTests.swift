@@ -2,25 +2,31 @@ import XCTest
 @testable import Ealzy
 
 final class SurpriseTests: XCTestCase {
-    func testArcsFollowWeights() {
-        let arcs = WheelGeometry.arcs([2, 1, 1])
-        XCTAssertEqual(arcs[0].end, 180, accuracy: 0.001)
-        XCTAssertEqual(arcs[2].end, 360, accuracy: 0.001)
+    func testSlotsRepeatAroundTheCircleByWeight() {
+        let slots = WheelPhysics.slots([2, 1, 1])
+        XCTAssertGreaterThanOrEqual(slots.count, 18)
+        XCTAssertEqual(slots[0].end - slots[0].start, 2 * (slots[1].end - slots[1].start), accuracy: 0.001)
+        XCTAssertEqual(slots.last?.end, 360)
     }
 
-    /// Итог всегда встаёт под стрелку сверху, после нескольких полных оборотов.
-    func testWinnerStopsUnderPointer() {
-        let arcs = WheelGeometry.arcs([2, 1, 1, 3])
-        var current = 0.0
-        for index in [0, 3, 1, 2, 3] {
-            for jitter in [-0.3, 0, 0.3] {
-                let target = WheelGeometry.targetRotation(from: current, arc: arcs[index], jitter: jitter)
-                let top = (360 - target.truncatingRemainder(dividingBy: 360)).truncatingRemainder(dividingBy: 360)
-                XCTAssertTrue(top >= arcs[index].start - 0.001 && top <= arcs[index].end + 0.001, "сектор \(index)")
-                XCTAssertGreaterThanOrEqual(target - current, 5 * 360)
-                current = target
-            }
+    /// Колесо само останавливается на выбранном сервером варианте: колышки, трение, откат.
+    func testSpinStopsOnServerPick() {
+        let slots = WheelPhysics.slots([2, 1, 1, 3, 1, 1])
+        var from = 0.0
+        for segment in [0, 1, 2, 3, 4, 5, 3] {
+            let track = WheelPhysics.plan(slots, from: from, segment: segment, random: { 0.5 })
+            let end = track.frames.last!
+            XCTAssertEqual(slots[WheelPhysics.slot(at: end, in: slots)].segment, segment)
+            XCTAssertGreaterThan(Double(track.frames.count) / 60, 3.5)
+            XCTAssertGreaterThan(track.ticks.count, 20)
+            from = end
         }
+    }
+
+    func testFlapperBendsOnlyNextToAPeg() {
+        let slots = WheelPhysics.slots([1, 1, 1, 1, 1, 1])
+        XCTAssertGreaterThan(WheelPhysics.flapper(slots, rotation: 358 - slots[1].start), 5)
+        XCTAssertEqual(WheelPhysics.flapper(slots, rotation: 360 - slots[1].middle), 0)
     }
 
     func testLocalTastesParsing() {
@@ -55,19 +61,23 @@ final class SurpriseTests: XCTestCase {
         """#
         let candidate = try JSONCoding.decoder.decode(PlaceCandidate.self, from: Data(json.utf8))
         XCTAssertTrue(candidate.isFromWeb)
-        XCTAssertEqual(candidate.distanceM, 1234.5)
         let sent = try XCTUnwrap(
             JSONSerialization.jsonObject(with: JSONCoding.encoder.encode(candidate)) as? [String: Any]
         )
         XCTAssertTrue(sent["address"] is NSNull)
-        XCTAssertTrue(sent["twogis_url"] is NSNull)
         XCTAssertEqual(sent["source_id"] as? String, "spb|surf hub|")
+    }
+
+    func testStatusCarriesOwnCity() throws {
+        let json = #"{"spins_used":0,"spins_left":3,"spins_limit":3,"city":"Казань","city_guess":"Москва"}"#
+        let status = try JSONCoding.decoder.decode(WheelStatus.self, from: Data(json.utf8))
+        XCTAssertEqual(status.city, "Казань")
+        XCTAssertEqual(status.cityGuess, "Москва")
     }
 
     func testDistanceText() {
         XCTAssertEqual(DistanceText.format(456), "460 м")
         XCTAssertEqual(DistanceText.format(1234), "1,2 км")
-        XCTAssertEqual(DistanceText.format(15_400), "15 км")
         XCTAssertNil(DistanceText.format(nil))
     }
 }

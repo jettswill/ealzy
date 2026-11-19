@@ -595,6 +595,14 @@ export type WheelMood = "calm" | "active" | "any";
 export type WheelWhen = "now" | "today" | "weekend";
 export type WheelCompany = "solo" | "pair" | "friends" | "kids";
 /** Где искать: точка (геолокация или выбранная на карте) и радиус. */
+export interface CitySuggestion {
+  name: string;
+  /** Как храним: у одноимённых — с регионом. */
+  title: string;
+  region: string | null;
+  lat: number;
+  lon: number;
+}
 export interface WheelArea {
   lat: number;
   lon: number;
@@ -670,6 +678,10 @@ export interface WheelStatus {
   spins_used: number;
   spins_left: number | null;
   spins_limit: number;
+  /** Свой город человека из базы; null — ещё не знаем. */
+  city?: string | null;
+  /** Догадка по часовому поясу, пока своего нет. */
+  city_guess?: string | null;
 }
 
 export type PlaceEmotion = "wow" | "good" | "meh" | "bad";

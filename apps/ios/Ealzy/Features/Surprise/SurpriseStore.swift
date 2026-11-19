@@ -1,6 +1,7 @@
 import CoreLocation
 import Foundation
 import Observation
+import UIKit
 
 /// Где искать: рядом со мной, район (словами или точкой на карте) или весь город.
 enum AreaMode: String, Codable, CaseIterable, Identifiable {
@@ -15,6 +16,19 @@ enum AreaMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// Что сейчас на экране колеса.
+enum SurprisePhase: Equatable {
+    /// Человек говорит, чего хочет.
+    case setup
+    case spinning
+    /// Выпало — «Пойду» или «Поискать ещё».
+    case result
+    /// Решил идти: куда именно и как добраться.
+    case going
+    /// Ищем дальше: что не так, настройки, новое вращение.
+    case more
+}
+
 /// Колесо «Удиви меня»: запрос, вращения, итог, места вокруг и отметки.
 @MainActor
 @Observable
@@ -23,17 +37,18 @@ final class SurpriseStore {
     static let defaultRadius = 3_000
     private static let areaKey = "surpriseArea"
     private static let modeKey = "surpriseAreaMode"
-    private static let cityKey = "surpriseCity"
 
     // Запрос
     var mood: WheelMood = .any
     var want = ""
     var when: WheelWhen = .today
     var company: WheelCompany = .solo
-    /// Город запоминаем при вращении.
+    /// Город из справочника; свой город хранится на сервере и подставляется сам.
     var city = ""
-    var onlyNew = false
+    var onlyNew = true
+    /// Что не так — своими словами и быстрыми кнопками.
     var feedback = ""
+    var reasons: Set<String> = []
 
     // Где искать
     var areaMode: AreaMode = .city
@@ -44,9 +59,23 @@ final class SurpriseStore {
     // Колесо
     private(set) var status: WheelStatus?
     private(set) var spin: WheelSpin?
-    var isSpinning = false
-    var revealed = false
+    var phase: SurprisePhase = .setup
+    /// Просчитанное вращение до выпавшего варианта.
+    private(set) var track: SpinTrack?
+    /// Где колесо стоит, когда не крутится.
+    var rotation: Double = 0
     var error: String?
+
+    var isSpinning: Bool { phase == .spinning }
+
+    /// Секторы колеса: варианты с сервера, а до первого вращения — красивый набор.
+    var slots: [WheelSlot] {
+        WheelPhysics.slots(spin?.segments.map(\.weight) ?? WheelDisc.previewIcons.map { _ in 1 })
+    }
+
+    var icons: [String] {
+        spin?.segments.map { $0.emoji ?? "✨" } ?? WheelDisc.previewIcons
+    }
 
     // Места вокруг итога
     private(set) var nearby: NearbyPlaces?
@@ -58,7 +87,6 @@ final class SurpriseStore {
     private let locator = OneShotLocation()
 
     init() {
-        city = UserDefaults.standard.string(forKey: Self.cityKey) ?? ""
         let saved = UserDefaults.standard.string(forKey: Self.modeKey).flatMap(AreaMode.init(rawValue:)) ?? .city
         if saved == .map, let data = UserDefaults.standard.data(forKey: Self.areaKey),
            let area = try? JSONDecoder().decode(WheelArea.self, from: data) {
@@ -85,6 +113,14 @@ final class SurpriseStore {
     func loadStatus() async {
         if DemoData.isOn { return }
         status = try? await SurpriseAPI.status()
+        // Свой город — из базы; пока его нет — догадка по часовому поясу.
+        if city.isEmpty, let known = status?.city ?? status?.cityGuess { city = known }
+    }
+
+    /// Выбран город из справочника — запоминаем как свой.
+    func chooseCity(_ title: String) {
+        city = title
+        Task { _ = try? await SurpriseAPI.saveCity(title) }
     }
 
     // MARK: Где искать
@@ -175,14 +211,9 @@ final class SurpriseStore {
     func spinWheel(again: Bool = false) async {
         guard canSpin else { return }
         error = nil
-        isSpinning = true
-        revealed = false
-        nearby = nil
-        nearbyError = nil
-        marked = [:]
-        UserDefaults.standard.set(city, forKey: Self.cityKey)
         let wantText = want.trimmingCharacters(in: .whitespacesAndNewlines)
-        let feedbackText = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        let typed = feedback.trimmingCharacters(in: .whitespacesAndNewlines)
+        let why = (reasons.sorted() + (typed.isEmpty ? [] : [typed])).joined(separator: ", ")
         let request = WheelRequest(
             mood: mood,
             want: wantText.isEmpty ? nil : String(wantText.prefix(120)),
@@ -190,27 +221,52 @@ final class SurpriseStore {
             company: company,
             city: cityOrNil,
             onlyNew: onlyNew,
-            feedback: again && !feedbackText.isEmpty ? String(feedbackText.prefix(500)) : nil,
+            feedback: again && !why.isEmpty ? String(why.prefix(500)) : nil,
             area: effectiveArea
         )
         do {
             let result = try await SurpriseAPI.spin(request)
+            let weights = result.segments.map(\.weight)
+            let from = rotation
+            let reduce = UIAccessibility.isReduceMotionEnabled
+            let winner = result.winnerIndex
+            // Подбор толчка — сотни прогонов физики; не держим главный поток.
+            let plan = await Task.detached(priority: .userInitiated) { () -> SpinTrack in
+                let slots = WheelPhysics.slots(weights)
+                return reduce
+                    ? WheelPhysics.eased(slots, from: from, segment: winner, seconds: 0.6, turns: 1)
+                    : WheelPhysics.plan(slots, from: from, segment: winner)
+            }.value
             spin = result
+            track = plan
+            nearby = nil
+            nearbyError = nil
+            marked = [:]
             currentVerdict = result.winner.verdict
-            status = WheelStatus(spinsUsed: result.spinsUsed, spinsLeft: result.spinsLeft, spinsLimit: result.spinsLimit)
-            if again { feedback = "" }
+            status = WheelStatus(spinsUsed: result.spinsUsed, spinsLeft: result.spinsLeft,
+                                 spinsLimit: result.spinsLimit, city: status?.city, cityGuess: status?.cityGuess)
+            reasons = []
+            feedback = ""
+            phase = .spinning
         } catch {
-            isSpinning = false
             self.error = error.localizedDescription
         }
     }
 
-    /// Колесо остановилось — показываем итог и сразу ищем места, если район задан.
-    func didStop() async {
-        isSpinning = false
-        revealed = true
-        if effectiveArea != nil { await lookNearby() }
+    /// Колесо остановилось — показываем итог.
+    func didStop() {
+        if let last = track?.frames.last { rotation = last }
+        phase = .result
     }
+
+    /// «Пойду»: куда именно; с районом места ищем сразу.
+    func going() async {
+        phase = .going
+        if effectiveArea != nil, nearby == nil { await lookNearby() }
+    }
+
+    /// «Поискать ещё»: что не так, настройки, новое вращение.
+    func lookMore() { phase = .more }
 
     // MARK: Места
 
