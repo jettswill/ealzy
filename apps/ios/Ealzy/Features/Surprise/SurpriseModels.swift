@@ -66,7 +66,25 @@ struct WheelStatus: Decodable {
     /// nil — без ограничения.
     let spinsLeft: Int?
     let spinsLimit: Int
+    /// Свой город человека из базы.
+    var city: String? = nil
+    /// Догадка по часовому поясу, пока своего нет.
+    var cityGuess: String? = nil
 }
+
+/// Город из справочника городов России.
+struct CitySuggestion: Decodable, Identifiable, Hashable {
+    let name: String
+    /// Как храним: у одноимённых — с регионом («Кировск, Ленинградская область»).
+    let title: String
+    let region: String?
+    let lat: Double
+    let lon: Double
+    var id: String { title }
+}
+
+private struct CityBody: Encodable { let city: String }
+struct CityPayload: Decodable { let city: String }
 
 struct WheelSegment: Decodable, Identifiable, Hashable {
     let id: String
@@ -352,6 +370,14 @@ enum SurpriseAPI {
         }
         if let city, !city.isEmpty { query["city"] = city }
         return try await api.get("/places/nearby", query: query)
+    }
+
+    static func cities(_ q: String) async throws -> [CitySuggestion] {
+        try await api.get("/cities", query: ["q": q])
+    }
+
+    static func saveCity(_ city: String) async throws -> CityPayload {
+        try await api.put("/me/city", body: CityBody(city: city))
     }
 
     static func geocode(_ text: String, city: String?) async throws -> GeoArea {

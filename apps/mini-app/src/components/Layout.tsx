@@ -108,6 +108,8 @@ export function Layout() {
   };
   const todayItem: NavEntry = { to: "/", label: t("nav.today"), icon: "today" };
   const allTasksItem: NavEntry = { to: "/tasks", label: t("nav.allTasks"), icon: "list" };
+  // «Удиви меня» — всегда рядом с Илзи, а не в «Ещё».
+  const surpriseItem: NavEntry = { to: "/surprise", label: t("nav.surprise"), icon: "surprise" };
   return (
     <div className="app-shell">
       <nav aria-label={t("nav.main")} className="app-nav">
@@ -150,6 +152,7 @@ export function Layout() {
                   </span>
                   <span>{t("nav.ilzi")}</span>
                 </NavLink>
+                <NavItem item={surpriseItem} pathname={location.pathname} />
               </div>
               <div className="nav-group">
                 <p className="nav-section-label">{t("nav.context")}</p>
@@ -177,6 +180,7 @@ export function Layout() {
             <div className="tabbar-panel">
               <NavItem item={todayItem} pathname={location.pathname} />
               <NavItem item={allTasksItem} pathname={location.pathname} />
+              <NavItem item={surpriseItem} pathname={location.pathname} />
             </div>
             <NavLink
               to="/companion"
@@ -286,7 +290,8 @@ type NavIcon =
   | "plan"
   | "profile"
   | "bearings"
-  | "notes";
+  | "notes"
+  | "surprise";
 
 function NavGlyph({ name }: { name: NavIcon }) {
   return (
@@ -320,6 +325,13 @@ const iconPaths: Record<NavIcon, ReactNode> = {
       <path d="M4.5 6.5l1.4 1.4 2.6-2.6M4.5 12.5l1.4 1.4 2.6-2.6" {...stroke} />
       <path d="M11.5 6.6H19.5M11.5 12.6H19.5M11.5 18.6H19.5" {...stroke} />
       <circle cx="6.4" cy="18.6" r="1.35" {...stroke} />
+    </>
+  ),
+  // Искорки — как «Удиви меня» в iOS-приложении.
+  surprise: (
+    <>
+      <path d="M10 4.5l1.7 4.8 4.8 1.7-4.8 1.7L10 17.5l-1.7-4.8L3.5 11l4.8-1.7z" {...stroke} />
+      <path d="M18 3v3.4M16.3 4.7h3.4M17.5 15.5v3M16 17h3" {...stroke} />
     </>
   ),
   notes: (

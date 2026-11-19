@@ -100,7 +100,8 @@ import {
   agendaQueryDay,
   packCompanionTaskDue,
 } from "./companion-workspace.js";
-import { cityFromLocations } from "./locations.js";
+import { cityFromMessage } from "./cities.js";
+import { cityFromLocations, saveOwnCity } from "./locations.js";
 import { compactBirthday } from "./dates.js";
 import { isPushTask } from "./task-priority.js";
 import { formatCompanionAnswer } from "./companion-format.js";
@@ -2544,6 +2545,20 @@ export class CompanionService {
             error: error instanceof Error ? error.message : String(error),
           }),
         );
+      }
+      // «Я живу в Казани» — город человека; колесо и поиск мест берут его отсюда.
+      const statedCity = cityFromMessage(text);
+      if (statedCity) {
+        try {
+          await saveOwnCity(this.repository, ownerId, statedCity.title);
+        } catch (error) {
+          console.error(
+            JSON.stringify({
+              event: "companion_city_failed",
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        }
       }
       const knownForm = addressFormOf(context.profile.communication_style);
       const styleBeyondForm = knownForm

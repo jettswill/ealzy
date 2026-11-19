@@ -40,7 +40,9 @@ import {
   tasteIndex,
   visitSignal,
 } from "./modules/assistant/tastes.js";
+import { canonicalCityName, resolveCity, searchCities } from "./modules/assistant/cities.js";
 import { cityForTimezone } from "./modules/assistant/discovery.js";
+import { ownCity, saveOwnCity } from "./modules/assistant/locations.js";
 import { getMeetingNote, saveMeetingNote } from "./modules/assistant/meeting-notes.js";
 import { roundCoordinate } from "./modules/assistant/whereabouts.js";
 import {
@@ -132,6 +134,10 @@ const locationInput = z
     is_primary: z.boolean().optional(),
   })
   .strict();
+/** Город из справочника пишем одним видом («спб» → «Санкт-Петербург»); чужой — как есть. */
+function withCanonicalCity<T extends { city?: string }>(input: T): T {
+  return input.city ? { ...input, city: canonicalCityName(input.city) ?? input.city } : input;
+}
 const category = z.enum([
   "interest",
   "dislike",
@@ -978,17 +984,66 @@ export function createApp(deps: AppDependencies): Express {
     }),
   );
   // Справочник «чем заняться» и места под него.
+  /**
+   * Город для поиска мест: названный в запросе (приведённый к справочнику),
+   * иначе свой город человека, иначе — по часовому поясу.
+   */
   const outingCity = async (ownerId: string, raw: unknown) => {
     const asked = typeof raw === "string" ? raw.trim().slice(0, 80) : "";
-    if (asked) return asked;
-    const [self, profile] = await Promise.all([
-      repository.getSelfPerson(ownerId),
-      repository.getProfile(ownerId),
-    ]);
-    const withCity = (self?.locations ?? []).filter((l) => l.city);
-    const located = (withCity.find((l) => l.is_primary) ?? withCity[0])?.city;
-    return located || cityForTimezone(profile?.timezone, profile?.locale);
+    if (asked) return canonicalCityName(asked) ?? asked;
+    const own = await ownCity(repository, ownerId);
+    if (own) return own;
+    const profile = await repository.getProfile(ownerId);
+    return cityForTimezone(profile?.timezone, profile?.locale);
   };
+  // Подсказки города при вводе — только города из справочника.
+  api.get(
+    "/cities",
+    asyncHandler(async (req, res) => {
+      const query = z
+        .object({
+          q: z.string().max(80).default(""),
+          limit: z.coerce.number().int().min(1).max(20).default(8),
+        })
+        .parse(req.query);
+      res.json({
+        data: searchCities(query.q, query.limit).map((city) => ({
+          name: city.name,
+          title: city.title,
+          region: city.region || null,
+          lat: city.lat,
+          lon: city.lon,
+        })),
+      });
+    }),
+  );
+  // Свой город человека: хранится в базе, ставится в формы сам.
+  api.get(
+    "/me/city",
+    asyncHandler(async (req, res) => {
+      const own = await ownCity(repository, owner(req));
+      const profile = own ? null : await repository.getProfile(owner(req));
+      res.json({
+        data: {
+          city: own,
+          guess: own ? null : cityForTimezone(profile?.timezone, profile?.locale),
+        },
+      });
+    }),
+  );
+  api.put(
+    "/me/city",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({ city: z.string().trim().min(1).max(120) })
+        .strict()
+        .parse(req.body);
+      const city = resolveCity(input.city);
+      if (!city) throw new HttpError(422, "CITY_UNKNOWN", "Не знаю такой город — выбери из списка");
+      await saveOwnCity(repository, owner(req), city.title);
+      res.json({ data: { city: city.title } });
+    }),
+  );
   api.get(
     "/activities",
     asyncHandler(async (_req, res) => {
@@ -1030,7 +1085,12 @@ export function createApp(deps: AppDependencies): Express {
           .catch(() => undefined);
       }
       res.json({
-        data: await wheelStatus(repository, owner(req), profile?.timezone || "Europe/Moscow"),
+        data: {
+          ...(await wheelStatus(repository, owner(req), profile?.timezone || "Europe/Moscow")),
+          // Город для формы: свой, а если его нет — догадка по часовому поясу.
+          city: (await ownCity(repository, owner(req))) ?? null,
+          city_guess: cityForTimezone(profile?.timezone, profile?.locale),
+        },
       });
     }),
   );
@@ -1051,7 +1111,18 @@ export function createApp(deps: AppDependencies): Express {
         .strict()
         .parse(req.body);
       const profile = await repository.getProfile(owner(req));
-      const city = await outingCity(owner(req), input.city);
+      // Город — только из справочника; названный город запоминаем как свой.
+      let city: string;
+      if (input.city?.trim()) {
+        const known = resolveCity(input.city);
+        if (!known) {
+          throw new HttpError(422, "CITY_UNKNOWN", "Не знаю такой город — выбери из списка");
+        }
+        city = known.title;
+        await saveOwnCity(repository, owner(req), known.title);
+      } else {
+        city = await outingCity(owner(req), null);
+      }
       try {
         const result = await spinWheel(
           repository,
@@ -1867,7 +1938,11 @@ export function createApp(deps: AppDependencies): Express {
     asyncHandler(async (req, res) => {
       const self = found(await repository.getSelfPerson(owner(req)));
       res.status(201).json({
-        data: await repository.createLocation(owner(req), self.id, locationInput.parse(req.body)),
+        data: await repository.createLocation(
+          owner(req),
+          self.id,
+          withCanonicalCity(locationInput.parse(req.body)),
+        ),
       });
     }),
   );
@@ -1886,7 +1961,7 @@ export function createApp(deps: AppDependencies): Express {
           await repository.updateLocation(
             ownerId,
             locationId,
-            partial(locationInput).parse(req.body),
+            withCanonicalCity(partial(locationInput).parse(req.body)),
           ),
         ),
       });

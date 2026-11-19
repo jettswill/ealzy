@@ -92,10 +92,11 @@ struct RootView: View {
                     FocusView()
                         .transition(.opacity)
                 } else {
-                    // «Сегодня» ⇄ «Все дела» — и вкладками, и свайпом влево-вправо.
+                    // «Сегодня» ⇄ «Все дела» ⇄ «Удиви меня» — и вкладками, и свайпом влево-вправо.
                     TabView(selection: $router.tab) {
                         TodayView().tag(AppRouter.Tab.today)
                         ReserveView().tag(AppRouter.Tab.reserve)
+                        SurpriseView().tag(AppRouter.Tab.surprise)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
                     .background { LampBackground() } // свет лампы на весь экран, общий для обеих вкладок
@@ -134,11 +135,6 @@ struct RootView: View {
                 }
             }
             .sheet(isPresented: $router.showSettings) { SettingsView() }
-            .sheet(isPresented: $router.showSurprise) {
-                SurpriseView()
-                    .presentationDragIndicator(.visible)
-                    .presentationBackground(Palette.ground)
-            }
             .task {
                 await auth.refresh()
                 await chat.flushQueue()
@@ -183,7 +179,7 @@ struct ScreenHeader: View {
     }
 }
 
-/// Нижняя панель: «Сегодня» и «Все дела» одной сеткой; Илзи — лёгкая круглая кнопка рядом.
+/// Нижняя панель: «Сегодня», «Все дела» и «Удиви меня» одной сеткой; Илзи — круглая кнопка рядом.
 struct BottomBar: View {
     @Binding var tab: AppRouter.Tab
     let openIlzi: () -> Void
@@ -193,6 +189,7 @@ struct BottomBar: View {
             HStack(spacing: 2) {
                 item("Сегодня", "sun.max", selected: tab == .today) { withAnimation(.snappy) { tab = .today } }
                 item("Все дела", "checklist", selected: tab == .reserve) { withAnimation(.snappy) { tab = .reserve } }
+                item("Удиви меня", "sparkles", selected: tab == .surprise) { withAnimation(.snappy) { tab = .surprise } }
             }
             .padding(.horizontal, 6)
             .frame(height: 62)
@@ -224,9 +221,11 @@ struct BottomBar: View {
                     .frame(width: 28, height: 24, alignment: .center)
                 Text(title)
                     .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                     .frame(height: 13)
             }
-            .frame(width: 80, height: 54)
+            .frame(width: 76, height: 54)
             .foregroundStyle(selected ? Palette.goldText : Palette.ink3)
             .contentShape(Rectangle())
         }

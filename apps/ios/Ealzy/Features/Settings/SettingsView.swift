@@ -5,7 +5,6 @@ import UIKit
 struct SettingsView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(PhoneCalendar.self) private var calendar
-    @Environment(AppRouter.self) private var router
     @Environment(\.dismiss) private var dismiss
     @State private var notificationsOn = true
     @State private var showReminders = false
@@ -21,19 +20,6 @@ struct SettingsView: View {
                     Text("Ещё")
                         .font(Typeface.display(34))
                         .foregroundStyle(Palette.ink)
-
-                    section("Куда сходить") {
-                        row {
-                            Button { router.openSurprise() } label: {
-                                HStack {
-                                    label("Удиви меня", "sparkles")
-                                    Spacer()
-                                    Image(systemName: "chevron.right").font(.footnote).foregroundStyle(Palette.ink3)
-                                }
-                            }
-                        }
-                        note("Колесо подбирает, чем заняться, — по настроению, месту и твоим вкусам. Три вращения в день.")
-                    }
 
                     section("Оформление") {
                         AppearancePicker(selection: $appearance)

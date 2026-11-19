@@ -42,6 +42,7 @@ import type {
   WheelRequest,
   WheelSpin,
   WheelStatus,
+  CitySuggestion,
   GeoArea,
   NearbyPlaces,
   PlaceCandidate,
@@ -746,6 +747,16 @@ export class ApiClient {
     if (query.radius) params.set("radius", String(Math.round(query.radius)));
     if (query.near) params.set("near", query.near);
     return this.request(`/api/places/nearby?${params}`, { timeoutMs: 20_000 });
+  }
+
+  /** Подсказки города — только из справочника городов России. */
+  cities(q: string): Promise<CitySuggestion[]> {
+    return this.request(`/api/cities?${new URLSearchParams({ q })}`);
+  }
+
+  /** Запомнить свой город (название из справочника). */
+  saveMyCity(city: string): Promise<{ city: string }> {
+    return this.request("/api/me/city", { method: "PUT", body: JSON.stringify({ city }) });
   }
 
   /** Район, метро или адрес словами → точка. */

@@ -5,8 +5,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiClient } from "../api";
 import { App } from "../App";
 import { AuthProvider, SESSION_KEY } from "../auth";
-import { targetRotation, wheelArcs } from "../pages/WheelPage";
 import type { WheelSpin } from "../types";
+import type * as WheelPhysics from "../wheelPhysics";
+import {
+  flapperAngle,
+  planSpin,
+  simulateSpin,
+  slotAt,
+  wheelSlots,
+  type SpinTrack,
+} from "../wheelPhysics";
 
 // Настоящая карта в jsdom не нужна: заглушка с тем же интерфейсом.
 const leafletStub = vi.hoisted(() => {
@@ -35,6 +43,26 @@ const leafletStub = vi.hoisted(() => {
 });
 vi.mock("leaflet", () => ({ default: leafletStub.default }));
 vi.mock("leaflet/dist/leaflet.css", () => ({}));
+
+// В тестах интерфейса колесо останавливается за пару кадров: физику проверяем отдельно.
+const quick = vi.hoisted(() => ({ on: true }));
+vi.mock("../wheelPhysics", async (importOriginal) => {
+  const real = await importOriginal<typeof WheelPhysics>();
+  const short = (slots: { segment: number }[], from: number, segment: number): SpinTrack => {
+    const slot = Math.max(
+      0,
+      slots.findIndex((s) => s.segment === segment),
+    );
+    return { frames: [from, from + 5, from + 10], ticks: [1], slot };
+  };
+  return {
+    ...real,
+    planSpin: (...args: Parameters<typeof real.planSpin>) =>
+      quick.on ? short(args[0], args[1], args[2]) : real.planSpin(...args),
+    easedSpin: (...args: Parameters<typeof real.easedSpin>) =>
+      quick.on ? short(args[0], args[1], args[2]) : real.easedSpin(...args),
+  };
+});
 
 const api = new ApiClient(() => "test-token");
 const factory = () => api;
@@ -92,20 +120,48 @@ function renderAt(path: string) {
   );
 }
 
-describe("wheel geometry", () => {
-  it("gives named options a wider slice", () => {
-    const arcs = wheelArcs([{ weight: 2 }, { weight: 1 }, { weight: 1 }]);
-    expect(arcs[0]).toEqual({ start: 0, end: 180, mid: 90 });
-    expect(arcs[2]!.end).toBe(360);
+describe("wheel physics", () => {
+  it("repeats options around the circle, slice by weight", () => {
+    const slots = wheelSlots([2, 1, 1]);
+    expect(slots.length).toBeGreaterThanOrEqual(18);
+    expect(slots[0]!.end - slots[0]!.start).toBeCloseTo(2 * (slots[1]!.end - slots[1]!.start));
+    expect(slots.at(-1)!.end).toBe(360);
   });
 
-  it("lands the winning slice under the pointer after full turns", () => {
-    const next = targetRotation(0, 90);
-    expect(next).toBe(5 * 360 + 270);
-    expect((next + 90) % 360).toBe(0);
-    const again = targetRotation(next, 315);
-    expect(again).toBeGreaterThan(next + 360 * 4);
-    expect((again + 315) % 360).toBe(0);
+  it("stops by itself on the option the server picked — with pegs and a bounce", () => {
+    quick.on = false;
+    const slots = wheelSlots([2, 1, 1, 3, 1, 1]);
+    let from = 0;
+    for (const segment of [0, 1, 2, 3, 4, 5, 3]) {
+      const track = planSpin(slots, from, segment, () => 0.5);
+      const end = track.frames.at(-1)!;
+      expect(slots[slotAt(slots, end)]!.segment).toBe(segment);
+      expect(track.frames.length / 60).toBeGreaterThan(3.5);
+      expect(end - from).toBeGreaterThan(360 * 2);
+      expect(track.ticks.length).toBeGreaterThan(20);
+      from = end;
+    }
+    quick.on = true;
+  });
+
+  it("slows down: each peg takes the same energy, the last ones visibly", () => {
+    quick.on = false;
+    const slots = wheelSlots([1, 1, 1, 1, 1, 1]);
+    const { frames } = simulateSpin(slots, 0, 700);
+    const speed = (i: number) => (frames[i]! - frames[i - 1]!) * 60;
+    expect(speed(5)).toBeGreaterThan(speed(frames.length - 40));
+    // В конце — откат от колышка: колесо чуть-чуть идёт назад.
+    expect(frames.at(-1)!).toBeLessThan(Math.max(...frames.slice(-15)));
+    quick.on = true;
+  });
+
+  it("bends the flapper only next to a peg", () => {
+    const slots = wheelSlots([1, 1, 1, 1, 1, 1]);
+    const peg = slots[1]!.start;
+    // Колышек за 2° до стрелки: угол на экране = 358°.
+    expect(flapperAngle(slots, 358 - peg)).toBeGreaterThan(5);
+    const middle = (slots[1]!.start + slots[1]!.end) / 2;
+    expect(flapperAngle(slots, 360 - middle)).toBe(0);
   });
 });
 
@@ -124,16 +180,13 @@ describe("surprise wheel", () => {
     vi.spyOn(api, "dueExperienceFollowUps").mockResolvedValue([]);
   });
 
-  it("asks what you want, spins, shows places and respins with a reason", async () => {
+  it("asks what you want, spins, then «I'm going» shows places", async () => {
     vi.spyOn(api, "wheelStatus").mockResolvedValue({
       spins_used: 0,
       spins_left: 3,
       spins_limit: 3,
     });
-    const spin = vi
-      .spyOn(api, "spinWheel")
-      .mockResolvedValueOnce(spinResult())
-      .mockResolvedValueOnce(spinResult({ spins_used: 2, spins_left: 1, winner_index: 1 }));
+    const spin = vi.spyOn(api, "spinWheel").mockResolvedValueOnce(spinResult());
     renderAt("/surprise");
 
     expect(await screen.findByText("3 of 3 spins left today")).toBeInTheDocument();
@@ -151,21 +204,66 @@ describe("surprise wheel", () => {
         feedback: null,
       }),
     );
-    const disc = await screen.findByRole("img", { name: /Coffee shop, Karting, Banya/ });
-    await screen.findByText("Spinning…");
-    fireEvent.transitionEnd(disc);
+    expect(
+      await screen.findByRole("img", { name: /Coffee shop, Karting, Banya/ }),
+    ).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: /Coffee shop/ })).toBeInTheDocument();
+    // Главное действие — «Пойду», а не «крутить ещё».
+    expect(screen.queryByRole("button", { name: /Spin again/ })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "I'm going" }));
     expect(screen.getByText("Native")).toBeInTheDocument();
     expect(screen.getByText(/★ 4.8/)).toBeInTheDocument();
-
-    await userEvent.type(screen.getByPlaceholderText(/too pricey/), "too pricey");
-    await userEvent.click(screen.getByRole("button", { name: "Spin again · 2 left" }));
-    expect(spin).toHaveBeenLastCalledWith(
-      expect.objectContaining({ mood: "calm", feedback: "too pricey" }),
-    );
+    expect(screen.queryByRole("button", { name: /Spin again/ })).not.toBeInTheDocument();
   });
 
-  it("likes, finds places nearby and saves a visit with an impression", async () => {
+  it("«Look for more»: what's wrong, settings, spin again", async () => {
+    vi.spyOn(api, "wheelStatus").mockResolvedValue({
+      spins_used: 0,
+      spins_left: 3,
+      spins_limit: 3,
+    });
+    const spin = vi
+      .spyOn(api, "spinWheel")
+      .mockResolvedValueOnce(spinResult())
+      .mockResolvedValueOnce(
+        spinResult({
+          spins_used: 2,
+          spins_left: 1,
+          winner_index: 1,
+          winner: {
+            ...spinResult().winner,
+            type: { ...spinResult().winner.type, id: "karting", name: "Karting", emoji: "🏎️" },
+          },
+        }),
+      );
+    const setTaste = vi.spyOn(api, "setTaste").mockResolvedValue({
+      summary: null,
+      refreshed_at: null,
+      ai_available: false,
+      items: [],
+    });
+    renderAt("/surprise");
+    await userEvent.click(await screen.findByRole("button", { name: "Spin the wheel" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Look for more" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Too pricey" }));
+    await userEvent.click(screen.getByRole("button", { name: /Never suggest/ }));
+    expect(setTaste).toHaveBeenLastCalledWith({
+      target_kind: "type",
+      target_id: "kofeynya",
+      verdict: "never",
+    });
+    await userEvent.type(screen.getByPlaceholderText(/too pricey, too far/), "rainy today");
+    await userEvent.click(screen.getByRole("button", { name: "Change request" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Active" }));
+    await userEvent.click(screen.getByRole("button", { name: "Spin again · 2 left" }));
+    expect(spin).toHaveBeenLastCalledWith(
+      expect.objectContaining({ mood: "active", feedback: "дорого, rainy today" }),
+    );
+    expect(await screen.findByRole("heading", { name: /Karting/ })).toBeInTheDocument();
+  });
+
+  it("finds places nearby and saves a visit with an impression", async () => {
     vi.spyOn(api, "wheelStatus").mockResolvedValue({
       spins_used: 0,
       spins_left: 3,
@@ -182,12 +280,6 @@ describe("surprise wheel", () => {
         winner: { ...spinResult().winner, places: [], reason: "тебе понравилось в прошлый раз" },
       }),
     );
-    const setTaste = vi.spyOn(api, "setTaste").mockResolvedValue({
-      summary: null,
-      refreshed_at: null,
-      ai_available: false,
-      items: [],
-    });
     const candidate = {
       source: "osm" as const,
       source_id: "node/7",
@@ -217,17 +309,8 @@ describe("surprise wheel", () => {
     renderAt("/surprise");
 
     await userEvent.click(await screen.findByRole("button", { name: "Spin the wheel" }));
-    const disc = await screen.findByRole("img", { name: /Coffee shop/ });
-    await screen.findByText("Spinning…");
-    fireEvent.transitionEnd(disc);
     expect(await screen.findByText(/тебе понравилось в прошлый раз/)).toBeInTheDocument();
-
-    await userEvent.click(screen.getByRole("button", { name: /Like/ }));
-    expect(setTaste).toHaveBeenLastCalledWith({
-      target_kind: "type",
-      target_id: "kofeynya",
-      verdict: "like",
-    });
+    await userEvent.click(screen.getByRole("button", { name: "I'm going" }));
 
     await userEvent.click(screen.getByRole("button", { name: "Find near me" }));
     expect(await screen.findByText("Flow Coffee")).toBeInTheDocument();
@@ -320,11 +403,13 @@ describe("surprise wheel", () => {
       spins_left: 3,
       spins_limit: 3,
     });
-    const geocode = vi.spyOn(api, "geocodePlace").mockImplementation(async (q) =>
-      q === "Petrogradka"
-        ? { lat: 59.96, lon: 30.31, label: "Петроградский район", city: "Saint Petersburg" }
-        : { lat: 59.94, lon: 30.31, label: "Saint Petersburg", city: "Saint Petersburg" },
-    );
+    const geocode = vi
+      .spyOn(api, "geocodePlace")
+      .mockImplementation(async (q) =>
+        q === "Petrogradka"
+          ? { lat: 59.96, lon: 30.31, label: "Петроградский район", city: "Saint Petersburg" }
+          : { lat: 59.94, lon: 30.31, label: "Saint Petersburg", city: "Saint Petersburg" },
+      );
     const spin = vi.spyOn(api, "spinWheel").mockResolvedValue(spinResult());
     const nearby = vi.spyOn(api, "nearbyPlaces").mockResolvedValue({
       city: "Saint Petersburg",
@@ -334,8 +419,14 @@ describe("surprise wheel", () => {
     });
     renderAt("/surprise");
 
+    vi.spyOn(api, "cities").mockResolvedValue([
+      { name: "Saint Petersburg", title: "Saint Petersburg", region: null, lat: 59.94, lon: 30.31 },
+    ]);
+    const saveCity = vi.spyOn(api, "saveMyCity").mockResolvedValue({ city: "Saint Petersburg" });
     await screen.findByText("3 of 3 spins left today");
-    await userEvent.type(screen.getByPlaceholderText("My city"), "Saint Petersburg");
+    await userEvent.type(screen.getByPlaceholderText("My city"), "Saint");
+    fireEvent.mouseDown(await screen.findByRole("option", { name: /Saint Petersburg/ }));
+    expect(saveCity).toHaveBeenCalledWith("Saint Petersburg");
     await userEvent.click(screen.getByRole("radio", { name: "Area" }));
     await userEvent.type(screen.getByPlaceholderText("District, metro or address"), "Petrogradka");
     await userEvent.click(screen.getByRole("button", { name: "Find" }));
@@ -354,9 +445,7 @@ describe("surprise wheel", () => {
         area: { lat: 59.965, lon: 30.32, radius_m: 1000, label: null },
       }),
     );
-    const disc = await screen.findByRole("img", { name: /Coffee shop/ });
-    await screen.findByText("Spinning…");
-    fireEvent.transitionEnd(disc);
+    await userEvent.click(await screen.findByRole("button", { name: "I'm going" }));
     // Район задан — места вокруг ищутся сразу.
     await waitFor(() =>
       expect(nearby).toHaveBeenCalledWith(
@@ -382,9 +471,43 @@ describe("surprise wheel", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Spin the wheel" }));
     expect(spin).toHaveBeenLastCalledWith(expect.objectContaining({ area: null }));
-    const disc = await screen.findByRole("img", { name: /Coffee shop/ });
-    await screen.findByText("Spinning…");
-    fireEvent.transitionEnd(disc);
+    await userEvent.click(await screen.findByRole("button", { name: "I'm going" }));
     expect(await screen.findByRole("button", { name: "Find near me" })).toBeInTheDocument();
+  });
+
+  it("город — свой из базы, чужое название не проходит", async () => {
+    vi.spyOn(api, "wheelStatus").mockResolvedValue({
+      spins_used: 0,
+      spins_left: 3,
+      spins_limit: 3,
+      city: "Kazan",
+      city_guess: "Moscow",
+    });
+    vi.spyOn(api, "cities").mockResolvedValue([]);
+    vi.spyOn(api, "saveMyCity").mockRejectedValue(
+      Object.assign(new Error("Не знаю такой город"), { status: 422 }),
+    );
+    const spin = vi.spyOn(api, "spinWheel").mockResolvedValue(spinResult());
+    renderAt("/surprise");
+    const input = await screen.findByPlaceholderText("My city");
+    await waitFor(() => expect(input).toHaveValue("Kazan"));
+    await userEvent.clear(input);
+    await userEvent.type(input, "Sunkt-Pieterburg");
+    await userEvent.tab();
+    expect(await screen.findByText(/Pick a city from the list/)).toBeInTheDocument();
+    expect(input).toHaveValue("Kazan");
+    await userEvent.click(screen.getByRole("button", { name: "Spin the wheel" }));
+    expect(spin).toHaveBeenLastCalledWith(expect.objectContaining({ city: "Kazan" }));
+  });
+
+  it("«Удиви меня» — в нижнем меню рядом с Илзи", async () => {
+    vi.spyOn(api, "wheelStatus").mockResolvedValue({
+      spins_used: 0,
+      spins_left: 3,
+      spins_limit: 3,
+    });
+    renderAt("/surprise");
+    const link = await screen.findByRole("link", { name: "Surprise me" });
+    expect(link).toHaveAttribute("href", "/surprise");
   });
 });
