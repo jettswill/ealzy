@@ -651,6 +651,8 @@ export interface AppRepository {
   /** Видимые места; с typeIds — только подходящие под эти типы. Лучшие по рейтингу — первыми. */
   listPlaces(filter: {
     typeIds?: string[];
+    /** Конкретные места по id. */
+    ids?: string[];
     city?: string | null;
     limit?: number;
   }): Promise<Place[]>;
@@ -661,6 +663,12 @@ export interface AppRepository {
   /** Вращения колеса за местный день, по порядку. */
   listActivitySpins(ownerId: string, localDate: string): Promise<ActivitySpin[]>;
   createActivitySpin(ownerId: string, input: ActivitySpinInput): Promise<ActivitySpin>;
+  /** «Пойду» / «Поискать ещё» по итогу вращения. */
+  decideActivitySpin(
+    ownerId: string,
+    id: string,
+    decision: "going" | "more",
+  ): Promise<ActivitySpin | null>;
   listActivityPreferences(ownerId: string): Promise<ActivityPreference[]>;
   /** Меняет только переданные поля; строки нет — создаёт с нулями. */
   patchActivityPreference(
@@ -681,8 +689,10 @@ export interface AppRepository {
   upsertPlace(input: PlaceUpsertInput, activityTypeId: string | null): Promise<Place>;
 }
 
+/** Город места против города запроса; у одноимённых в запросе бывает регион через запятую. */
+const cityOnly = (value: string) => value.split(",")[0]!.trim().toLocaleLowerCase();
 const sameCity = (a: string | null | undefined, b: string | null | undefined) =>
-  !b || (a ?? "").trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
+  !b || cityOnly(a ?? "") === cityOnly(b);
 const byRating = (a: Place, b: Place) =>
   (b.yandex_rating ?? -1) - (a.yandex_rating ?? -1) || a.name.localeCompare(b.name);
 
@@ -2508,9 +2518,16 @@ export class InMemoryRepository implements AppRepository {
       types: [...this.activityCatalog.types].sort((a, b) => a.sort - b.sort),
     };
   }
-  async listPlaces(filter: { typeIds?: string[]; city?: string | null; limit?: number }) {
+  async listPlaces(filter: {
+    typeIds?: string[];
+    ids?: string[];
+    city?: string | null;
+    limit?: number;
+  }) {
     const types = filter.typeIds?.length ? new Set(filter.typeIds) : null;
+    const ids = filter.ids ? new Set(filter.ids) : null;
     return this.places
+      .filter((place) => !ids || ids.has(place.id))
       .filter((place) => sameCity(place.city, filter.city))
       .filter((place) => !types || place.activity_type_ids.some((id) => types.has(id)))
       .sort(byRating)
@@ -2552,6 +2569,12 @@ export class InMemoryRepository implements AppRepository {
   async createActivitySpin(ownerId: string, input: ActivitySpinInput) {
     const spin: ActivitySpin = { id: randomUUID(), owner_id: ownerId, ...input, created_at: now() };
     this.activitySpins.push(spin);
+    return spin;
+  }
+  async decideActivitySpin(ownerId: string, id: string, decision: "going" | "more") {
+    const spin = this.activitySpins.find((row) => row.owner_id === ownerId && row.id === id);
+    if (!spin) return null;
+    Object.assign(spin, { decision, decided_at: now() });
     return spin;
   }
   async listActivityPreferences(ownerId: string) {
@@ -2682,14 +2705,23 @@ export class SupabaseRepository implements AppRepository {
       types: types.map((type) => ({ ...type, duration_hours: Number(type.duration_hours) })),
     };
   }
-  async listPlaces(filter: { typeIds?: string[]; city?: string | null; limit?: number }) {
+  async listPlaces(filter: {
+    typeIds?: string[];
+    ids?: string[];
+    city?: string | null;
+    limit?: number;
+  }) {
+    if (filter.ids && !filter.ids.length) return [];
     const typed = Boolean(filter.typeIds?.length);
     let query = this.db
       .from("places")
       .select(`*, place_activity_types${typed ? "!inner" : ""}(activity_type_id)`)
       .eq("is_visible", true);
     if (typed) query = query.in("place_activity_types.activity_type_id", filter.typeIds!);
-    if (filter.city?.trim()) query = query.ilike("city", filter.city.trim());
+    if (filter.ids) query = query.in("id", filter.ids.slice(0, 200));
+    // У одноимённых городов в запросе — регион через запятую; в базе мест он не хранится.
+    const city = filter.city?.split(",")[0]?.trim();
+    if (city) query = query.ilike("city", city);
     const rows = await this.many<
       Omit<Place, "activity_type_ids"> & {
         place_activity_types?: { activity_type_id: string }[];
@@ -2771,6 +2803,17 @@ export class SupabaseRepository implements AppRepository {
         .select("*")
         .single(),
     );
+  }
+  async decideActivitySpin(ownerId: string, id: string, decision: "going" | "more") {
+    const rows = await this.many<ActivitySpin>(
+      this.db
+        .from("activity_spins")
+        .update({ decision, decided_at: now() })
+        .eq("owner_id", ownerId)
+        .eq("id", id)
+        .select("*"),
+    );
+    return rows[0] ?? null;
   }
   async listActivityPreferences(ownerId: string) {
     const rows = await this.many<ActivityPreference>(

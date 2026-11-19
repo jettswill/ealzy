@@ -244,10 +244,15 @@ final class SurpriseStore {
             marked = [:]
             currentVerdict = result.winner.verdict
             status = WheelStatus(spinsUsed: result.spinsUsed, spinsLeft: result.spinsLeft,
-                                 spinsLimit: result.spinsLimit, city: status?.city, cityGuess: status?.cityGuess)
+                                 spinsLimit: result.spinsLimit, city: status?.city, cityGuess: status?.cityGuess,
+                                 subscribed: true)
             reasons = []
             feedback = ""
+            chosen = nil
+            plans = [:]
             phase = .spinning
+        } catch APIError.subscription {
+            lockedByServer = true
         } catch {
             self.error = error.localizedDescription
         }
@@ -259,10 +264,12 @@ final class SurpriseStore {
         phase = .result
     }
 
-    /// «Пойду»: куда именно; с районом места ищем сразу.
+    /// «Пойду»: сами ищем хорошие места рядом — без лишней кнопки.
     func going() async {
         phase = .going
-        if effectiveArea != nil, nearby == nil { await lookNearby() }
+        let type = spin?.winner.type.id
+        if let type { Task { try? await SurpriseAPI.going(spinId: spin?.spinId, type: type) } }
+        if nearby == nil { await lookNearby() }
     }
 
     /// «Поискать ещё»: что не так, настройки, новое вращение.
@@ -276,8 +283,8 @@ final class SurpriseStore {
         nearbyError = nil
         defer { isLookingNearby = false }
         var where_ = effectiveArea
-        if where_ == nil, areaMode == .city {
-            // «Весь город», но человек сам нажал «рядом со мной» — спросим точку.
+        if where_ == nil {
+            // «Весь город»: места после «Пойду» — всё равно рядом с человеком, если даст точку.
             if let point = await locator.current() {
                 where_ = WheelArea(lat: point.latitude, lon: point.longitude, radiusM: 5_000, label: nil)
             }
@@ -312,6 +319,49 @@ final class SurpriseStore {
     }
 
     func visitStatus(of id: String) -> PlaceVisitStatus? { marked[id] }
+
+    // MARK: Пойду сюда
+
+    /// Без подписки — экран «что внутри».
+    var lockedByServer = false
+    var isLocked: Bool { lockedByServer || status?.subscribed == false }
+    private(set) var subscriptionAsked = false
+
+    func askSubscription() {
+        subscriptionAsked = true
+        Task { try? await SurpriseAPI.requestSubscription() }
+    }
+
+    /// Карточки мест: хорошие (4.3+) вперёд, внутри — ближе раньше.
+    var goCards: [GoCard] {
+        guard let nearby else { return [] }
+        let saved = nearby.saved.map(GoCard.init(saved:))
+        let found = nearby.found.map(GoCard.init(candidate:))
+        return GoCard.sorted(saved + found)
+    }
+
+    /// Выбранное место и план по нему.
+    private(set) var chosen: String?
+    private(set) var plans: [String: OutingPlan] = [:]
+    private(set) var planning: String?
+
+    func plan(_ card: GoCard, when: Date?) async {
+        guard let type = spin?.winner.type.id else { return }
+        planning = card.id
+        nearbyError = nil
+        defer { planning = nil }
+        do {
+            plans[card.id] = try await SurpriseAPI.plan(card.target, type: type, when: when)
+            chosen = card.id
+        } catch {
+            nearbyError = error.localizedDescription
+        }
+    }
+
+    func unchoose() { chosen = nil }
+
+    /// «Изменить время»: план по месту снова открыт, место остаётся выбранным.
+    func forget(_ card: GoCard) { plans[card.id] = nil }
 
     // MARK: Вкус к итогу
 

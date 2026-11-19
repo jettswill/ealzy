@@ -4,7 +4,8 @@ import { Button, PageHeader } from "../components/ui";
 import { AreaPicker, loadAreaChoice, type AreaChoice } from "../components/AreaPicker";
 import { CityInput } from "../components/CityInput";
 import { PREVIEW_ICONS, WheelArc } from "../components/WheelArc";
-import { TastesPanel, WheelPlaces } from "../components/WheelPlaces";
+import { TastesPanel } from "../components/WheelPlaces";
+import { GoPlaces } from "../components/GoPlaces";
 import { useI18n } from "../i18n";
 import type { WheelCompany, WheelMood, WheelRequest, WheelSpin, WheelWhen } from "../types";
 import { easedSpin, planSpin, wheelSlots, type SpinTrack } from "../wheelPhysics";
@@ -88,6 +89,8 @@ export function WheelPage() {
   const [error, setError] = useState<string | null>(null);
   const [verdict, setVerdict] = useState<"like" | "never" | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [subscribed, setSubscribed] = useState<boolean | undefined>(undefined);
+  const [asked, setAsked] = useState(false);
   const resultRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -98,6 +101,7 @@ export function WheelPage() {
         if (!alive) return;
         setLeft(status.spins_left);
         setLimit(status.spins_limit);
+        setSubscribed(status.subscribed ?? true);
         const known = status.city ?? status.city_guess ?? null;
         if (known) setRequest((current) => (current.city ? current : { ...current, city: known }));
       })
@@ -145,6 +149,7 @@ export function WheelPage() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : String(caught));
       if ((caught as { status?: number }).status === 429) setLeft(0);
+      if ((caught as { status?: number }).status === 402) setSubscribed(false);
     }
   };
 
@@ -236,8 +241,46 @@ export function WheelPage() {
     </>
   );
 
+  if (subscribed === false)
+    return (
+      <div className="wheel-page">
+        <PageHeader eyebrow={t("wheel.eyebrow")} title={t("wheel.title")} />
+        <WheelArc
+          slots={slots}
+          icons={icons}
+          track={null}
+          onDone={() => undefined}
+          label={t("wheel.description")}
+          rotation={rotation}
+        />
+        <section className="wheel-paywall">
+          <h2 className="wheel-result-title">{t("wheel.paywallTitle")}</h2>
+          <p className="wheel-description">{t("wheel.paywallText")}</p>
+          <ul className="wheel-paywall-points">
+            <li>✦ {t("wheel.paywallPoint1")}</li>
+            <li>📍 {t("wheel.paywallPoint2")}</li>
+            <li>📅 {t("wheel.paywallPoint3")}</li>
+          </ul>
+          {asked ? (
+            <p className="go-done" role="status">✓ {t("wheel.paywallSent")}</p>
+          ) : (
+            <Button
+              type="button"
+              className="wheel-go"
+              onClick={() => {
+                setAsked(true);
+                void api.requestSubscription("surprise").catch(() => undefined);
+              }}
+            >
+              {t("wheel.paywallCta")}
+            </Button>
+          )}
+        </section>
+      </div>
+    );
+
   return (
-    <>
+    <div className="wheel-page">
       <PageHeader eyebrow={t("wheel.eyebrow")} title={t("wheel.title")} />
 
       <WheelArc
@@ -291,7 +334,14 @@ export function WheelPage() {
 
           {phase === "result" && (
             <div className="wheel-choice">
-              <Button type="button" className="wheel-go" onClick={() => setPhase("going")}>
+              <Button
+                type="button"
+                className="wheel-go"
+                onClick={() => {
+                  setPhase("going");
+                  void api.goingWheel(spin?.spin_id ?? null, winner.type.id).catch(() => undefined);
+                }}
+              >
                 {t("wheel.going")}
               </Button>
               <Button type="button" variant="secondary" onClick={() => setPhase("more")}>
@@ -302,15 +352,13 @@ export function WheelPage() {
 
           {phase === "going" && (
             <>
-              <p className="wheel-going">{t("wheel.goingLead")}</p>
-              <WheelPlaces
+              <GoPlaces
                 typeId={winner.type.id}
                 city={request.city?.trim() || null}
                 area={area ?? undefined}
-                initial={winner.places}
                 mapsUrl={winner.maps_url}
               />
-              <button type="button" className="wheel-link" onClick={() => setPhase("more")}>
+              <button type="button" className="wheel-link wheel-link-quiet" onClick={() => setPhase("more")}>
                 {t("wheel.notThis")}
               </button>
             </>
@@ -386,6 +434,6 @@ export function WheelPage() {
           {error && <p className="wheel-error">{error}</p>}
         </div>
       )}
-    </>
+    </div>
   );
 }

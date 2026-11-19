@@ -11,6 +11,8 @@ enum APIError: LocalizedError {
     case offline
     /// Облачные запросы закончились; детали — когда вернутся.
     case quota(CloudQuota?)
+    /// Возможность — по подписке (402 SUBSCRIPTION_REQUIRED).
+    case subscription(String)
 
     var errorDescription: String? {
         switch self {
@@ -18,6 +20,7 @@ enum APIError: LocalizedError {
         case .server(let message): return message
         case .offline: return "Нет связи с сервером. Попробуй ещё раз."
         case .quota: return "Облачные запросы закончились."
+        case .subscription(let message): return message
         }
     }
 }
@@ -101,6 +104,10 @@ final class APIClient {
            let body = try? JSONCoding.decoder.decode(QuotaErrorBody.self, from: data),
            body.error.code == "QUOTA_EXCEEDED" {
             throw APIError.quota(body.error.details)
+        }
+        if status == 402 {
+            let message = (try? JSONCoding.decoder.decode(ServerErrorBody.self, from: data))?.error.message
+            throw APIError.subscription(message ?? "Это — в подписке.")
         }
         guard (200..<300).contains(status) else {
             let message = (try? JSONCoding.decoder.decode(ServerErrorBody.self, from: data))?

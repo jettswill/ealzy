@@ -46,6 +46,7 @@ import type {
   GeoArea,
   NearbyPlaces,
   PlaceCandidate,
+  OutingPlan,
   Tastes,
   VisitInput,
 } from "./types";
@@ -778,6 +779,40 @@ export class ApiClient {
     return this.request("/api/places/visits", {
       method: "POST",
       body: JSON.stringify({ place_id: placeId, ...visit }),
+    });
+  }
+
+  /** «Пойду» по итогу вращения. */
+  goingWheel(spinId: string | null, activityTypeId: string): Promise<unknown> {
+    return this.request("/api/activities/going", {
+      method: "POST",
+      body: JSON.stringify({ spin_id: spinId, activity_type_id: activityTypeId }),
+    });
+  }
+
+  /** «Пойду сюда» (+ когда): место в дневник, дело в календарь. */
+  planOuting(
+    place: { place_id: string } | { candidate: PlaceCandidate },
+    activityTypeId: string,
+    when: string | null,
+  ): Promise<OutingPlan> {
+    const target =
+      "candidate" in place
+        ? (() => {
+            const { distance_m: _d, maps_url: _m, ...candidate } = place.candidate;
+            return { candidate };
+          })()
+        : place;
+    return this.request("/api/places/plan", {
+      method: "POST",
+      body: JSON.stringify({ ...target, activity_type_id: activityTypeId, when }),
+    });
+  }
+
+  requestSubscription(feature = "surprise"): Promise<unknown> {
+    return this.request("/api/subscription/request", {
+      method: "POST",
+      body: JSON.stringify({ feature }),
     });
   }
 

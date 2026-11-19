@@ -187,6 +187,23 @@ describe("surprise wheel", () => {
       spins_limit: 3,
     });
     const spin = vi.spyOn(api, "spinWheel").mockResolvedValueOnce(spinResult());
+    const going = vi.spyOn(api, "goingWheel").mockResolvedValue({});
+    const nearby = vi.spyOn(api, "nearbyPlaces").mockResolvedValue({
+      city: "Saint Petersburg",
+      saved: [
+        {
+          ...spinResult().winner.places[0]!,
+          rating: 4.8,
+          rating_count: 120,
+          phone: "+7 (812) 111-22-33",
+          website: "native.coffee",
+          lat: 59.93,
+          lon: 30.31,
+        },
+      ],
+      found: [],
+      source: "2gis",
+    });
     renderAt("/surprise");
 
     expect(await screen.findByText("3 of 3 spins left today")).toBeInTheDocument();
@@ -211,8 +228,22 @@ describe("surprise wheel", () => {
     // Главное действие — «Пойду», а не «крутить ещё».
     expect(screen.queryByRole("button", { name: /Spin again/ })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "I'm going" }));
-    expect(screen.getByText("Native")).toBeInTheDocument();
+    // Сами ищем рядом — без кнопки «найти»; карточка с контактами и маршрутом.
+    expect(await screen.findByText("Native")).toBeInTheDocument();
+    expect(nearby).toHaveBeenCalledWith(expect.objectContaining({ type: "kofeynya" }));
+    expect(going).toHaveBeenCalledWith("s1", "kofeynya");
     expect(screen.getByText(/★ 4.8/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Call/ })).toHaveAttribute("href", "tel:+78121112233");
+    expect(screen.getByRole("link", { name: /Website/ })).toHaveAttribute(
+      "href",
+      "https://native.coffee",
+    );
+    expect(screen.getByRole("link", { name: /Route/ })).toHaveAttribute(
+      "href",
+      "https://yandex.ru/maps/?rtext=~59.93,30.31",
+    );
+    expect(screen.getByRole("button", { name: "Go here" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "No, let's look some more" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Spin again/ })).not.toBeInTheDocument();
   });
 
@@ -263,7 +294,7 @@ describe("surprise wheel", () => {
     expect(await screen.findByRole("heading", { name: /Karting/ })).toBeInTheDocument();
   });
 
-  it("finds places nearby and saves a visit with an impression", async () => {
+  it("«Go here» → when → it's on the calendar", async () => {
     vi.spyOn(api, "wheelStatus").mockResolvedValue({
       spins_used: 0,
       spins_left: 3,
@@ -288,8 +319,8 @@ describe("surprise wheel", () => {
       city: null,
       lat: 59.9,
       lon: 30.3,
-      rating: null,
-      rating_count: null,
+      rating: 4.6,
+      rating_count: 40,
       image_url: null,
       photos: [],
       phone: null,
@@ -305,29 +336,29 @@ describe("surprise wheel", () => {
       found: [candidate],
       source: "osm",
     });
-    const savePlace = vi.spyOn(api, "savePlace").mockResolvedValue({});
+    vi.spyOn(api, "goingWheel").mockResolvedValue({});
+    const plan = vi.spyOn(api, "planOuting").mockImplementation(async (_place, _type, when) => ({
+      place: { id: "p9", name: "Flow Coffee", city: null, address: "Nevsky 1", image_url: null, yandex_url: null, yandex_rating: null, yandex_reviews: null },
+      visit: { id: "v1", planned_for: when, task_id: "t1" },
+      task: { id: "t1", title: "Coffee shop: Flow Coffee", due_at: when, estimate_minutes: 60, description: null },
+    }));
     renderAt("/surprise");
 
     await userEvent.click(await screen.findByRole("button", { name: "Spin the wheel" }));
     expect(await screen.findByText(/тебе понравилось в прошлый раз/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "I'm going" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Find near me" }));
     expect(await screen.findByText("Flow Coffee")).toBeInTheDocument();
     expect(screen.getByText(/850 m/)).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "I've been" }));
-    await userEvent.click(screen.getByRole("radio", { name: /Loved it/ }));
-    await userEvent.click(screen.getByRole("radio", { name: "5" }));
-    await userEvent.type(screen.getByPlaceholderText(/What stuck with you/), "Great flat white");
-    await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(savePlace).toHaveBeenCalledWith(candidate, {
-      activity_type_id: "kofeynya",
-      status: "visited",
-      emotion: "wow",
-      rating: 5,
-      note: "Great flat white",
-    });
-    expect(await screen.findByText("✓ Been")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Go here" }));
+    expect(screen.getByText("When are you going?")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Tomorrow evening" }));
+    expect(plan).toHaveBeenCalledWith({ candidate }, "kofeynya", expect.any(String));
+    const when = new Date(plan.mock.calls[0]![2]!);
+    expect(when.getHours()).toBe(19);
+    expect(await screen.findByText(/On the calendar:/)).toBeInTheDocument();
+    // Выбрал — остальные места прячем, можно вернуться к списку.
+    expect(screen.getByRole("button", { name: "Another place" })).toBeInTheDocument();
   });
 
   it("shows what Ilzi thinks of your taste and lets you take a «never» back", async () => {
@@ -455,7 +486,7 @@ describe("surprise wheel", () => {
     expect(JSON.parse(localStorage.getItem("ealzy.wheel.area")!)).toMatchObject({ mode: "map" });
   });
 
-  it("«весь город» — без точки; рядом — только по кнопке", async () => {
+  it("«весь город» — колесо без точки, места после «Пойду» — по городу", async () => {
     localStorage.setItem("ealzy.wheel.area", JSON.stringify({ mode: "city", area: null }));
     vi.spyOn(api, "wheelStatus").mockResolvedValue({
       spins_used: 0,
@@ -471,8 +502,15 @@ describe("surprise wheel", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Spin the wheel" }));
     expect(spin).toHaveBeenLastCalledWith(expect.objectContaining({ area: null }));
+    vi.spyOn(api, "goingWheel").mockResolvedValue({});
+    const nearby = vi
+      .spyOn(api, "nearbyPlaces")
+      .mockResolvedValue({ city: "Saint Petersburg", saved: [], found: [], source: "2gis" });
     await userEvent.click(await screen.findByRole("button", { name: "I'm going" }));
-    expect(await screen.findByRole("button", { name: "Find near me" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(nearby).toHaveBeenCalledWith(expect.objectContaining({ lat: undefined, type: "kofeynya" })),
+    );
+    expect(await screen.findByText(/Found nothing nearby/)).toBeInTheDocument();
   });
 
   it("город — свой из базы, чужое название не проходит", async () => {
@@ -500,14 +538,30 @@ describe("surprise wheel", () => {
     expect(spin).toHaveBeenLastCalledWith(expect.objectContaining({ city: "Kazan" }));
   });
 
-  it("«Удиви меня» — в нижнем меню рядом с Илзи", async () => {
+  it("без подписки — что внутри и «Хочу подписку»", async () => {
+    vi.spyOn(api, "wheelStatus").mockResolvedValue({
+      spins_used: 0,
+      spins_left: 3,
+      spins_limit: 3,
+      subscribed: false,
+    });
+    const ask = vi.spyOn(api, "requestSubscription").mockResolvedValue({});
+    renderAt("/surprise");
+    expect(await screen.findByText("Going out is in the subscription")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Spin the wheel" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "I want it" }));
+    expect(ask).toHaveBeenCalledWith("surprise");
+    expect(screen.getByText(/Noted!/)).toBeInTheDocument();
+  });
+
+  it("«Досуг» — в нижнем меню рядом с Илзи", async () => {
     vi.spyOn(api, "wheelStatus").mockResolvedValue({
       spins_used: 0,
       spins_left: 3,
       spins_limit: 3,
     });
     renderAt("/surprise");
-    const link = await screen.findByRole("link", { name: "Surprise me" });
+    const link = await screen.findByRole("link", { name: "Going out" });
     expect(link).toHaveAttribute("href", "/surprise");
   });
 });

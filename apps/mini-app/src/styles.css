@@ -3429,7 +3429,8 @@ html[data-theme="dark"] .composer {
   width: 100%;
   max-width: 34rem;
   margin: 0.25rem auto 0.5rem;
-  aspect-ratio: 400 / 168;
+  aspect-ratio: 400 / 262;
+  max-height: 36vh;
   overflow: hidden;
   -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
   mask-image: linear-gradient(to bottom, #000 62%, transparent 100%);
@@ -3494,4 +3495,101 @@ html[data-theme="dark"] .composer {
 .city-input-region {
   font-size: 0.8rem;
   color: var(--app-muted);
+}
+
+/* После «Пойду»: карточки мест с главным действием и контактами. */
+.go-loading {
+  margin: 1rem 0;
+  color: var(--app-muted);
+  text-align: center;
+}
+.go-places {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.go-card {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--app-border);
+  border-radius: 1rem;
+  background: var(--app-surface);
+}
+.go-card-chosen {
+  border-color: var(--app-gold);
+}
+.go-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.go-card-name {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+.go-card-rating {
+  flex: none;
+  color: var(--app-gold);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.go-card-rating small {
+  color: var(--app-muted);
+  font-weight: 400;
+}
+.go-card-meta {
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 0.9rem;
+}
+.go-card-main {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+.go-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.go-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  color: var(--app-text);
+  font-size: 0.9rem;
+  text-decoration: none;
+}
+.go-when {
+  display: grid;
+  gap: 0.5rem;
+}
+.go-done {
+  margin: 0;
+  color: var(--app-gold);
+}
+.go-done p {
+  margin: 0;
+}
+.wheel-link-quiet {
+  display: block;
+  margin: 1.25rem auto 0;
+  color: var(--app-muted);
+}
+.wheel-paywall {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+.wheel-paywall-points {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }

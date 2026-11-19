@@ -101,6 +101,9 @@ import { composeDigestText, zonedParts } from "./modules/assistant/scheduled-mes
 import { touchLastActive } from "./modules/engagement/reengagement.js";
 import { attachUsageSink, loadUsageSummary, runWithUsageOwner } from "./modules/billing/usage.js";
 import { loadQuota } from "./modules/billing/quota.js";
+import { hasSubscription, requireSubscription } from "./modules/billing/subscription.js";
+import { trackFunnelEvent } from "./modules/engagement/events.js";
+import { learnFromIntent, listOutings, outingTask } from "./modules/assistant/outings.js";
 import {
   buildCompleteness,
   confirmImport,
@@ -1022,6 +1025,7 @@ export function createApp(deps: AppDependencies): Express {
           city: z.string().trim().max(80).optional(),
         })
         .parse(req.query);
+      await requireSubscription(repository, owner(req));
       const profile = await repository.getProfile(owner(req));
       const surprise = await surpriseActivity(repository, owner(req), {
         category: query.category || null,
@@ -1051,6 +1055,8 @@ export function createApp(deps: AppDependencies): Express {
           // Город для формы: свой, а если его нет — догадка по часовому поясу.
           city: (await ownCity(repository, owner(req))) ?? null,
           city_guess: cityForTimezone(profile?.timezone, profile?.locale),
+          // «Удиви меня» — по подписке; без неё экран показывает, что внутри.
+          subscribed: await hasSubscription(repository, owner(req)),
         },
       });
     }),
@@ -1071,6 +1077,7 @@ export function createApp(deps: AppDependencies): Express {
         })
         .strict()
         .parse(req.body);
+      await requireSubscription(repository, owner(req));
       const profile = await repository.getProfile(owner(req));
       // Город — только из справочника; названный город запоминаем как свой.
       let city: string;
@@ -1201,6 +1208,49 @@ export function createApp(deps: AppDependencies): Express {
       res.status(201).json({ data: visit });
     }),
   );
+  const placeCandidate = z
+    .object({
+      source: z.enum(["2gis", "osm", "web"]),
+      source_id: z.string().trim().min(1).max(120),
+      name: z.string().trim().min(1).max(300),
+      address: z.string().trim().max(300).nullable(),
+      city: z.string().trim().max(80).nullable(),
+      lat: z.number().min(-90).max(90).nullable(),
+      lon: z.number().min(-180).max(180).nullable(),
+      rating: z.number().min(0).max(5).nullable(),
+      rating_count: z.number().int().min(0).nullable(),
+      image_url: z.string().url().max(1000).nullable(),
+      photos: z.array(z.string().url().max(1000)).max(10),
+      phone: z.string().trim().max(80).nullable(),
+      website: z.string().trim().max(300).nullable(),
+      hours: z.string().trim().max(300).nullable(),
+      twogis_url: z.string().url().max(300).nullable(),
+      note: z.string().trim().max(300).nullable().optional(),
+    })
+    .passthrough();
+  type PlaceCandidate = z.infer<typeof placeCandidate>;
+  const savePlaceCandidate = (c: PlaceCandidate, activityTypeId: string) =>
+    repository.upsertPlace(
+      {
+        source: c.source,
+        source_id: c.source_id,
+        name: c.name,
+        address: c.address,
+        city: c.city,
+        lat: c.lat,
+        lon: c.lon,
+        rating: c.rating,
+        rating_count: c.rating_count,
+        image_url: c.image_url,
+        photos: c.photos,
+        phone: c.phone,
+        website: c.website,
+        hours: c.hours,
+        twogis_url: c.twogis_url,
+        note: c.note ?? null,
+      },
+      activityTypeId,
+    );
   // Место из поиска рядом попадает в общую базу только сейчас — когда человек
   // сказал «хочу» или «был». Дальше оно видно и другим под этот тип.
   api.post(
@@ -1208,56 +1258,18 @@ export function createApp(deps: AppDependencies): Express {
     asyncHandler(async (req, res) => {
       const input = z
         .object({
-          candidate: z
-            .object({
-              source: z.enum(["2gis", "osm", "web"]),
-              source_id: z.string().trim().min(1).max(120),
-              name: z.string().trim().min(1).max(300),
-              address: z.string().trim().max(300).nullable(),
-              city: z.string().trim().max(80).nullable(),
-              lat: z.number().min(-90).max(90).nullable(),
-              lon: z.number().min(-180).max(180).nullable(),
-              rating: z.number().min(0).max(5).nullable(),
-              rating_count: z.number().int().min(0).nullable(),
-              image_url: z.string().url().max(1000).nullable(),
-              photos: z.array(z.string().url().max(1000)).max(10),
-              phone: z.string().trim().max(80).nullable(),
-              website: z.string().trim().max(300).nullable(),
-              hours: z.string().trim().max(300).nullable(),
-              twogis_url: z.string().url().max(300).nullable(),
-              note: z.string().trim().max(300).nullable().optional(),
-            })
-            .passthrough(),
+          candidate: placeCandidate,
           ...visitFields,
           activity_type_id: z.string().trim().max(80),
         })
         .strict()
         .parse(req.body);
+      await requireSubscription(repository, owner(req));
       const catalog = await loadActivityCatalog(repository);
       if (!catalog.types.some((t) => t.id === input.activity_type_id))
         throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
       const c = input.candidate;
-      const place = await repository.upsertPlace(
-        {
-          source: c.source,
-          source_id: c.source_id,
-          name: c.name,
-          address: c.address,
-          city: c.city,
-          lat: c.lat,
-          lon: c.lon,
-          rating: c.rating,
-          rating_count: c.rating_count,
-          image_url: c.image_url,
-          photos: c.photos,
-          phone: c.phone,
-          website: c.website,
-          hours: c.hours,
-          twogis_url: c.twogis_url,
-          note: c.note ?? null,
-        },
-        input.activity_type_id,
-      );
+      const place = await savePlaceCandidate(c, input.activity_type_id);
       const visit = await recordVisit(owner(req), {
         ...input,
         place_id: place.id,
@@ -1265,6 +1277,114 @@ export function createApp(deps: AppDependencies): Express {
         city: input.city ?? c.city,
       });
       res.status(201).json({ data: { place, visit } });
+    }),
+  );
+  // «Пойду» по итогу вращения: запоминаем решение и чуть поднимаем вкус к типу.
+  api.post(
+    "/activities/going",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({ spin_id: id.nullable().optional(), activity_type_id: z.string().trim().max(80) })
+        .strict()
+        .parse(req.body);
+      await requireSubscription(repository, owner(req));
+      const catalog = await loadActivityCatalog(repository);
+      const type = catalog.types.find((t) => t.id === input.activity_type_id);
+      if (!type) throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
+      if (input.spin_id) await repository.decideActivitySpin(owner(req), input.spin_id, "going");
+      await learnFromIntent(repository, owner(req), type).catch(() => undefined);
+      await trackFunnelEvent(repository, owner(req), "outing_going", { activity: type.id });
+      res.status(201).json({ data: { ok: true } });
+    }),
+  );
+  // «Пойду сюда»: место в дневник со статусом «хочу», а если сказали когда —
+  // дело в календаре с адресом, телефоном, сайтом и маршрутом. Повтор с тем
+  // же местом переносит время (дело обновляется, не дублируется).
+  api.post(
+    "/places/plan",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          place_id: id.optional(),
+          candidate: placeCandidate.optional(),
+          activity_type_id: z.string().trim().max(80),
+          when: z.string().datetime({ offset: true }).nullable().optional(),
+        })
+        .strict()
+        .refine((v) => Boolean(v.place_id) !== Boolean(v.candidate), {
+          message: "Нужно место: place_id или candidate",
+        })
+        .parse(req.body);
+      await requireSubscription(repository, owner(req));
+      const ownerId = owner(req);
+      const catalog = await loadActivityCatalog(repository);
+      const type = catalog.types.find((t) => t.id === input.activity_type_id);
+      if (!type) throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
+      const place = input.candidate
+        ? await savePlaceCandidate(input.candidate, type.id)
+        : (await repository.listPlaces({ ids: [input.place_id!], limit: 1 }))[0];
+      if (!place) throw new HttpError(404, "PLACE_NOT_FOUND", "Place not found");
+      const previous = (await repository.listPlaceVisits(ownerId)).find(
+        (visit) => visit.place_id === place.id,
+      );
+      const when = input.when ? new Date(input.when).toISOString() : null;
+      let task = null;
+      if (when) {
+        const plan = outingTask(type, place, place.twogis_url ?? null);
+        const fields = {
+          title: plan.title,
+          description: plan.description,
+          due_at: when,
+          estimate_minutes: plan.minutes,
+          kind: "meeting" as const,
+          activity_type: "entertainment" as const,
+        };
+        task =
+          (previous?.task_id
+            ? await repository.updateTask(ownerId, previous.task_id, { ...fields, status: "todo" })
+            : null) ?? (await repository.createTask(ownerId, fields));
+      }
+      const visit = await repository.savePlaceVisit(ownerId, {
+        place_id: place.id,
+        activity_type_id: type.id,
+        title: null,
+        city: place.city,
+        status: "want",
+        rating: null,
+        emotion: null,
+        note: previous?.note ?? null,
+        visited_on: null,
+        planned_for: when ?? previous?.planned_for ?? null,
+        task_id: task?.id ?? previous?.task_id ?? null,
+      });
+      await learnFromIntent(repository, ownerId, type).catch(() => undefined);
+      await trackFunnelEvent(repository, ownerId, "outing_planned", {
+        activity: type.id,
+        dated: Boolean(when),
+      });
+      res.status(201).json({ data: { place, visit, task } });
+    }),
+  );
+  // Куда человек собрался — для экрана и для вопроса «когда пойдёшь?».
+  api.get(
+    "/outings",
+    asyncHandler(async (req, res) => {
+      const catalog = await loadActivityCatalog(repository);
+      res.json({ data: await listOutings(repository, owner(req), catalog) });
+    }),
+  );
+  // «Хочу подписку»: оплаты пока нет — фиксируем интерес, админ включит тариф.
+  api.post(
+    "/subscription/request",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({ feature: z.string().trim().max(40).default("surprise") })
+        .strict()
+        .parse(req.body ?? {});
+      await trackFunnelEvent(repository, owner(req), "subscription_requested", {
+        feature: input.feature,
+      });
+      res.status(201).json({ data: { ok: true } });
     }),
   );
   // Места под тип рядом с человеком: сначала уже известные Ealzy (с ними кто-то
@@ -1289,6 +1409,7 @@ export function createApp(deps: AppDependencies): Express {
   api.get(
     "/places/nearby",
     asyncHandler(async (req, res) => {
+      await requireSubscription(repository, owner(req));
       const query = z
         .object({
           type: z.string().trim().min(1).max(80),
@@ -1429,6 +1550,7 @@ export function createApp(deps: AppDependencies): Express {
   api.post(
     "/activities/tastes/refresh",
     asyncHandler(async (req, res) => {
+      await requireSubscription(repository, owner(req));
       if (!deps.ai?.inferActivityTastes)
         throw new HttpError(503, "AI_UNAVAILABLE", "AI is not configured");
       const catalog = await loadActivityCatalog(repository);
@@ -1441,6 +1563,7 @@ export function createApp(deps: AppDependencies): Express {
   api.get(
     "/activities/tastes/evidence",
     asyncHandler(async (req, res) => {
+      await requireSubscription(repository, owner(req));
       const catalog = await loadActivityCatalog(repository);
       const { evidence } = await collectTasteEvidence(repository, owner(req), catalog);
       res.json({
@@ -1451,6 +1574,7 @@ export function createApp(deps: AppDependencies): Express {
   api.post(
     "/activities/tastes/local",
     asyncHandler(async (req, res) => {
+      await requireSubscription(repository, owner(req));
       const input = z
         .object({
           summary: z.string().trim().max(600).nullable().optional(),

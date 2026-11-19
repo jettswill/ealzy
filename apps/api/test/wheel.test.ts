@@ -1,7 +1,7 @@
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
-import { InMemoryRepository } from "../src/repository.js";
+import { SubscribedRepository } from "./subscribed.js";
 import { createSession } from "../src/modules/auth/index.js";
 import { resetActivityCatalogCache } from "../src/modules/assistant/activities.js";
 import {
@@ -178,7 +178,7 @@ describe("why they spin again", () => {
 
 describe("wheel API", () => {
   async function setup() {
-    const repository = new InMemoryRepository();
+    const repository = new SubscribedRepository();
     repository.activityCatalog = catalog;
     repository.places = [
       {
@@ -299,7 +299,7 @@ describe("wheel around a point", () => {
     }>,
   ) {
     resetActivityCatalogCache();
-    const repository = new InMemoryRepository();
+    const repository = new SubscribedRepository();
     repository.activityCatalog = catalog;
     repository.places = [
       place("11111111-1111-4111-8111-111111111111", "Далеко, в Купчино", 59.83, 30.38),

@@ -23,6 +23,11 @@ enum Palette {
     static let goldText = dynamic(light: 0x7A5E1C, dark: 0xD4BC82)
     /// Свет лампы над главным делом.
     static let pool = dynamic(light: 0xD4BC82, dark: 0xD4BC82, alphaLight: 0.42, alphaDark: 0.30)
+    /// «Досуг» — свой, бирюзовый свет, чтобы вкладка отличалась от дел.
+    static let surprise = dynamic(light: 0x3E9488, dark: 0x7CC6BA)
+    static let surpriseText = dynamic(light: 0x2C6F66, dark: 0x8FD3C7)
+    static let surpriseInk = Color(hex: 0x10201D)
+    static let surprisePool = dynamic(light: 0x6CC0B3, dark: 0x4FA89C, alphaLight: 0.36, alphaDark: 0.26)
     static let pill = dynamic(light: 0xFFFFFF, dark: 0xF1EBDD, alphaLight: 0.86, alphaDark: 0.16)
     static let pillPast = dynamic(light: 0xFFFFFF, dark: 0xF1EBDD, alphaLight: 0.45, alphaDark: 0.12)
 
@@ -135,13 +140,15 @@ extension View {
 
 struct LampBackground: View {
     var narrow = false
+    /// Цвет света: золотой у дел, бирюзовый у «Досуга».
+    var pool: Color = Palette.pool
 
     var body: some View {
         ZStack(alignment: .top) {
             Palette.ground
             GeometryReader { proxy in
                 RadialGradient(
-                    colors: [Palette.pool, .clear],
+                    colors: [pool, .clear],
                     center: narrow ? UnitPoint(x: 0.5, y: 0.4) : UnitPoint(x: 0.22, y: 0.16),
                     startRadius: 0,
                     endRadius: proxy.size.width * (narrow ? 0.75 : 1.05)

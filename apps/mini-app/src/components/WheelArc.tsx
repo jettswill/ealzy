@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { flapperAngle, type SpinTrack, type WheelSlot } from "../wheelPhysics";
 
-// Колесо видно только верхней третью: центр ниже края экрана, в секторах —
-// иконки, на стыках колышки, сверху язычок-стрелка, который за них цепляется.
+// Колесо видно только верхней частью: большое, центр ниже края, бока уходят
+// за экран; в секторах — иконки, на стыках колышки, сверху язычок-стрелка,
+// который за них цепляется. По высоте — около трети экрана телефона.
 
-const R = 210;
+const R = 300;
 const CX = 200;
-const CY = 232;
+const CY = 330;
+const VIEW_H = 262;
 const FILLS = ["#d4bc82", "#3a332a", "#b99a5c", "#2a251e"];
 /** Пока колесо не крутили — просто красивый набор занятий. */
 export const PREVIEW_ICONS = [
@@ -105,13 +107,13 @@ export function WheelArc({
 
   return (
     <div className="wheel-arc" role="img" aria-label={label}>
-      <svg viewBox="0 0 400 168" preserveAspectRatio="xMidYMin slice">
+      <svg viewBox={`0 0 400 ${VIEW_H}`} preserveAspectRatio="xMidYMin slice">
         <g transform={`rotate(${rotation} ${CX} ${CY})`}>
           {slots.map((slot, index) => {
             const size = slot.end - slot.start;
             const mid = (slot.start + slot.end) / 2;
-            const [ix, iy] = toXY(mid, R * 0.8);
-            const fontSize = Math.max(15, Math.min(30, size * 1.35));
+            const [ix, iy] = toXY(mid, R * 0.82);
+            const fontSize = Math.max(20, Math.min(42, size * 1.9));
             const win = settled === index;
             return (
               <g key={index}>
@@ -135,15 +137,15 @@ export function WheelArc({
               </g>
             );
           })}
-          <circle cx={CX} cy={CY} r={R - 1} fill="none" stroke="var(--app-gold)" strokeWidth="2" />
+          <circle cx={CX} cy={CY} r={R - 1} fill="none" stroke="var(--app-gold)" strokeWidth="2.5" />
           {slots.map((slot, index) => {
-            const [px, py] = toXY(slot.start, R - 7);
+            const [px, py] = toXY(slot.start, R - 9);
             return (
               <circle
                 key={`peg-${index}`}
                 cx={px}
                 cy={py}
-                r="3.4"
+                r="4.6"
                 fill="#f1ebdd"
                 stroke="#191714"
                 strokeWidth="1"
@@ -153,8 +155,8 @@ export function WheelArc({
         </g>
         {/* Язычок: висит на оси сверху, колышки отгибают его вправо. */}
         <g transform={`rotate(${-flap} ${CX} 6)`} className="wheel-arc-flapper">
-          <path d={`M ${CX - 9} 4 L ${CX + 9} 4 L ${CX} 44 Z`} fill="var(--app-text)" />
-          <circle cx={CX} cy="8" r="5" fill="var(--app-gold)" stroke="var(--app-text)" />
+          <path d={`M ${CX - 11} 4 L ${CX + 11} 4 L ${CX} 56 Z`} fill="var(--app-text)" />
+          <circle cx={CX} cy="9" r="6" fill="var(--app-gold)" stroke="var(--app-text)" />
         </g>
       </svg>
     </div>
