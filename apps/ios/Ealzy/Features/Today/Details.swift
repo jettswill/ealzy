@@ -129,6 +129,12 @@ struct EventDetailView: View {
     let event: EKEvent
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @State private var meetingNote: MeetingNoteStore
+
+    init(event: EKEvent) {
+        self.event = event
+        _meetingNote = State(initialValue: MeetingNoteStore(meeting: MeetingRef(event: event)))
+    }
 
     var body: some View {
         NavigationStack {
@@ -160,6 +166,8 @@ struct EventDetailView: View {
                         .lineLimit(8)
                         .padding(.top, 14)
                 }
+                MeetingNotesCard(store: meetingNote)
+                    .padding(.top, 18)
                 Spacer(minLength: 20)
                 Button {
                     let seconds = Int(event.startDate.timeIntervalSinceReferenceDate)
@@ -180,8 +188,9 @@ struct EventDetailView: View {
                     Button("Закрыть") { dismiss() }.foregroundStyle(Palette.goldText)
                 }
             }
+            .task { await meetingNote.load() }
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
         .presentationBackground(Palette.raised)
     }
 
