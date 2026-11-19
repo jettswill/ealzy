@@ -132,6 +132,11 @@ struct RootView: View {
                 }
             }
             .sheet(isPresented: $router.showSettings) { SettingsView() }
+            .sheet(isPresented: $router.showSurprise) {
+                SurpriseView()
+                    .presentationDragIndicator(.visible)
+                    .presentationBackground(Palette.ground)
+            }
             .task {
                 await auth.refresh()
                 await chat.flushQueue()

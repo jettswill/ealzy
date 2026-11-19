@@ -16,6 +16,8 @@ final class AppRouter {
     /// Шторка Илзи (полэкрана, во весь — когда печатаешь).
     var isIlziOpen = false
     var showSettings = false
+    /// Колесо «Удиви меня» — куда сходить.
+    var showSurprise = false
     /// Счётчик «сразу печатать/говорить» — шторка ставит курсор в поле.
     private(set) var captureRequest = 0
     /// Текст, который надо сразу отправить Илзи (например, «Разобрать» из запаса).
@@ -36,6 +38,20 @@ final class AppRouter {
         isIlziOpen = true
     }
 
+    /// Открыть колесо. Из «Ещё» — после того как шторка закроется: две сразу iOS не показывает.
+    func openSurprise() {
+        if showSettings || isIlziOpen {
+            showSettings = false
+            isIlziOpen = false
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(450))
+                self.showSurprise = true
+            }
+        } else {
+            showSurprise = true
+        }
+    }
+
     func openCapture() {
         openIlzi()
         captureRequest += 1
@@ -46,7 +62,7 @@ final class AppRouter {
         openIlzi()
     }
 
-    /// ealzy://capture, ealzy://chat[?text=…], ealzy://today, ealzy://reserve, ealzy://focus.
+    /// ealzy://capture, ealzy://chat[?text=…], ealzy://today, ealzy://reserve, ealzy://focus, ealzy://surprise.
     /// true — если ссылка наша.
     func handle(_ url: URL) -> Bool {
         guard url.scheme == "ealzy" else { return false }
@@ -62,6 +78,7 @@ final class AppRouter {
             focusRequest += 1
         case "today": tab = .today
         case "reserve": tab = .reserve
+        case "surprise": openSurprise()
         default: return false
         }
         return true

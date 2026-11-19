@@ -67,6 +67,7 @@ targets:
         NSSpeechRecognitionUsageDescription: Чтобы превращать надиктованное в текст — по возможности прямо на iPhone.
         NSRemindersFullAccessUsageDescription: Чтобы перенести открытые напоминания в Ealzy одной кнопкой.
         NSRemindersUsageDescription: Чтобы перенести открытые напоминания в Ealzy одной кнопкой.
+        NSLocationWhenInUseUsageDescription: Чтобы колесо «Удиви меня» искало места рядом с тобой. Точка не хранится.
     entitlements:
       path: Ealzy/Ealzy.entitlements
       properties:

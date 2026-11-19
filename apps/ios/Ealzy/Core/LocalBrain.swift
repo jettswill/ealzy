@@ -354,6 +354,42 @@ final class LocalBrain {
         }
     }
 
+    /// Свободная задача по своим инструкциям (например, гипотезы о вкусах для колеса).
+    /// nil — модель не готова, не успела или ответила пустотой.
+    func complete(
+        instructions: String, prompt: String, maxTokens: Int = 700,
+        temperature: Float = 0.2, timeout: Duration = .seconds(120)
+    ) async -> String? {
+        guard isActive else { return nil }
+        do {
+            let model = try await loadedContainer()
+            let raw: String? = try await withThrowingTaskGroup(of: String?.self) { group in
+                group.addTask {
+                    let session = ChatSession(
+                        model,
+                        instructions: instructions,
+                        generateParameters: GenerateParameters(maxTokens: maxTokens, temperature: temperature),
+                        additionalContext: ["enable_thinking": false]
+                    )
+                    return try await session.respond(to: prompt)
+                }
+                group.addTask {
+                    try await Task.sleep(for: timeout)
+                    return nil
+                }
+                let first = try await group.next() ?? nil
+                group.cancelAll()
+                return first
+            }
+            var answer = raw ?? ""
+            if let end = answer.range(of: "</think>") { answer = String(answer[end.upperBound...]) }
+            answer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+            return answer.isEmpty ? nil : answer
+        } catch {
+            return nil
+        }
+    }
+
     private func loadedContainer() async throws -> ModelContainer {
         if let container { return container }
         let configuration = ModelConfiguration(directory: folder, extraEOSTokens: spec.extraEOSTokens)

@@ -173,6 +173,93 @@ export function sanitizeInference(raw: unknown, catalog: ActivityCatalog): Taste
   return { summary, hypotheses };
 }
 
+// --- Гипотезы на телефоне -------------------------------------------------
+// Маленькая модель на iPhone (2–4 млрд параметров) не удержит 412 id, зато
+// знает названия. Телефону отдаём факты одним текстом и справочник названиями;
+// он возвращает гипотезы по названиям, а сюда они приходят и сводятся к id.
+
+/** Факты о человеке короткими строками — для модели на телефоне. */
+export function localTasteFacts(evidence: TasteEvidence): string {
+  const lines: string[] = [];
+  if (evidence.about.bio) lines.push(`О себе: ${evidence.about.bio}`);
+  if (evidence.about.values.length) lines.push(`Ценности: ${evidence.about.values.join(", ")}`);
+  if (evidence.about.portrait) lines.push(`Портрет: ${evidence.about.portrait}`);
+  for (const memory of evidence.memories.slice(0, 40)) lines.push(`- ${memory}`);
+  for (const e of evidence.experiences.slice(0, 15)) {
+    const parts = [
+      e.liked.length ? `понравилось: ${e.liked.join(", ")}` : "",
+      e.disliked.length ? `не понравилось: ${e.disliked.join(", ")}` : "",
+    ].filter(Boolean);
+    lines.push(`Опыт «${e.title}»${parts.length ? ` — ${parts.join("; ")}` : ""}`);
+  }
+  for (const v of evidence.visits.slice(0, 20)) {
+    const mark = [v.rating ? `${v.rating}/5` : "", v.emotion ?? "", v.note ?? ""]
+      .filter(Boolean)
+      .join(", ");
+    lines.push(`Был: ${v.activity}${mark ? ` (${mark})` : ""}`);
+  }
+  for (const v of evidence.verdicts) {
+    lines.push(
+      `${v.verdict === "like" ? "Сказал, что нравится" : "Просил никогда не предлагать"}: ${v.activity}`,
+    );
+  }
+  return lines.join("\n").slice(0, 6_000);
+}
+
+/** Справочник названиями: «Категория: тип; тип; …» — по строке на категорию. */
+export function localTasteCatalog(catalog: ActivityCatalog): string {
+  return catalog.categories
+    .map(
+      (category) =>
+        `${category.name}: ` +
+        catalog.types
+          .filter((type) => type.category_id === category.id)
+          .map((type) => type.name)
+          .join("; "),
+    )
+    .join("\n");
+}
+
+const normName = (value: string) =>
+  value
+    .toLocaleLowerCase("ru")
+    .replace(/ё/g, "е")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+
+/**
+ * Гипотезы с телефона: по названию (или id) находим тип или категорию, дальше —
+ * та же чистка, что у облака. Локальная модель скромнее, поэтому сила — до ±0,6.
+ */
+export function inferenceFromLocal(raw: unknown, catalog: ActivityCatalog): TasteInference | null {
+  if (!raw || typeof raw !== "object") return null;
+  const data = raw as { summary?: unknown; hypotheses?: unknown };
+  const types = new Map(catalog.types.map((t) => [normName(t.name), t.id]));
+  const categories = new Map(catalog.categories.map((c) => [normName(c.name), c.id]));
+  const typeIds = new Set(catalog.types.map((t) => t.id));
+  const categoryIds = new Set(catalog.categories.map((c) => c.id));
+  const resolved: unknown[] = [];
+  for (const item of Array.isArray(data.hypotheses) ? data.hypotheses : []) {
+    if (!item || typeof item !== "object") continue;
+    const h = item as Record<string, unknown>;
+    const label = typeof h.name === "string" ? normName(h.name) : "";
+    const id = typeof h.target_id === "string" ? h.target_id : "";
+    let target: { target_kind: TasteTargetKind; target_id: string } | null = null;
+    if (typeIds.has(id)) target = { target_kind: "type", target_id: id };
+    else if (categoryIds.has(id)) target = { target_kind: "category", target_id: id };
+    else if (label && h.kind !== "category" && types.has(label))
+      target = { target_kind: "type", target_id: types.get(label)! };
+    else if (label && categories.has(label))
+      target = { target_kind: "category", target_id: categories.get(label)! };
+    else if (label && types.has(label))
+      target = { target_kind: "type", target_id: types.get(label)! };
+    if (!target) continue;
+    const affinity = typeof h.affinity === "number" ? clamp(h.affinity, -0.6, 0.6) : NaN;
+    resolved.push({ ...target, affinity, reason: h.reason });
+  }
+  return sanitizeInference({ summary: data.summary, hypotheses: resolved }, catalog);
+}
+
 const STALE_AFTER_MS = 14 * 24 * 3600_000;
 const COOLDOWN_MS = 30 * 60_000;
 
