@@ -1,3 +1,4 @@
+import { recentMeetingNotes } from "./meeting-notes.js";
 import { assertCloudQuota } from "../billing/quota.js";
 import { z } from "zod";
 import type { AppRepository } from "../../repository.js";
@@ -7,6 +8,7 @@ import type { Message, PersonalContext, Reflection, SourceChannel, Task } from "
 import { withGoalStats, withPromiseStats } from "../../direction.js";
 import type { AiProvider } from "./index.js";
 import { attachWebSources, needsLiveWeb, type WebResearch } from "./web-research.js";
+import { buildActivityIdeas, isOutingRequest } from "./activities.js";
 import {
   giftActionHits,
   isGiftAdviceQuestion,
@@ -1770,6 +1772,7 @@ export class PersonalContextBuilder {
       mailDrafts,
       mailPlaybooks,
       calendarEvents,
+      meetingNotes,
     ] = await Promise.all([
       this.repository.getProfile(ownerId),
       this.repository.getUser(ownerId),
@@ -1797,6 +1800,7 @@ export class PersonalContextBuilder {
         new Date(Date.now() - 3600_000).toISOString(),
         new Date(Date.now() + 3 * 24 * 3600_000).toISOString(),
       ),
+      recentMeetingNotes(this.repository, ownerId).catch(() => []),
     ]);
     if (!profile || !self) throw new Error("Personal context is not provisioned");
     const selfMemories = selectSelfTheses(
@@ -1828,6 +1832,13 @@ export class PersonalContextBuilder {
       new Date(),
       experiences,
     );
+    // Справочник «чем заняться» нужен, только когда спрашивают, куда сходить;
+    // сбой справочника не должен ломать ответ.
+    const activityIdeas = isOutingRequest(query)
+      ? await buildActivityIdeas(this.repository, ownerId, { text: query, city, timezone }).catch(
+          () => [],
+        )
+      : [];
     const focusedGoal = focusedGoalFromConversation(query, recentMessages, activeGoals, openTasks);
     // Обычно цель с планом ближе к разговору. Но на синке по целям смысл
     // ровно обратный: сверять надо те, у которых плана на неделю ещё нет —
@@ -1977,6 +1988,8 @@ export class PersonalContextBuilder {
       mail_playbooks: mailPlaybooks.slice(0, 8),
       upcoming_dates: upcomingDates,
       calendar_events: calendarEvents.slice(0, PersonalContextBuilder.limits.calendar),
+      ...(meetingNotes.length ? { meeting_notes: meetingNotes } : {}),
+      ...(activityIdeas.length ? { activity_ideas: activityIdeas } : {}),
       city,
       overflow: {
         extra_tasks: Math.max(0, openTasks.length - selectedTasks.length),

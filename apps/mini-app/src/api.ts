@@ -39,6 +39,14 @@ import type {
   QuotaPlan,
   AdminQuota,
   AdminUserQuota,
+  WheelRequest,
+  WheelSpin,
+  WheelStatus,
+  GeoArea,
+  NearbyPlaces,
+  PlaceCandidate,
+  Tastes,
+  VisitInput,
 } from "./types";
 import {
   createLocalNote,
@@ -699,6 +707,74 @@ export class ApiClient {
 
   billingQuota(): Promise<QuotaStatus> {
     return this.request("/api/billing/quota");
+  }
+
+  wheelStatus(): Promise<WheelStatus> {
+    return this.request("/api/activities/wheel");
+  }
+
+  tastes(): Promise<Tastes> {
+    return this.request("/api/activities/tastes");
+  }
+
+  setTaste(body: {
+    target_kind: "type" | "category";
+    target_id: string;
+    verdict: "like" | "never" | null;
+  }): Promise<Tastes> {
+    return this.request("/api/activities/tastes", { method: "PUT", body: JSON.stringify(body) });
+  }
+
+  refreshTastes(): Promise<Tastes> {
+    return this.request("/api/activities/tastes/refresh", { method: "POST", timeoutMs: 60_000 });
+  }
+
+  nearbyPlaces(query: {
+    type: string;
+    lat?: number | null;
+    lon?: number | null;
+    city?: string | null;
+    radius?: number | null;
+    near?: string | null;
+  }): Promise<NearbyPlaces> {
+    const params = new URLSearchParams({ type: query.type });
+    if (query.lat != null && query.lon != null) {
+      params.set("lat", String(query.lat));
+      params.set("lon", String(query.lon));
+    }
+    if (query.city) params.set("city", query.city);
+    if (query.radius) params.set("radius", String(Math.round(query.radius)));
+    if (query.near) params.set("near", query.near);
+    return this.request(`/api/places/nearby?${params}`, { timeoutMs: 20_000 });
+  }
+
+  /** Район, метро или адрес словами → точка. */
+  geocodePlace(q: string, city?: string | null): Promise<GeoArea> {
+    const params = new URLSearchParams({ q });
+    if (city) params.set("city", city);
+    return this.request(`/api/places/geocode?${params}`);
+  }
+
+  savePlace(candidate: PlaceCandidate, visit: VisitInput): Promise<unknown> {
+    const { distance_m: _distance, maps_url: _maps, ...place } = candidate;
+    return this.request("/api/places/save", {
+      method: "POST",
+      body: JSON.stringify({ candidate: place, ...visit }),
+    });
+  }
+
+  saveVisit(placeId: string, visit: VisitInput): Promise<unknown> {
+    return this.request("/api/places/visits", {
+      method: "POST",
+      body: JSON.stringify({ place_id: placeId, ...visit }),
+    });
+  }
+
+  spinWheel(body: WheelRequest): Promise<WheelSpin> {
+    return this.request("/api/activities/wheel", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
   }
 
   adminQuota(): Promise<AdminQuota> {

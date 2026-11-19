@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { WebPlaceHit, WebPlaceQuery } from "./web-places.js";
 import type { AppRepository } from "../../repository.js";
 import type {
   AssistantIntent,
@@ -18,6 +19,7 @@ import {
 } from "./recommendations.js";
 import { eventBundleLabels, parseOrganizeEventRequest, type EventKind } from "./organize-event.js";
 import { resolvePerson } from "./people.js";
+import type { TasteEvidence, TasteInference } from "./tastes.js";
 
 export { parseOrganizeEventRequest, eventBundleLabels } from "./organize-event.js";
 
@@ -215,6 +217,8 @@ export interface AssistantHandleResult {
 }
 
 export interface AiProvider {
+  /** Гипотезы о вкусах по активностям из того, что Илзи знает о человеке. */
+  inferActivityTastes?(evidence: TasteEvidence): Promise<TasteInference | null>;
   decide(text: string): Promise<unknown>;
   recommend(
     query: string,
@@ -232,6 +236,8 @@ export interface AiProvider {
     onAnswerDelta?: (answer: string) => void,
   ): Promise<unknown>;
   research?(query: string, context: WebResearchContext): Promise<WebResearch | null>;
+  /** Заведения под тип активности из интернета — когда на картах пусто. */
+  findPlacesOnWeb?(query: WebPlaceQuery): Promise<WebPlaceHit[]>;
   reflect?(snapshot: Record<string, unknown>): Promise<unknown>;
   extractExperience?(text: string, currentTime: string): Promise<unknown>;
   digest?(kind: ScheduledNotificationKind, snapshot: Record<string, unknown>): Promise<unknown>;

@@ -589,3 +589,149 @@ export type AdminUserQuota = {
   user: { id: string; name: string; username: string | null; email: string | null };
   quota: QuotaStatus;
 };
+
+/** Колесо «Удиви меня». */
+export type WheelMood = "calm" | "active" | "any";
+export type WheelWhen = "now" | "today" | "weekend";
+export type WheelCompany = "solo" | "pair" | "friends" | "kids";
+/** Где искать: точка (геолокация или выбранная на карте) и радиус. */
+export interface WheelArea {
+  lat: number;
+  lon: number;
+  radius_m: number;
+  /** Что человек назвал сам: «Петроградка», «м. Чкаловская». */
+  label?: string | null;
+}
+export interface GeoArea {
+  lat: number;
+  lon: number;
+  label: string;
+  city: string | null;
+}
+export interface WheelRequest {
+  mood: WheelMood;
+  want: string | null;
+  when: WheelWhen;
+  company: WheelCompany;
+  city: string | null;
+  only_new: boolean;
+  feedback: string | null;
+  area?: WheelArea | null;
+}
+export interface ActivityTypeInfo {
+  id: string;
+  name: string;
+  emoji: string | null;
+  description: string | null;
+  activity_level: number;
+  emotion_level: number;
+  price_level: number;
+  duration_hours: number;
+  setting: "indoor" | "outdoor" | "both";
+}
+export interface PlaceInfo {
+  id: string;
+  name: string;
+  city: string | null;
+  address: string | null;
+  /** Есть, когда колесо искало вокруг точки. */
+  distance_m?: number | null;
+  image_url: string | null;
+  yandex_url: string | null;
+  yandex_rating: number | null;
+  yandex_reviews: number | null;
+}
+export interface WheelSegment {
+  id: string;
+  weight: number;
+  liked?: boolean;
+  name: string;
+  emoji: string | null;
+  category: string;
+}
+export interface WheelSpin {
+  spin_id: string;
+  segments: WheelSegment[];
+  winner_index: number;
+  winner: {
+    type: ActivityTypeInfo;
+    category: { name: string; emoji: string | null } | null;
+    places: PlaceInfo[];
+    maps_url: string;
+    reason?: string | null;
+    verdict?: "like" | "never" | null;
+  };
+  spins_used: number;
+  /** null — без ограничения. */
+  spins_left: number | null;
+  spins_limit: number;
+}
+export interface WheelStatus {
+  spins_used: number;
+  spins_left: number | null;
+  spins_limit: number;
+}
+
+export type PlaceEmotion = "wow" | "good" | "meh" | "bad";
+export type PlaceVisitStatus = "visited" | "want" | "skip";
+/** Место из поиска рядом — в базе его ещё нет. */
+export interface PlaceCandidate {
+  source: "2gis" | "osm" | "web";
+  source_id: string;
+  name: string;
+  address: string | null;
+  city: string | null;
+  lat: number | null;
+  lon: number | null;
+  rating: number | null;
+  rating_count: number | null;
+  image_url: string | null;
+  photos: string[];
+  phone: string | null;
+  website: string | null;
+  hours: string | null;
+  twogis_url: string | null;
+  distance_m: number | null;
+  maps_url: string;
+  note?: string | null;
+}
+export interface SavedPlace extends PlaceInfo {
+  lat?: number | null;
+  lon?: number | null;
+  rating?: number | null;
+  rating_count?: number | null;
+  distance_m?: number | null;
+  my_status?: PlaceVisitStatus | null;
+  twogis_url?: string | null;
+}
+export interface NearbyPlaces {
+  city: string;
+  saved: SavedPlace[];
+  found: PlaceCandidate[];
+  source: "2gis" | "osm";
+  /** Часть найденного — из интернета (под тип не нашлось на картах). */
+  web?: boolean;
+}
+export interface VisitInput {
+  activity_type_id: string;
+  status: PlaceVisitStatus;
+  rating?: number | null;
+  emotion?: PlaceEmotion | null;
+  note?: string | null;
+}
+export interface TasteItem {
+  target_kind: "type" | "category";
+  target_id: string;
+  name: string;
+  emoji: string | null;
+  verdict: "like" | "never" | null;
+  score: number;
+  reason: string | null;
+  source: "you" | "visits" | "ai";
+}
+export interface Tastes {
+  summary: string | null;
+  refreshed_at: string | null;
+  ai_available: boolean;
+  items: TasteItem[];
+}

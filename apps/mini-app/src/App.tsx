@@ -78,6 +78,7 @@ const PromisesPage = lazyNamed(() => import("./pages/PromisesPage"), "PromisesPa
 const ProjectsPage = lazyNamed(() => import("./pages/ProjectsPage"), "ProjectsPage");
 const ExperiencesPage = lazyNamed(() => import("./pages/ExperiencesPage"), "ExperiencesPage");
 const ExperiencePage = lazyNamed(() => import("./pages/ExperiencePage"), "ExperiencePage");
+const WheelPage = lazyNamed(() => import("./pages/WheelPage"), "WheelPage");
 const MorePage = lazyNamed(() => import("./pages/MorePage"), "MorePage");
 const PrivacyPage = lazyNamed(() => import("./pages/MorePage"), "PrivacyPage");
 const ImportPage = lazyNamed(() => import("./pages/ImportPage"), "ImportPage");
@@ -173,6 +174,7 @@ function AppShell() {
         <Route path="experiences" element={<ExperiencesPage />} />
         <Route path="experiences/:id" element={<ExperiencePage />} />
         <Route path="more" element={<MorePage />} />
+        <Route path="surprise" element={<WheelPage />} />
         <Route path="admin" element={<AdminPage />} />
         <Route path="import" element={<ImportPage />} />
         <Route path="profile" element={<ProfilePage />} />

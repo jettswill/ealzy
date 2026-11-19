@@ -1,3 +1,5 @@
+import { cachedAreaGeocoder, type GeoArea } from "./modules/assistant/web-places.js";
+import { assertCloudQuota } from "./modules/billing/quota.js";
 import type { PushGateway } from "./infrastructure/apns.js";
 import express, { type Express, Router } from "express";
 import { rateLimit } from "express-rate-limit";
@@ -20,6 +22,22 @@ import type { Env } from "./config.js";
 import type { AppRepository } from "./repository.js";
 import { withGoalStats, withPromiseStats } from "./direction.js";
 import { errorHandler, HttpError, notFound, requestId, asyncHandler } from "./middleware.js";
+import { loadActivityCatalog, surpriseActivity } from "./modules/assistant/activities.js";
+import { spinWheel, WheelError, wheelStatus } from "./modules/assistant/wheel.js";
+import {
+  createPlaceSearch,
+  distanceMeters,
+  type PlaceSearch,
+} from "./modules/assistant/place-search.js";
+import {
+  learnFromVisit,
+  refreshTastes,
+  tasteFor,
+  tasteIndex,
+  visitSignal,
+} from "./modules/assistant/tastes.js";
+import { cityForTimezone } from "./modules/assistant/discovery.js";
+import { getMeetingNote, saveMeetingNote } from "./modules/assistant/meeting-notes.js";
 import {
   applyWebClientContext,
   authMiddleware,
@@ -379,6 +397,7 @@ export interface AppDependencies {
     | "TODOIST_CLIENT_ID"
     | "TODOIST_CLIENT_SECRET"
     | "TODOIST_REDIRECT_URI"
+    | "DGIS_API_KEY"
   >;
   supabaseAuth?: SupabaseAuthVerifier;
   telegram: TelegramGateway;
@@ -387,10 +406,32 @@ export interface AppDependencies {
   mail?: MailGateway;
   todoist?: TodoistGateway;
   push?: PushGateway;
+  /** Поиск мест рядом; по умолчанию — OpenStreetMap. */
+  placeSearch?: PlaceSearch;
+  /** Район словами → точка; по умолчанию Nominatim. */
+  placeGeocoder?: (text: string, city: string | null) => Promise<GeoArea | null>;
 }
+
+/** Где искать: точка (геолокация или на карте) и радиус. */
+const areaSchema = z
+  .object({
+    lat: z.number().min(-90).max(90),
+    lon: z.number().min(-180).max(180),
+    radius_m: z.number().int().min(300).max(40_000),
+    label: z.string().trim().max(80).nullable().optional(),
+  })
+  .strict();
 
 export function createApp(deps: AppDependencies): Express {
   const { repository, env } = deps;
+  const placeSearch =
+    deps.placeSearch ??
+    createPlaceSearch({
+      dgisKey: env.DGIS_API_KEY,
+      // Редкое, чего нет на картах, Илзи ищет в интернете.
+      web: deps.ai?.findPlacesOnWeb ? (query) => deps.ai!.findPlacesOnWeb!(query) : null,
+    });
+  const placeGeocoder = deps.placeGeocoder ?? cachedAreaGeocoder();
   attachUsageSink(deps.ai, repository);
   const supabaseAuth: SupabaseAuthVerifier = deps.supabaseAuth ?? {
     async getUser() {
@@ -838,6 +879,494 @@ export function createApp(deps: AppDependencies): Express {
       res.json({
         data: await repository.listCalendarEvents(owner(req), from.toISOString(), to.toISOString()),
       });
+    }),
+  );
+  // Заметки со встречи: открыл встречу в приложении — пишешь, что обсудили.
+  api.get(
+    "/calendar/meeting-note",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          external_id: z.string().trim().min(1).max(300),
+          starts_at: z.string().datetime({ offset: true }),
+        })
+        .parse(req.query);
+      res.json({
+        data: await getMeetingNote(
+          repository,
+          owner(req),
+          input.external_id,
+          new Date(input.starts_at).toISOString(),
+        ),
+      });
+    }),
+  );
+  api.put(
+    "/calendar/meeting-note",
+    asyncHandler(async (req, res) => {
+      const iso = z.string().datetime({ offset: true });
+      const input = z
+        .object({
+          external_id: z.string().trim().min(1).max(300),
+          starts_at: iso,
+          ends_at: iso,
+          title: z.string().trim().min(1).max(300),
+          body: z.string().max(50_000),
+          client_mutation_id: z.string().uuid(),
+        })
+        .strict()
+        .parse(req.body);
+      const profile = await repository.getProfile(owner(req));
+      res.json({
+        data: await saveMeetingNote(
+          repository,
+          owner(req),
+          {
+            external_id: input.external_id,
+            starts_at: input.starts_at,
+            ends_at: input.ends_at,
+            title: input.title,
+          },
+          input.body,
+          input.client_mutation_id,
+          profile?.timezone || "Europe/Moscow",
+        ),
+      });
+    }),
+  );
+  // Справочник «чем заняться» и места под него.
+  const outingCity = async (ownerId: string, raw: unknown) => {
+    const asked = typeof raw === "string" ? raw.trim().slice(0, 80) : "";
+    if (asked) return asked;
+    const [self, profile] = await Promise.all([
+      repository.getSelfPerson(ownerId),
+      repository.getProfile(ownerId),
+    ]);
+    const withCity = (self?.locations ?? []).filter((l) => l.city);
+    const located = (withCity.find((l) => l.is_primary) ?? withCity[0])?.city;
+    return located || cityForTimezone(profile?.timezone, profile?.locale);
+  };
+  api.get(
+    "/activities",
+    asyncHandler(async (_req, res) => {
+      res.json({ data: await loadActivityCatalog(repository) });
+    }),
+  );
+  // Кнопка «Удиви меня»: случайный тип (можно сузить категорией) и места, где ещё не был.
+  api.get(
+    "/activities/surprise",
+    asyncHandler(async (req, res) => {
+      const query = z
+        .object({
+          category: z.string().trim().max(60).optional(),
+          type: z.string().trim().max(80).optional(),
+          city: z.string().trim().max(80).optional(),
+        })
+        .parse(req.query);
+      const profile = await repository.getProfile(owner(req));
+      const surprise = await surpriseActivity(repository, owner(req), {
+        category: query.category || null,
+        typeId: query.type || null,
+        city: await outingCity(owner(req), query.city),
+        timezone: profile?.timezone || "Europe/Moscow",
+      });
+      res.json({ data: found(surprise) });
+    }),
+  );
+  // Колесо «Удиви меня»: сколько вращений осталось сегодня и что уже выпадало.
+  api.get(
+    "/activities/wheel",
+    asyncHandler(async (req, res) => {
+      const profile = await repository.getProfile(owner(req));
+      // Колесо открыли — если появились новые факты, пересоберём гипотезы о
+      // вкусах в фоне; к следующему вращению они уже будут учтены.
+      if (deps.ai?.inferActivityTastes) {
+        const ownerId = owner(req);
+        void loadActivityCatalog(repository)
+          .then((catalog) => refreshTastes(repository, deps.ai, ownerId, { catalog }))
+          .catch(() => undefined);
+      }
+      res.json({
+        data: await wheelStatus(repository, owner(req), profile?.timezone || "Europe/Moscow"),
+      });
+    }),
+  );
+  api.post(
+    "/activities/wheel",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          mood: z.enum(["calm", "active", "any"]).default("any"),
+          want: z.string().trim().max(120).nullable().optional(),
+          when: z.enum(["now", "today", "weekend"]).default("today"),
+          company: z.enum(["solo", "pair", "friends", "kids"]).default("solo"),
+          city: z.string().trim().max(80).nullable().optional(),
+          only_new: z.boolean().default(false),
+          feedback: z.string().trim().max(500).nullable().optional(),
+          area: areaSchema.nullable().optional(),
+        })
+        .strict()
+        .parse(req.body);
+      const profile = await repository.getProfile(owner(req));
+      const city = await outingCity(owner(req), input.city);
+      try {
+        const result = await spinWheel(
+          repository,
+          owner(req),
+          {
+            mood: input.mood,
+            want: input.want || null,
+            when: input.when,
+            company: input.company,
+            city,
+            only_new: input.only_new,
+            feedback: input.feedback || null,
+          },
+          { timezone: profile?.timezone || "Europe/Moscow", city, area: input.area ?? null },
+        );
+        res.status(201).json({ data: result });
+      } catch (error) {
+        if (error instanceof WheelError)
+          throw new HttpError(error.status, error.code, error.message);
+        throw error;
+      }
+    }),
+  );
+  api.get(
+    "/places",
+    asyncHandler(async (req, res) => {
+      const query = z
+        .object({
+          type: z.string().trim().max(80).optional(),
+          city: z.string().trim().max(80).optional(),
+          limit: z.coerce.number().int().min(1).max(200).optional(),
+        })
+        .parse(req.query);
+      res.json({
+        data: await repository.listPlaces({
+          typeIds: query.type ? [query.type] : undefined,
+          city: await outingCity(owner(req), query.city),
+          limit: query.limit ?? 50,
+        }),
+      });
+    }),
+  );
+  api.get(
+    "/places/visits",
+    asyncHandler(async (req, res) => {
+      res.json({ data: await repository.listPlaceVisits(owner(req)) });
+    }),
+  );
+  const visitFields = {
+    activity_type_id: z.string().trim().max(80).nullable().optional(),
+    city: z.string().trim().max(80).nullable().optional(),
+    status: z.enum(["visited", "want", "skip"]).default("visited"),
+    rating: z.number().int().min(1).max(5).nullable().optional(),
+    emotion: z.enum(["wow", "good", "meh", "bad"]).nullable().optional(),
+    note: z.string().trim().max(2000).nullable().optional(),
+    visited_on: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
+  };
+  type VisitFields = {
+    activity_type_id?: string | null;
+    city?: string | null;
+    status: "visited" | "want" | "skip";
+    rating?: number | null;
+    emotion?: "wow" | "good" | "meh" | "bad" | null;
+    note?: string | null;
+    visited_on?: string | null;
+  };
+  // Запись дневника плюс урок для вкусов: оценка и впечатление после визита
+  // сдвигают вес этого типа (и слегка — его категории).
+  const recordVisit = async (
+    ownerId: string,
+    input: VisitFields & { place_id: string | null; title: string | null },
+  ) => {
+    const catalog = await loadActivityCatalog(repository);
+    const type = input.activity_type_id
+      ? catalog.types.find((t) => t.id === input.activity_type_id)
+      : undefined;
+    if (input.activity_type_id && !type)
+      throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
+    const visit = await repository.savePlaceVisit(ownerId, {
+      place_id: input.place_id,
+      activity_type_id: type?.id ?? null,
+      title: input.title,
+      city: input.city || null,
+      status: input.status,
+      rating: input.rating ?? null,
+      emotion: input.emotion ?? null,
+      note: input.note || null,
+      visited_on: input.visited_on ?? null,
+    });
+    const signal = input.status === "visited" ? visitSignal(input.rating, input.emotion) : null;
+    if (type && signal != null) await learnFromVisit(repository, ownerId, type, signal);
+    return visit;
+  };
+  api.post(
+    "/places/visits",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          place_id: z.string().uuid().nullable().optional(),
+          title: z.string().trim().min(1).max(300).nullable().optional(),
+          ...visitFields,
+        })
+        .strict()
+        .refine((v) => Boolean(v.place_id || v.title), "place_id or title is required")
+        .parse(req.body);
+      const visit = await recordVisit(owner(req), {
+        ...input,
+        place_id: input.place_id ?? null,
+        title: input.title || null,
+      });
+      res.status(201).json({ data: visit });
+    }),
+  );
+  // Место из поиска рядом попадает в общую базу только сейчас — когда человек
+  // сказал «хочу» или «был». Дальше оно видно и другим под этот тип.
+  api.post(
+    "/places/save",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          candidate: z
+            .object({
+              source: z.enum(["2gis", "osm", "web"]),
+              source_id: z.string().trim().min(1).max(120),
+              name: z.string().trim().min(1).max(300),
+              address: z.string().trim().max(300).nullable(),
+              city: z.string().trim().max(80).nullable(),
+              lat: z.number().min(-90).max(90).nullable(),
+              lon: z.number().min(-180).max(180).nullable(),
+              rating: z.number().min(0).max(5).nullable(),
+              rating_count: z.number().int().min(0).nullable(),
+              image_url: z.string().url().max(1000).nullable(),
+              photos: z.array(z.string().url().max(1000)).max(10),
+              phone: z.string().trim().max(80).nullable(),
+              website: z.string().trim().max(300).nullable(),
+              hours: z.string().trim().max(300).nullable(),
+              twogis_url: z.string().url().max(300).nullable(),
+              note: z.string().trim().max(300).nullable().optional(),
+            })
+            .passthrough(),
+          ...visitFields,
+          activity_type_id: z.string().trim().max(80),
+        })
+        .strict()
+        .parse(req.body);
+      const catalog = await loadActivityCatalog(repository);
+      if (!catalog.types.some((t) => t.id === input.activity_type_id))
+        throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
+      const c = input.candidate;
+      const place = await repository.upsertPlace(
+        {
+          source: c.source,
+          source_id: c.source_id,
+          name: c.name,
+          address: c.address,
+          city: c.city,
+          lat: c.lat,
+          lon: c.lon,
+          rating: c.rating,
+          rating_count: c.rating_count,
+          image_url: c.image_url,
+          photos: c.photos,
+          phone: c.phone,
+          website: c.website,
+          hours: c.hours,
+          twogis_url: c.twogis_url,
+          note: c.note ?? null,
+        },
+        input.activity_type_id,
+      );
+      const visit = await recordVisit(owner(req), {
+        ...input,
+        place_id: place.id,
+        title: null,
+        city: input.city ?? c.city,
+      });
+      res.status(201).json({ data: { place, visit } });
+    }),
+  );
+  // Места под тип рядом с человеком: сначала уже известные Ealzy (с ними кто-то
+  // что-то делал), потом найденные в каталоге — без записи в базу.
+  // Район, метро или адрес словами → точка для поиска «где-то здесь».
+  api.get(
+    "/places/geocode",
+    asyncHandler(async (req, res) => {
+      const query = z
+        .object({
+          q: z.string().trim().min(2).max(120),
+          city: z.string().trim().max(80).optional(),
+        })
+        .parse(req.query);
+      const city = await outingCity(owner(req), query.city);
+      const area = await placeGeocoder(query.q, city);
+      if (!area)
+        throw new HttpError(404, "PLACE_NOT_FOUND", "Не нашли такое место — попробуй иначе");
+      res.json({ data: { ...area, city } });
+    }),
+  );
+  api.get(
+    "/places/nearby",
+    asyncHandler(async (req, res) => {
+      const query = z
+        .object({
+          type: z.string().trim().min(1).max(80),
+          lat: z.coerce.number().min(-90).max(90).optional(),
+          lon: z.coerce.number().min(-180).max(180).optional(),
+          city: z.string().trim().max(80).optional(),
+          radius: z.coerce.number().int().min(300).max(40_000).optional(),
+          near: z.string().trim().max(80).optional(),
+        })
+        .parse(req.query);
+      const catalog = await loadActivityCatalog(repository);
+      const type = found(catalog.types.find((t) => t.id === query.type) ?? null);
+      const city = await outingCity(owner(req), query.city);
+      const point =
+        query.lat != null && query.lon != null ? { lat: query.lat, lon: query.lon } : null;
+      // Веб-поиск облачный: при исчерпанном лимите — только карты.
+      const allowWeb = await assertCloudQuota(repository, owner(req)).then(
+        () => true,
+        () => false,
+      );
+      const [known, visits, found_] = await Promise.all([
+        repository.listPlaces({ typeIds: [type.id], city: point ? null : city, limit: 200 }),
+        repository.listPlaceVisits(owner(req)),
+        placeSearch.nearby({
+          type,
+          lat: point?.lat ?? null,
+          lon: point?.lon ?? null,
+          city,
+          radiusM: query.radius,
+          limit: 10,
+          allowWeb,
+          near: query.near || null,
+        }),
+      ]);
+      const radius = query.radius ?? 15_000;
+      const status = new Map(
+        visits.filter((v) => v.place_id).map((v) => [v.place_id!, v.status] as const),
+      );
+      const saved = known
+        .map((place) => ({
+          ...place,
+          distance_m:
+            point && place.lat != null && place.lon != null
+              ? distanceMeters(point.lat, point.lon, place.lat, place.lon)
+              : null,
+          my_status: status.get(place.id) ?? null,
+        }))
+        .filter((place) => !point || place.distance_m == null || place.distance_m <= radius)
+        .sort((a, b) => (a.distance_m ?? 1e9) - (b.distance_m ?? 1e9))
+        .slice(0, 10);
+      const knownKeys = new Set(
+        known.map((p) => `${p.source}:${(p as { source_id?: string }).source_id ?? ""}`),
+      );
+      const knownNames = new Set(known.map((p) => p.name.toLocaleLowerCase()));
+      res.json({
+        data: {
+          type,
+          city,
+          saved,
+          found: found_.filter(
+            (c) =>
+              !knownKeys.has(`${c.source}:${c.source_id}`) &&
+              !knownNames.has(c.name.toLocaleLowerCase()),
+          ),
+          source: env.DGIS_API_KEY ? "2gis" : "osm",
+          web: found_.some((c) => c.source === "web"),
+        },
+      });
+    }),
+  );
+  // Вкусы: «нравится» / «никогда» от человека, следы визитов и гипотезы нейросети.
+  const tastesPayload = async (ownerId: string) => {
+    const [catalog, prefs, profile] = await Promise.all([
+      loadActivityCatalog(repository),
+      repository.listActivityPreferences(ownerId),
+      repository.getTasteProfile(ownerId),
+    ]);
+    const types = new Map(catalog.types.map((t) => [t.id, t]));
+    const categories = new Map(catalog.categories.map((c) => [c.id, c]));
+    const index = tasteIndex(prefs);
+    const items = prefs
+      .map((pref) => {
+        const target =
+          pref.target_kind === "type" ? types.get(pref.target_id) : categories.get(pref.target_id);
+        if (!target) return null;
+        const score =
+          pref.target_kind === "type"
+            ? tasteFor(target as (typeof catalog.types)[number], index).score
+            : Math.max(-1, Math.min(1, pref.visit_affinity + 0.6 * pref.ai_affinity));
+        return {
+          target_kind: pref.target_kind,
+          target_id: pref.target_id,
+          name: target.name,
+          emoji: target.emoji,
+          verdict: pref.verdict,
+          score: Math.round(score * 100) / 100,
+          reason: pref.ai_reason,
+          source: pref.verdict ? "you" : pref.visit_affinity !== 0 ? "visits" : "ai",
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
+      .filter((item) => item.verdict || Math.abs(item.score) >= 0.15)
+      .sort((a, b) => b.score - a.score);
+    return {
+      summary: profile?.summary ?? null,
+      refreshed_at: profile?.refreshed_at ?? null,
+      ai_available: Boolean(deps.ai?.inferActivityTastes),
+      items,
+    };
+  };
+  api.get(
+    "/activities/tastes",
+    asyncHandler(async (req, res) => {
+      res.json({ data: await tastesPayload(owner(req)) });
+    }),
+  );
+  api.put(
+    "/activities/tastes",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          target_kind: z.enum(["type", "category"]),
+          target_id: z.string().trim().min(1).max(80),
+          verdict: z.enum(["like", "never"]).nullable(),
+        })
+        .strict()
+        .parse(req.body);
+      const catalog = await loadActivityCatalog(repository);
+      const exists =
+        input.target_kind === "type"
+          ? catalog.types.some((t) => t.id === input.target_id)
+          : catalog.categories.some((c) => c.id === input.target_id);
+      if (!exists) throw new HttpError(400, "UNKNOWN_ACTIVITY_TYPE", "Unknown activity type");
+      await repository.patchActivityPreference(owner(req), input);
+      res.json({ data: await tastesPayload(owner(req)) });
+    }),
+  );
+  api.post(
+    "/activities/tastes/refresh",
+    asyncHandler(async (req, res) => {
+      if (!deps.ai?.inferActivityTastes)
+        throw new HttpError(503, "AI_UNAVAILABLE", "AI is not configured");
+      const catalog = await loadActivityCatalog(repository);
+      await refreshTastes(repository, deps.ai, owner(req), { force: true, catalog });
+      res.json({ data: await tastesPayload(owner(req)) });
+    }),
+  );
+  api.delete(
+    "/places/visits/:id",
+    asyncHandler(async (req, res) => {
+      const id = z.string().uuid().parse(req.params.id);
+      found((await repository.deletePlaceVisit(owner(req), id)) || null);
+      res.status(204).end();
     }),
   );
   api.post(

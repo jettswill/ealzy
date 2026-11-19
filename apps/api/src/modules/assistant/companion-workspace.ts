@@ -40,6 +40,7 @@ export const COMPANION_CAPABILITIES = [
   'people: any durable fact about ANOTHER person (relative, partner, friend, colleague) — a taste, a birthday, a job, a story — goes to person_facts, never to self_facts, also when the person did not say «запомни». One item per fact: {"person_name": nominative name or the role word when no name is given («Оля», «мама»), "relationship": «сестра» | «мама» | «друг» | null, "content": short fact in the user\'s language or null, "category": interest | dislike | favorite_food | gift | size | dream | important_date | personality | important_fact | other, "occurred_at": "YYYY-MM-DD" or "DD.MM" for a date else null, "date_kind": birthday | wedding | met | anniversary | other | null}. Example — «у сестры Оли день рождения 14 ноября, любит настолки»: [{"person_name":"Оля","relationship":"сестра","content":"День рождения 14 ноября","category":"important_date","occurred_at":"14.11","date_kind":"birthday"},{"person_name":"Оля","relationship":"сестра","content":"Любит настольные игры","category":"interest","occurred_at":null,"date_kind":null}]. Say «запомнила» about a person only when person_facts is non-empty in this reply. Use people_index and focused_people memories and dates (likes, birthdays, wedding, when you met, job, family)',
   "locations: optional cities/addresses on self and people; use them for products, services, places and logistics; prefer workspace.now.city and person locations; never invent addresses",
   "products/places/gifts: live listings; cite only workspace.discovery_results",
+  "outings: workspace.activity_ideas appears when the person asks where to go or what to do — a shuffled pick from Ilzi's catalog of activity types that fits the season, the occasion and kids. Suggest 2-4 of them that suit workspace.self, experiences and the company named, mixing the familiar with one surprise; prefer tried=false (new to them). Real venues come only from activity_ideas[].places or discovery_results — never invent a place, address or rating; when an idea has no places, offer to look it up on the maps by its search_query and the city. price_level 1 is under 1000 ₽ per person, 2 is 1-3k, 3 is 3-7k, 4 is over 7k",
   "errands: when they capture a real-world errand, offer ONE specific chip Ilzi can execute — cash rates, nearby pharmacy/post/MFC/bank, marketplace search, afisha, train/flight tickets, a repair pro, live weather, florists, food delivery, Gosuslugi — never generic web search for that; cite only discovery_results, never invent rates, addresses, showtimes or fares",
   "web: internet search for facts, news, definitions — not for errands that have a specific live helper; cite only discovery_results",
   "venue booking: requests to find/rent a real place, room, table or service for an event (a poker room with a croupier, a banquet hall, a photo studio) have NO live search behind them yet — discovery_results will not have a real match. Never say «нашла», «подобрала» or list a specific venue you did not get from discovery_results, and never go silent or drop the request. Instead: say plainly you cannot search real venues yet, ask the 1-2 details still missing (budget, headcount, exact area) only if genuinely needed, and create/update the task with the date, time and requirements already given so nothing the person said is lost — move the conversation toward a next concrete step instead of a dead end",
@@ -254,6 +255,17 @@ export function compactCalendar(
   });
 }
 
+/** Заметки, которые человек писал на встречах, — в его местном времени. */
+export function compactMeetingNotes(
+  notes: NonNullable<PersonalContext["meeting_notes"]>,
+  timezone: string,
+) {
+  return notes.map((note) => {
+    const start = companionClock(timezone, new Date(note.starts_at));
+    return { meeting: note.title, date: start.date, start: start.time, notes: note.notes };
+  });
+}
+
 export function toCompanionWorkspace(context: PersonalContext) {
   const focused = context.relevant_people.length
     ? context.relevant_people
@@ -353,6 +365,9 @@ export function toCompanionWorkspace(context: PersonalContext) {
     },
     upcoming_dates: context.upcoming_dates,
     calendar: compactCalendar(context.calendar_events ?? [], timezone),
+    ...(context.meeting_notes?.length
+      ? { meeting_notes: compactMeetingNotes(context.meeting_notes, timezone) }
+      : {}),
     mail: {
       accounts: context.mail_accounts.map((account) => ({
         id: account.id,
@@ -402,6 +417,26 @@ export function toCompanionWorkspace(context: PersonalContext) {
         })),
     },
     discovery_results: context.discovery_results,
+    ...(context.activity_ideas?.length
+      ? {
+          activity_ideas: context.activity_ideas.map((idea) => ({
+            name: idea.name,
+            category: idea.category,
+            price_level: idea.price_level,
+            activity_level: idea.activity_level,
+            emotion_level: idea.emotion_level,
+            setting: idea.setting,
+            search_query: idea.search_query,
+            tried: idea.tried,
+            taste: idea.taste ?? null,
+            places: idea.places.map((place) => ({
+              name: place.name,
+              address: place.address,
+              rating: place.rating,
+            })),
+          })),
+        }
+      : {}),
     self: {
       bio: context.profile.bio,
       values: context.profile.values,

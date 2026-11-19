@@ -3182,3 +3182,242 @@ html[data-theme="dark"] .composer {
 .page-header-actions .button {
   white-space: nowrap;
 }
+
+/* Колесо «Удиви меня». */
+.wheel-form,
+.wheel-again {
+  display: grid;
+  gap: 1.1rem;
+  max-width: 34rem;
+}
+.wheel-again {
+  margin-top: 1.5rem;
+}
+.wheel-field {
+  display: grid;
+  gap: 0.45rem;
+}
+.wheel-label {
+  color: var(--app-ink2);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.wheel-check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.9rem;
+}
+.wheel-check input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--app-gold);
+}
+.wheel-go {
+  min-height: 3rem;
+  font-size: 1rem;
+}
+.wheel-counter {
+  margin-top: 0.25rem;
+  color: var(--app-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+.wheel-error {
+  color: var(--app-danger);
+  font-size: 0.85rem;
+}
+.wheel {
+  position: relative;
+  width: min(100%, 22rem);
+  margin: 0.5rem auto 1rem;
+  aspect-ratio: 1;
+  /* Свет лампы сверху на колесо. */
+  filter: drop-shadow(0 10px 28px rgba(0, 0, 0, 0.35));
+}
+.wheel::before {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 30%, var(--app-pool), transparent 62%);
+  pointer-events: none;
+}
+.wheel-disc {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+.wheel-pointer {
+  position: absolute;
+  top: -0.35rem;
+  left: 50%;
+  z-index: 1;
+  width: 1.5rem;
+  height: 2rem;
+  transform: translateX(-50%);
+  background: var(--app-gold);
+  clip-path: polygon(50% 100%, 0 0, 100% 0);
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.4));
+}
+.wheel-result {
+  max-width: 34rem;
+  margin: 0 auto;
+  animation: wheel-reveal 360ms ease-out;
+}
+.wheel-result-title {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  line-height: 1.2;
+}
+.wheel-meta {
+  margin-top: 0.35rem;
+  color: var(--app-gold-text);
+  font-size: 0.85rem;
+}
+.wheel-description {
+  margin-top: 0.75rem;
+  color: var(--app-ink2);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+.wheel-maps {
+  display: inline-flex;
+  margin-top: 0.9rem;
+}
+.wheel-link {
+  margin-top: 1rem;
+  border: 0;
+  background: none;
+  color: var(--app-muted);
+  font-size: 0.85rem;
+  text-decoration: underline;
+}
+@keyframes wheel-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wheel-result {
+    animation: none;
+  }
+}
+.wheel-reason {
+  margin-top: 0.6rem;
+  color: var(--app-gold-text);
+  font-size: 0.9rem;
+}
+.wheel-hint {
+  margin-top: 0.4rem;
+  color: var(--app-muted);
+  font-size: 0.8rem;
+}
+.wheel-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.wheel-place {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  background: var(--app-surface);
+}
+.wheel-place-main {
+  display: grid;
+  gap: 0.15rem;
+  color: inherit;
+  text-decoration: none;
+}
+.wheel-badge {
+  color: var(--app-gold-text);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+.wheel-visit {
+  display: grid;
+  gap: 0.6rem;
+}
+.wheel-stars {
+  display: flex;
+  gap: 0.15rem;
+}
+.wheel-star {
+  border: 0;
+  background: none;
+  color: var(--app-border);
+  font-size: 1.5rem;
+  line-height: 1;
+  filter: grayscale(1);
+}
+.wheel-star-on {
+  color: var(--app-gold);
+  filter: none;
+}
+.wheel-tastes {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--app-border);
+}
+.wheel-taste {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.78rem;
+}
+.wheel-taste-liked {
+  background: var(--app-pool);
+  color: var(--app-text);
+}
+.wheel-taste-less {
+  border: 1px dashed var(--app-border);
+  color: var(--app-muted);
+}
+.wheel-taste-never {
+  border: 1px solid var(--app-border);
+  color: var(--app-muted);
+  text-decoration: line-through;
+}
+.wheel-taste-x {
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 0.95rem;
+  line-height: 1;
+  text-decoration: none;
+}
+
+/* Где искать: район на карте */
+.area-search {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.area-search .input {
+  flex: 1;
+  min-width: 0;
+}
+.area-map {
+  height: 260px;
+  margin-top: 10px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  /* Leaflet ставит свои слои с z-index до 1000 — держим карту под шапкой. */
+  position: relative;
+  z-index: 0;
+  touch-action: none;
+}
