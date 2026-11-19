@@ -263,3 +263,110 @@ describe("wheel API", () => {
       await request(app).post("/api/activities/wheel").set(auth).send({}).expect(201);
   });
 });
+
+describe("wheel around a point", () => {
+  const place = (id: string, name: string, lat: number | null, lon: number | null) => ({
+    id,
+    name,
+    city: "Санкт-Петербург",
+    address: null,
+    lat,
+    lon,
+    description: null,
+    image_url: null,
+    photos: [],
+    phone: null,
+    website: null,
+    hours: null,
+    price_from: null,
+    yandex_org_id: null,
+    yandex_url: null,
+    yandex_rating: null,
+    yandex_reviews: null,
+    twogis_url: null,
+    source: "test",
+    activity_type_ids: ["kofeynya"],
+  });
+
+  async function setup(
+    geocoder?: (
+      text: string,
+      city: string | null,
+    ) => Promise<null | {
+      lat: number;
+      lon: number;
+      label: string;
+    }>,
+  ) {
+    resetActivityCatalogCache();
+    const repository = new InMemoryRepository();
+    repository.activityCatalog = catalog;
+    repository.places = [
+      place("11111111-1111-4111-8111-111111111111", "Далеко, в Купчино", 59.83, 30.38),
+      place("22222222-2222-4222-8222-222222222222", "Рядом, на Петроградке", 59.962, 30.311),
+      place("33333333-3333-4333-8333-333333333333", "Чуть дальше", 59.97, 30.3),
+      place("44444444-4444-4444-8444-444444444444", "Без координат", null, null),
+    ];
+    const app = createApp({ repository, telegram, env, placeGeocoder: geocoder });
+    const user = await repository.upsertTelegramUser({ telegram_id: 777, name: "Андрей" });
+    const auth = { Authorization: `Bearer ${await createSession(user.id, sessionSecret, 900)}` };
+    return { app, auth };
+  }
+
+  it("берёт места в радиусе по расстоянию, а карты открывает на точке", async () => {
+    const { app, auth } = await setup();
+    const response = await request(app)
+      .post("/api/activities/wheel")
+      .set(auth)
+      .send({
+        want: "кофейня",
+        city: "Санкт-Петербург",
+        area: { lat: 59.9615, lon: 30.3115, radius_m: 3_000, label: "Петроградка" },
+      });
+    expect(response.status).toBe(201);
+    const winner = response.body.data.winner;
+    if (winner.type.id !== "kofeynya") return; // выпал сосед по кофе — мест у него нет
+    expect(winner.places.map((p: { name: string }) => p.name)).toEqual([
+      "Рядом, на Петроградке",
+      "Чуть дальше",
+    ]);
+    expect(winner.places[0].distance_m).toBeLessThan(200);
+    expect(winner.maps_url).toContain("ll=30.31150%2C59.96150");
+  });
+
+  it("отклоняет кривой радиус", async () => {
+    const { app, auth } = await setup();
+    const response = await request(app)
+      .post("/api/activities/wheel")
+      .set(auth)
+      .send({ area: { lat: 59.96, lon: 30.31, radius_m: 100_000 } });
+    expect(response.status).toBe(400);
+  });
+
+  it("находит район словами", async () => {
+    const calls: [string, string | null][] = [];
+    const { app, auth } = await setup(async (text, city) => {
+      calls.push([text, city]);
+      return text.includes("Чкаловская") ? { lat: 59.961, lon: 30.292, label: "Чкаловская" } : null;
+    });
+    const found = await request(app)
+      .get("/api/places/geocode")
+      .query({ q: "м. Чкаловская", city: "Санкт-Петербург" })
+      .set(auth);
+    expect(found.body.data).toEqual({
+      lat: 59.961,
+      lon: 30.292,
+      label: "Чкаловская",
+      city: "Санкт-Петербург",
+    });
+    const missing = await request(app)
+      .get("/api/places/geocode")
+      .query({ q: "Нигдебург", city: "Санкт-Петербург" })
+      .set(auth);
+    expect(missing.status).toBe(404);
+    expect(calls).toEqual([
+      ["м. Чкаловская", "Санкт-Петербург"],
+      ["Нигдебург", "Санкт-Петербург"],
+    ]);
+  });
+});

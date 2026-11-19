@@ -42,6 +42,7 @@ import type {
   WheelRequest,
   WheelSpin,
   WheelStatus,
+  GeoArea,
   NearbyPlaces,
   PlaceCandidate,
   Tastes,
@@ -733,6 +734,8 @@ export class ApiClient {
     lat?: number | null;
     lon?: number | null;
     city?: string | null;
+    radius?: number | null;
+    near?: string | null;
   }): Promise<NearbyPlaces> {
     const params = new URLSearchParams({ type: query.type });
     if (query.lat != null && query.lon != null) {
@@ -740,7 +743,16 @@ export class ApiClient {
       params.set("lon", String(query.lon));
     }
     if (query.city) params.set("city", query.city);
+    if (query.radius) params.set("radius", String(Math.round(query.radius)));
+    if (query.near) params.set("near", query.near);
     return this.request(`/api/places/nearby?${params}`, { timeoutMs: 20_000 });
+  }
+
+  /** Район, метро или адрес словами → точка. */
+  geocodePlace(q: string, city?: string | null): Promise<GeoArea> {
+    const params = new URLSearchParams({ q });
+    if (city) params.set("city", city);
+    return this.request(`/api/places/geocode?${params}`);
   }
 
   savePlace(candidate: PlaceCandidate, visit: VisitInput): Promise<unknown> {

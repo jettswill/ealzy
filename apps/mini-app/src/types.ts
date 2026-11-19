@@ -594,6 +594,20 @@ export type AdminUserQuota = {
 export type WheelMood = "calm" | "active" | "any";
 export type WheelWhen = "now" | "today" | "weekend";
 export type WheelCompany = "solo" | "pair" | "friends" | "kids";
+/** Где искать: точка (геолокация или выбранная на карте) и радиус. */
+export interface WheelArea {
+  lat: number;
+  lon: number;
+  radius_m: number;
+  /** Что человек назвал сам: «Петроградка», «м. Чкаловская». */
+  label?: string | null;
+}
+export interface GeoArea {
+  lat: number;
+  lon: number;
+  label: string;
+  city: string | null;
+}
 export interface WheelRequest {
   mood: WheelMood;
   want: string | null;
@@ -602,6 +616,7 @@ export interface WheelRequest {
   city: string | null;
   only_new: boolean;
   feedback: string | null;
+  area?: WheelArea | null;
 }
 export interface ActivityTypeInfo {
   id: string;
@@ -619,6 +634,8 @@ export interface PlaceInfo {
   name: string;
   city: string | null;
   address: string | null;
+  /** Есть, когда колесо искало вокруг точки. */
+  distance_m?: number | null;
   image_url: string | null;
   yandex_url: string | null;
   yandex_rating: number | null;
@@ -679,6 +696,8 @@ export interface PlaceCandidate {
   note?: string | null;
 }
 export interface SavedPlace extends PlaceInfo {
+  lat?: number | null;
+  lon?: number | null;
   rating?: number | null;
   rating_count?: number | null;
   distance_m?: number | null;

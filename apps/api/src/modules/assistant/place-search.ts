@@ -18,6 +18,8 @@ export interface NearbyQuery {
   radiusM?: number;
   /** Можно ли идти в веб-поиск (он облачный и платный — только при живой квоте). */
   allowWeb?: boolean;
+  /** Район словами — для веб-поиска («рядом с Чкаловской»). */
+  near?: string | null;
 }
 export interface PlaceSearch {
   nearby(query: NearbyQuery): Promise<PlaceCandidate[]>;
@@ -398,16 +400,16 @@ export function createPlaceSearch(
 
   const fromWeb = (query: NearbyQuery): Promise<WebRow[]> => {
     const city = query.city!;
-    const key = `${query.type.id}|${city.toLocaleLowerCase("ru")}`;
+    const near = query.near?.trim() || null;
+    const key = `${query.type.id}|${city.toLocaleLowerCase("ru")}|${near?.toLocaleLowerCase("ru") ?? ""}`;
     const hit = webCache.get(key);
     if (hit && Date.now() - hit.at < WEB_CACHE_TTL_MS) return hit.rows;
     const rows = options.web!({
       type_name: query.type.name,
       search_query: query.type.search_query ?? null,
       city,
-    }).then((hits) =>
-      webCandidates(hits, city, { fetch: fetchImpl, gapMs: options.geocodeGapMs }),
-    );
+      near,
+    }).then((hits) => webCandidates(hits, city, { fetch: fetchImpl, gapMs: options.geocodeGapMs }));
     if (webCache.size >= WEB_CACHE_MAX) webCache.delete(webCache.keys().next().value!);
     webCache.set(key, { at: Date.now(), rows });
     // Сбой не кэшируем: в следующий раз попробуем снова.

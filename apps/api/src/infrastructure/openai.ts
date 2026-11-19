@@ -705,9 +705,10 @@ export class OpenAiProvider implements AiProvider {
    * разбираем терпимо (parseWebPlaces).
    */
   async findPlacesOnWeb(query: WebPlaceQuery): Promise<WebPlaceHit[]> {
-    const what = query.search_query && query.search_query !== query.type_name
-      ? `${query.type_name} (${query.search_query})`
-      : query.type_name;
+    const what =
+      query.search_query && query.search_query !== query.type_name
+        ? `${query.type_name} (${query.search_query})`
+        : query.type_name;
     const result = await this.client.chat.completions.create(
       {
         model: this.webModel,
@@ -723,7 +724,12 @@ export class OpenAiProvider implements AiProvider {
               `Write name, address and note in the language of locale ${query.locale ?? "ru-RU"}.`,
             ].join(" "),
           },
-          { role: "user", content: `${what} — ${query.city}` },
+          {
+            role: "user",
+            content: query.near
+              ? `${what} — ${query.city}, поближе к: ${query.near} (если рядом нет — лучшие в городе)`
+              : `${what} — ${query.city}`,
+          },
         ],
         ...(this.webModel.startsWith("perplexity/")
           ? {}

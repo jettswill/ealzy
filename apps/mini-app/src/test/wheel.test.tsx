@@ -8,6 +8,34 @@ import { AuthProvider, SESSION_KEY } from "../auth";
 import { targetRotation, wheelArcs } from "../pages/WheelPage";
 import type { WheelSpin } from "../types";
 
+// Настоящая карта в jsdom не нужна: заглушка с тем же интерфейсом.
+const leafletStub = vi.hoisted(() => {
+  const layer = () => {
+    const self = {
+      addTo: () => self,
+      setLatLng: () => self,
+      setRadius: () => self,
+      remove: () => self,
+    };
+    return self;
+  };
+  const clicks: ((event: { latlng: { lat: number; lng: number } }) => void)[] = [];
+  const map = () => {
+    const self = {
+      setView: () => self,
+      on: (_name: string, handler: (typeof clicks)[number]) => {
+        clicks.push(handler);
+        return self;
+      },
+      remove: () => undefined,
+    };
+    return self;
+  };
+  return { clicks, default: { map, tileLayer: layer, circle: layer, circleMarker: layer } };
+});
+vi.mock("leaflet", () => ({ default: leafletStub.default }));
+vi.mock("leaflet/dist/leaflet.css", () => ({}));
+
 const api = new ApiClient(() => "test-token");
 const factory = () => api;
 
@@ -283,5 +311,80 @@ describe("surprise wheel", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Spin the wheel" })).toBeDisabled(),
     );
+  });
+
+  it("ищет в районе: словами, точкой на карте и с радиусом", async () => {
+    localStorage.removeItem("ealzy.wheel.area");
+    vi.spyOn(api, "wheelStatus").mockResolvedValue({
+      spins_used: 0,
+      spins_left: 3,
+      spins_limit: 3,
+    });
+    const geocode = vi.spyOn(api, "geocodePlace").mockImplementation(async (q) =>
+      q === "Petrogradka"
+        ? { lat: 59.96, lon: 30.31, label: "Петроградский район", city: "Saint Petersburg" }
+        : { lat: 59.94, lon: 30.31, label: "Saint Petersburg", city: "Saint Petersburg" },
+    );
+    const spin = vi.spyOn(api, "spinWheel").mockResolvedValue(spinResult());
+    const nearby = vi.spyOn(api, "nearbyPlaces").mockResolvedValue({
+      city: "Saint Petersburg",
+      saved: [],
+      found: [],
+      source: "osm",
+    });
+    renderAt("/surprise");
+
+    await screen.findByText("3 of 3 spins left today");
+    await userEvent.type(screen.getByPlaceholderText("My city"), "Saint Petersburg");
+    await userEvent.click(screen.getByRole("radio", { name: "Area" }));
+    await userEvent.type(screen.getByPlaceholderText("District, metro or address"), "Petrogradka");
+    await userEvent.click(screen.getByRole("button", { name: "Find" }));
+    expect(geocode).toHaveBeenCalledWith("Petrogradka", "Saint Petersburg");
+    expect(await screen.findByText(/Looking around: Petrogradka/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("radio", { name: "up to 1 km" }));
+    // Тап по карте сдвигает центр, радиус остаётся.
+    await waitFor(() => expect(leafletStub.clicks.length).toBeGreaterThan(0));
+    leafletStub.clicks.at(-1)!({ latlng: { lat: 59.965, lng: 30.32 } });
+    expect(await screen.findByText("Looking around the point on the map.")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Spin the wheel" }));
+    expect(spin).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        area: { lat: 59.965, lon: 30.32, radius_m: 1000, label: null },
+      }),
+    );
+    const disc = await screen.findByRole("img", { name: /Coffee shop/ });
+    await screen.findByText("Spinning…");
+    fireEvent.transitionEnd(disc);
+    // Район задан — места вокруг ищутся сразу.
+    await waitFor(() =>
+      expect(nearby).toHaveBeenCalledWith(
+        expect.objectContaining({ lat: 59.965, lon: 30.32, radius: 1000, type: "kofeynya" }),
+      ),
+    );
+    expect(JSON.parse(localStorage.getItem("ealzy.wheel.area")!)).toMatchObject({ mode: "map" });
+  });
+
+  it("«весь город» — без точки; рядом — только по кнопке", async () => {
+    localStorage.setItem("ealzy.wheel.area", JSON.stringify({ mode: "city", area: null }));
+    vi.spyOn(api, "wheelStatus").mockResolvedValue({
+      spins_used: 0,
+      spins_left: 3,
+      spins_limit: 3,
+    });
+    const spin = vi.spyOn(api, "spinWheel").mockResolvedValue(spinResult());
+    renderAt("/surprise");
+    await screen.findByText("3 of 3 spins left today");
+    expect(screen.getByRole("radio", { name: "Whole city" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Spin the wheel" }));
+    expect(spin).toHaveBeenLastCalledWith(expect.objectContaining({ area: null }));
+    const disc = await screen.findByRole("img", { name: /Coffee shop/ });
+    await screen.findByText("Spinning…");
+    fireEvent.transitionEnd(disc);
+    expect(await screen.findByRole("button", { name: "Find near me" })).toBeInTheDocument();
   });
 });

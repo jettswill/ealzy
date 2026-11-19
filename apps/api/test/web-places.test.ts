@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPlaceSearch } from "../src/modules/assistant/place-search.js";
 import {
+  cachedAreaGeocoder,
+  geocodeArea,
   parseWebPlaces,
   webCandidates,
   webSourceId,
   type WebPlaceHit,
 } from "../src/modules/assistant/web-places.js";
 
-const wave = { id: "iskusstvennaya-volna", name: "Искусственная волна", search_query: "серф волна" };
+const wave = {
+  id: "iskusstvennaya-volna",
+  name: "Искусственная волна",
+  search_query: "серф волна",
+};
 
 /** Карты пусты; Nominatim геокодит адрес «Приморский 72» в точку у Лахты. */
 function fakeFetch() {
@@ -119,6 +125,7 @@ describe("createPlaceSearch с веб-поиском", () => {
       type_name: "Искусственная волна",
       search_query: "серф волна",
       city: "Санкт-Петербург",
+      near: null,
     });
     // Тот же тип и город — второй раз в интернет не ходим.
     await search.nearby({ ...query, lat: 59.99, lon: 30.2 });
@@ -154,10 +161,11 @@ describe("createPlaceSearch с веб-поиском", () => {
       lon: 30.311,
       tags: { name, amenity: "cafe" },
     });
-    const impl = vi.fn(async () =>
-      new Response(
-        JSON.stringify({ elements: [element(1, "А"), element(2, "Б"), element(3, "В")] }),
-      ),
+    const impl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ elements: [element(1, "А"), element(2, "Б"), element(3, "В")] }),
+        ),
     ) as unknown as typeof fetch;
     const web = vi.fn(async () => hits);
     const search = createPlaceSearch({ fetch: impl, web, geocodeGapMs: 0 });
@@ -167,5 +175,75 @@ describe("createPlaceSearch с веб-поиском", () => {
     });
     expect(found).toHaveLength(3);
     expect(web).not.toHaveBeenCalled();
+  });
+});
+
+describe("geocodeArea", () => {
+  it("метро ищет как станцию, потом просто по названию", async () => {
+    const seen: string[] = [];
+    const impl = vi.fn(async (input: string | URL | Request) => {
+      const q = new URL(String(input)).searchParams.get("q")!;
+      seen.push(q);
+      return new Response(
+        JSON.stringify(
+          q.startsWith("станция") ? [] : [{ lat: "59.961", lon: "30.292", name: "Чкаловская" }],
+        ),
+      );
+    }) as unknown as typeof fetch;
+    expect(await geocodeArea("м. Чкаловская", "Санкт-Петербург", impl)).toEqual({
+      lat: 59.961,
+      lon: 30.292,
+      label: "Чкаловская",
+    });
+    expect(seen).toEqual([
+      "станция метро Чкаловская, Санкт-Петербург",
+      "Чкаловская, Санкт-Петербург",
+    ]);
+  });
+
+  it("город уже в тексте — не дублирует; ничего — null", async () => {
+    const seen: string[] = [];
+    const impl = vi.fn(async (input: string | URL | Request) => {
+      seen.push(new URL(String(input)).searchParams.get("q")!);
+      return new Response("[]");
+    }) as unknown as typeof fetch;
+    expect(
+      await geocodeArea("Санкт-Петербург, Петроградская сторона", "Санкт-Петербург", impl),
+    ).toBeNull();
+    expect(seen).toEqual(["Санкт-Петербург, Петроградская сторона"]);
+  });
+});
+
+describe("веб-поиск у района", () => {
+  it("передаёт район и кэширует отдельно от всего города", async () => {
+    const { impl } = fakeFetch();
+    const web = vi.fn(async () => hits);
+    const search = createPlaceSearch({ fetch: impl, web, geocodeGapMs: 0 });
+    const base = { type: wave, lat: 59.96, lon: 30.31, city: "Санкт-Петербург", allowWeb: true };
+    await search.nearby({ ...base, near: "Петроградка" });
+    await search.nearby({ ...base, near: "Петроградка" });
+    await search.nearby(base);
+    expect(web).toHaveBeenCalledTimes(2);
+    expect(web).toHaveBeenNthCalledWith(1, expect.objectContaining({ near: "Петроградка" }));
+    expect(web).toHaveBeenNthCalledWith(2, expect.objectContaining({ near: null }));
+  });
+});
+
+describe("cachedAreaGeocoder", () => {
+  it("помнит найденное, промахи — нет", async () => {
+    const impl = vi.fn(async (input: string | URL | Request) => {
+      const q = new URL(String(input)).searchParams.get("q")!;
+      return new Response(
+        JSON.stringify(
+          q.startsWith("Хамовники") ? [{ lat: "55.73", lon: "37.57", name: "Хамовники" }] : [],
+        ),
+      );
+    }) as unknown as typeof fetch;
+    const geocoder = cachedAreaGeocoder(impl);
+    await geocoder("Хамовники", "Москва");
+    await geocoder("  хамовники ", "москва");
+    await geocoder("Нигде", "Москва");
+    await geocoder("Нигде", "Москва");
+    expect(impl).toHaveBeenCalledTimes(3);
   });
 });

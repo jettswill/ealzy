@@ -3399,3 +3399,25 @@ html[data-theme="dark"] .composer {
   line-height: 1;
   text-decoration: none;
 }
+
+/* Где искать: район на карте */
+.area-search {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.area-search .input {
+  flex: 1;
+  min-width: 0;
+}
+.area-map {
+  height: 260px;
+  margin-top: 10px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  /* Leaflet ставит свои слои с z-index до 1000 — держим карту под шапкой. */
+  position: relative;
+  z-index: 0;
+  touch-action: none;
+}
