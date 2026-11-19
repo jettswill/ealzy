@@ -8,6 +8,7 @@ enum Keychain {
     private static let service = "ru.ealzy.app.session"
     private static let account = "token"
     private static let snapshotAccount = "widget-snapshot"
+    private static let placeAccount = "widget-place"
 
     private static var sharedGroup: String? {
         guard let group = Bundle.main.object(forInfoDictionaryKey: "EalzyKeychainGroup") as? String,
@@ -31,6 +32,11 @@ enum Keychain {
     static func readSnapshot() -> Data? { readData(account: snapshotAccount) }
     static func saveSnapshot(_ data: Data) { saveData(data, account: snapshotAccount) }
     static func deleteSnapshot() { delete(account: snapshotAccount) }
+
+    /// Где телефон и погода там — тоже для виджета без общей папки.
+    static func readPlace() -> Data? { readData(account: placeAccount) }
+    static func savePlace(_ data: Data) { saveData(data, account: placeAccount) }
+    static func deletePlace() { delete(account: placeAccount) }
 
     private static func readData(account: String) -> Data? {
         for group in candidateGroups {

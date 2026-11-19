@@ -1,3 +1,4 @@
+import { isFreshWhereabouts } from "./whereabouts.js";
 import { recentMeetingNotes } from "./meeting-notes.js";
 import { assertCloudQuota } from "../billing/quota.js";
 import { z } from "zod";
@@ -1773,6 +1774,7 @@ export class PersonalContextBuilder {
       mailPlaybooks,
       calendarEvents,
       meetingNotes,
+      whereabouts,
     ] = await Promise.all([
       this.repository.getProfile(ownerId),
       this.repository.getUser(ownerId),
@@ -1801,6 +1803,7 @@ export class PersonalContextBuilder {
         new Date(Date.now() + 3 * 24 * 3600_000).toISOString(),
       ),
       recentMeetingNotes(this.repository, ownerId).catch(() => []),
+      this.repository.getCurrentWhereabouts(ownerId).catch(() => null),
     ]);
     if (!profile || !self) throw new Error("Personal context is not provisioned");
     const selfMemories = selectSelfTheses(
@@ -1824,7 +1827,10 @@ export class PersonalContextBuilder {
     const activeGoals = goals.filter((x) => x.status === "active");
     const activeProjects = projects.filter((x) => x.status === "active");
     const selfLocations = self.locations ?? [];
-    const city = cityFromLocations(selfLocations) || cityForTimezone(timezone, profile.locale);
+    // Телефон недавно отметился в городе — это и есть «где я сейчас» (в поездке тоже).
+    const here = isFreshWhereabouts(whereabouts) ? whereabouts : null;
+    const city =
+      here?.city || cityFromLocations(selfLocations) || cityForTimezone(timezone, profile.locale);
     const upcomingDates = await collectUpcomingDates(
       people,
       (personId) => this.repository.listMemories(ownerId, personId),
@@ -1989,6 +1995,7 @@ export class PersonalContextBuilder {
       upcoming_dates: upcomingDates,
       calendar_events: calendarEvents.slice(0, PersonalContextBuilder.limits.calendar),
       ...(meetingNotes.length ? { meeting_notes: meetingNotes } : {}),
+      ...(here ? { whereabouts: here } : {}),
       ...(activityIdeas.length ? { activity_ideas: activityIdeas } : {}),
       city,
       overflow: {

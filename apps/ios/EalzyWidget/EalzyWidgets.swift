@@ -5,27 +5,54 @@ import WidgetKit
 struct SnapshotEntry: TimelineEntry {
     let date: Date
     let snapshot: WidgetSnapshot?
+    var weather: WeatherNow? = nil
 }
 
 struct SnapshotProvider: TimelineProvider {
     func placeholder(in context: Context) -> SnapshotEntry {
-        SnapshotEntry(date: Date(), snapshot: .placeholder)
+        SnapshotEntry(date: Date(), snapshot: .placeholder,
+                      weather: WeatherNow(temp: -3, code: 3, isDay: true, at: Date()))
     }
 
     func getSnapshot(in context: Context, completion: @escaping (SnapshotEntry) -> Void) {
-        completion(SnapshotEntry(date: Date(), snapshot: context.isPreview ? .placeholder : WidgetSnapshot.load()))
+        if context.isPreview {
+            completion(placeholder(in: context))
+            return
+        }
+        completion(SnapshotEntry(date: Date(), snapshot: WidgetSnapshot.load(), weather: Self.cachedWeather()))
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<SnapshotEntry>) -> Void) {
-        // Снимок обновляет приложение; виджет перечитывает его раз в полчаса на всякий случай.
+        // Снимок обновляет приложение; виджет перечитывает его раз в полчаса на всякий случай
+        // и заодно обновляет погоду там, где телефон был последний раз.
         // Во время фокуса — ещё одна запись на момент, когда выйдет время.
-        let now = Date()
-        let snapshot = WidgetSnapshot.load()
-        var entries = [SnapshotEntry(date: now, snapshot: snapshot)]
-        if let ends = snapshot?.focusRun?.endsAt, ends > now {
-            entries.append(SnapshotEntry(date: ends, snapshot: snapshot))
+        Task {
+            let now = Date()
+            let snapshot = WidgetSnapshot.load()
+            let weather = await Self.freshWeather()
+            var entries = [SnapshotEntry(date: now, snapshot: snapshot, weather: weather)]
+            if let ends = snapshot?.focusRun?.endsAt, ends > now {
+                entries.append(SnapshotEntry(date: ends, snapshot: snapshot, weather: weather))
+            }
+            completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(30 * 60))))
         }
-        completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(30 * 60))))
+    }
+
+    static func cachedWeather() -> WeatherNow? {
+        guard let weather = WidgetPlace.load()?.weather, weather.isFresh else { return nil }
+        return weather
+    }
+
+    /// Погода не старше 25 минут — берём из кэша, иначе спрашиваем Open-Meteo.
+    static func freshWeather() async -> WeatherNow? {
+        guard var place = WidgetPlace.load() else { return nil }
+        if let weather = place.weather, Date().timeIntervalSince(weather.at) < 25 * 60 { return weather }
+        if let weather = await WeatherNow.fetch(lat: place.lat, lon: place.lon) {
+            place.weather = weather
+            place.save()
+            return weather
+        }
+        return place.weather?.isFresh == true ? place.weather : nil
     }
 }
 
@@ -65,7 +92,7 @@ struct FocusWidgetView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                PagerRail(page: page)
+                PagerRail(page: page, weather: entry.weather)
             }
         } else {
             day
@@ -367,27 +394,53 @@ struct PreviousWidgetPageIntent: AppIntent {
     }
 }
 
-/// Узкая колонка справа: ▲, точки страниц, ▼. Не двигается между страницами.
+/// Узкая колонка справа: сверху погода там, где ты, по центру ▲, точки страниц, ▼.
+/// Не двигается между страницами.
 private struct PagerRail: View {
     let page: Int
+    let weather: WeatherNow?
 
     var body: some View {
-        VStack(spacing: 6) {
-            Button(intent: PreviousWidgetPageIntent()) { arrow("chevron.up") }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Предыдущая страница виджета")
-            VStack(spacing: 4) {
-                ForEach(0..<WidgetPage.count, id: \.self) { index in
-                    Circle()
-                        .fill(index == page ? Palette.goldText : Palette.ink3.opacity(0.4))
-                        .frame(width: 5, height: 5)
+        VStack(spacing: 0) {
+            Group {
+                if let weather {
+                    VStack(spacing: 1) {
+                        Image(systemName: weather.symbol)
+                            .symbolRenderingMode(.multicolor)
+                            .font(.system(size: 13))
+                        Text(weather.tempText)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(Palette.ink2)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("Погода: \(weather.tempText)")
+                } else {
+                    Color.clear
                 }
             }
-            Button(intent: NextWidgetPageIntent()) { arrow("chevron.down") }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Следующая страница виджета")
+            .frame(height: 28)
+            Spacer(minLength: 2)
+            VStack(spacing: 5) {
+                Button(intent: PreviousWidgetPageIntent()) { arrow("chevron.up") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Предыдущая страница виджета")
+                VStack(spacing: 4) {
+                    ForEach(0..<WidgetPage.count, id: \.self) { index in
+                        Circle()
+                            .fill(index == page ? Palette.goldText : Palette.ink3.opacity(0.4))
+                            .frame(width: 5, height: 5)
+                    }
+                }
+                Button(intent: NextWidgetPageIntent()) { arrow("chevron.down") }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Следующая страница виджета")
+            }
+            Spacer(minLength: 2)
         }
-        .frame(width: 28)
+        .frame(width: 30)
         .frame(maxHeight: .infinity)
     }
 
@@ -395,7 +448,7 @@ private struct PagerRail: View {
         Image(systemName: name)
             .font(.system(size: 12, weight: .bold))
             .foregroundStyle(Palette.ink2)
-            .frame(width: 28, height: 28)
+            .frame(width: 26, height: 26)
             .background(Palette.rule.opacity(0.5), in: Circle())
     }
 }

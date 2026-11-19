@@ -14,6 +14,8 @@ import type {
   CalendarEvent,
   CalendarEventInput,
   MeetingNoteLink,
+  Whereabouts,
+  WhereaboutsInput,
   Memory,
   Message,
   Person,
@@ -353,6 +355,18 @@ export const DEFAULT_QUOTA_PLANS: Omit<QuotaPlan, "updated_at">[] = [
   },
 ];
 
+/** Тот же город — без учёта регистра и страны, если страну не прислали. */
+function sameStay(
+  a: { city: string; country: string | null },
+  b: { city: string; country: string | null },
+) {
+  const norm = (value: string | null) => (value ?? "").trim().toLocaleLowerCase("ru");
+  return (
+    norm(a.city) === norm(b.city) &&
+    (!a.country || !b.country || norm(a.country) === norm(b.country))
+  );
+}
+
 export interface AppRepository {
   upsertTelegramUser(input: {
     telegram_id: number;
@@ -567,6 +581,9 @@ export interface AppRepository {
     >,
   ): Promise<MeetingNoteLink>;
   listMeetingNoteLinks(ownerId: string, limit: number): Promise<MeetingNoteLink[]>;
+  getCurrentWhereabouts(ownerId: string): Promise<Whereabouts | null>;
+  /** Тот же город — обновляет последнюю отметку и погоду; другой — новое пребывание. */
+  recordWhereabouts(ownerId: string, input: WhereaboutsInput): Promise<Whereabouts>;
   listDevices(ownerId: string): Promise<Device[]>;
   createAppLoginRequest(nonce: string): Promise<void>;
   approveAppLoginRequest(nonce: string, ownerId: string): Promise<boolean>;
@@ -752,6 +769,7 @@ export class InMemoryRepository implements AppRepository {
   appLogins: AppLoginRow[] = [];
   calendarEvents: CalendarEvent[] = [];
   meetingNoteLinks: MeetingNoteLink[] = [];
+  whereabouts: Whereabouts[] = [];
   devices: Device[] = [];
   activityCatalog: ActivityCatalog = { categories: [], types: [] };
   places: Place[] = [];
@@ -959,6 +977,7 @@ export class InMemoryRepository implements AppRepository {
     this.mailPlaybooks = this.mailPlaybooks.filter((x) => x.owner_id !== ownerId);
     this.notes = this.notes.filter((x) => x.owner_id !== ownerId);
     this.meetingNoteLinks = this.meetingNoteLinks.filter((x) => x.owner_id !== ownerId);
+    this.whereabouts = this.whereabouts.filter((x) => x.owner_id !== ownerId);
     this.noteRevisions = this.noteRevisions.filter((x) => x.owner_id !== ownerId);
     this.noteActions = this.noteActions.filter((x) => x.owner_id !== ownerId);
     this.importSessions = this.importSessions.filter((x) => x.owner_id !== ownerId);
@@ -2081,6 +2100,31 @@ export class InMemoryRepository implements AppRepository {
     };
     this.meetingNoteLinks.push(link);
     return { ...link };
+  }
+  async getCurrentWhereabouts(ownerId: string) {
+    const mine = this.whereabouts
+      .filter((x) => x.owner_id === ownerId)
+      .sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at));
+    return mine[0] ? { ...mine[0] } : null;
+  }
+  async recordWhereabouts(ownerId: string, input: WhereaboutsInput) {
+    const timestamp = now();
+    const current = this.whereabouts
+      .filter((x) => x.owner_id === ownerId)
+      .sort((a, b) => b.last_seen_at.localeCompare(a.last_seen_at))[0];
+    if (current && sameStay(current, input)) {
+      Object.assign(current, input, { last_seen_at: timestamp });
+      return { ...current };
+    }
+    const row: Whereabouts = {
+      ...input,
+      id: randomUUID(),
+      owner_id: ownerId,
+      arrived_at: timestamp,
+      last_seen_at: timestamp,
+    };
+    this.whereabouts.push(row);
+    return { ...row };
   }
   async listMeetingNoteLinks(ownerId: string, limit: number) {
     return this.meetingNoteLinks
@@ -4285,6 +4329,39 @@ export class SupabaseRepository implements AppRepository {
           { ...input, owner_id: ownerId, updated_at: new Date().toISOString() },
           { onConflict: "owner_id,event_external_id,event_starts_at" },
         )
+        .select("*")
+        .single(),
+    );
+  }
+  async getCurrentWhereabouts(ownerId: string) {
+    return this.one<Whereabouts | null>(
+      this.db
+        .from("user_whereabouts")
+        .select("*")
+        .eq("owner_id", ownerId)
+        .order("last_seen_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    );
+  }
+  async recordWhereabouts(ownerId: string, input: WhereaboutsInput) {
+    const current = await this.getCurrentWhereabouts(ownerId);
+    const timestamp = new Date().toISOString();
+    if (current && sameStay(current, input)) {
+      return this.one<Whereabouts>(
+        this.db
+          .from("user_whereabouts")
+          .update({ ...input, last_seen_at: timestamp })
+          .eq("owner_id", ownerId)
+          .eq("id", current.id)
+          .select("*")
+          .single(),
+      );
+    }
+    return this.one<Whereabouts>(
+      this.db
+        .from("user_whereabouts")
+        .insert({ ...input, owner_id: ownerId, arrived_at: timestamp, last_seen_at: timestamp })
         .select("*")
         .single(),
     );
