@@ -74,9 +74,9 @@ describe("meeting notes", () => {
 
     const notes = await repository.listNotes(user.id);
     expect(notes).toHaveLength(1);
-    expect(notes[0].title).toMatch(/^Встреча: Созвон с Петей · 18 ноя/);
-    expect(notes[0].plain_text).toBe("Договорились:\nПетя шлёт смету до пятницы");
-    expect(notes[0].content).toMatchObject({ type: "doc" });
+    expect(notes[0]!.title).toMatch(/^Встреча: Созвон с Петей · 18 ноя/);
+    expect(notes[0]!.plain_text).toBe("Договорились:\nПетя шлёт смету до пятницы");
+    expect(notes[0]!.content).toMatchObject({ type: "doc" });
 
     const reopened = await request(app)
       .get("/api/calendar/meeting-note")
@@ -150,7 +150,7 @@ describe("meeting notes", () => {
     expect(context[0]).toMatchObject({ title: "Созвон с Петей", notes: "Петя шлёт смету" });
     const compact = compactMeetingNotes(context, "Europe/Moscow");
     expect(compact[0]).toMatchObject({ meeting: "Созвон с Петей", notes: "Петя шлёт смету" });
-    expect(compact[0].start).toMatch(/^\d{2}:\d{2}$/);
+    expect(compact[0]!.start).toMatch(/^\d{2}:\d{2}$/);
   });
 
   it("rejects a bad request", async () => {
