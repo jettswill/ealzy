@@ -79,6 +79,7 @@ final class AppRouter {
         case "today": tab = .today
         case "reserve": tab = .reserve
         case "surprise": openSurprise()
+        case "system-focus": SystemFocus.shared.handleCallback(url)
         default: return false
         }
         return true
