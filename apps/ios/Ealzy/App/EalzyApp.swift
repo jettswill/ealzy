@@ -37,8 +37,6 @@ struct EalzyApp: App {
             switch phase {
             case .active where auth.isSignedIn:
                 focus.refreshExternal() // фаза помодоро могла смениться, пока приложение было закрыто
-                // Фокус закончили не из приложения (например, с виджета) — выключаем режим фокуса iPhone.
-                if !focus.isRunning { SystemFocus.shared.focusEnded() }
                 Task { await refreshAll() }
                 Task { await WhereaboutsTracker.shared.refresh(prompt: true) }
             case .background:

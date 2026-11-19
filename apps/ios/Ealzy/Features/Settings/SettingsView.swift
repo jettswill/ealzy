@@ -13,7 +13,6 @@ struct SettingsView: View {
     @AppStorage(Appearance.storageKey) private var appearance = Appearance.system.rawValue
     @AppStorage(Pomodoro.enabledKey) private var pomodoroOn = false
     @AppStorage(Pomodoro.formatKey) private var pomodoroFormat = Pomodoro.formats[1].key
-    @AppStorage(SystemFocus.enabledKey) private var systemFocusOn = false
 
     var body: some View {
         NavigationStack {
@@ -56,27 +55,6 @@ struct SettingsView: View {
                                  + "О смене напомнит уведомление, перерыв можно пропустить.")
                         } else {
                             note("Фокус идёт одним куском — по оценке дела. Включи, чтобы работать с перерывами.")
-                        }
-                        row {
-                            Toggle(isOn: $systemFocusOn) { label("Режим фокуса iPhone", "moon") }
-                                .tint(Palette.gold)
-                        }
-                        if systemFocusOn {
-                            row {
-                                NavigationLink {
-                                    SystemFocusSetupView()
-                                } label: {
-                                    HStack {
-                                        label("Настроить один раз", "wand.and.stars")
-                                        Spacer()
-                                        Image(systemName: "chevron.right").font(.footnote).foregroundStyle(Palette.ink3)
-                                    }
-                                }
-                            }
-                            note("Начал фокус — iPhone включает «Не беспокоить», закончил — выключает. "
-                                 + "Нужны две Команды, это минута.")
-                        } else {
-                            note("Включи, чтобы во время фокуса не отвлекали уведомления и сообщения.")
                         }
                     }
 

@@ -100,7 +100,6 @@ final class FocusSession {
         state = State(taskId: task.id, title: task.title, plannedMinutes: minutes, startedAt: Date(),
                       pomodoro: Pomodoro.current)
         isPresented = true
-        SystemFocus.shared.focusStarted()
     }
 
     func elapsed(at now: Date = Date()) -> TimeInterval {
@@ -130,6 +129,5 @@ final class FocusSession {
     func finish() {
         isPresented = false
         state = nil
-        SystemFocus.shared.focusEnded()
     }
 }
