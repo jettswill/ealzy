@@ -125,7 +125,10 @@ final class PhoneCalendar {
         return WidgetCalendar(
             next: nextEventItem,
             laterToday: todayEvents.filter { !$0.isAllDay && $0.endDate > now }.prefix(4).map(item),
-            tomorrow: tomorrowEvents.prefix(6).map(item)
+            tomorrow: tomorrowEvents.prefix(6).map(item),
+            today: todayEvents.filter { !$0.isAllDay }.prefix(16).map {
+                WidgetSnapshot.Span(start: $0.startDate, end: $0.endDate, title: $0.title ?? "Событие")
+            }
         )
     }
 
