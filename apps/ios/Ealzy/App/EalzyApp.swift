@@ -38,6 +38,7 @@ struct EalzyApp: App {
             case .active where auth.isSignedIn:
                 focus.refreshExternal() // фаза помодоро могла смениться, пока приложение было закрыто
                 Task { await refreshAll() }
+                Task { await WhereaboutsTracker.shared.refresh(prompt: true) }
             case .background:
                 tasks.commitPending()
                 Self.scheduleRefresh()
@@ -51,6 +52,7 @@ struct EalzyApp: App {
             Self.scheduleRefresh()
             guard Keychain.readToken() != nil else { return }
             await refreshAll()
+            await WhereaboutsTracker.shared.refresh(prompt: false)
         }
     }
 

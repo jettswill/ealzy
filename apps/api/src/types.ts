@@ -446,6 +446,25 @@ export interface CalendarEvent {
   calendar_title: string | null;
   created_at: string;
 }
+/** Где человек сейчас (город с телефона) и погода там. */
+export interface Whereabouts {
+  id: string;
+  owner_id: string;
+  city: string;
+  country: string | null;
+  lat: number | null;
+  lon: number | null;
+  timezone: string | null;
+  arrived_at: string;
+  last_seen_at: string;
+  weather_temp: number | null;
+  weather_code: number | null;
+  weather_at: string | null;
+}
+export type WhereaboutsInput = Pick<
+  Whereabouts,
+  "city" | "country" | "lat" | "lon" | "timezone" | "weather_temp" | "weather_code" | "weather_at"
+>;
 /** Привязка обычной заметки к встрече из календаря телефона. */
 export interface MeetingNoteLink {
   owner_id: string;
@@ -519,6 +538,8 @@ export interface PersonalContext {
   calendar_events?: CalendarEvent[];
   /** Свежие заметки, которые человек писал на встречах. */
   meeting_notes?: MeetingNoteContext[];
+  /** Где сейчас телефон человека — если отмечался недавно. */
+  whereabouts?: Whereabouts | null;
   /** Идеи «чем заняться» из справочника — только когда человек спрашивает, куда сходить. */
   activity_ideas?: ActivityIdea[];
   upcoming_dates: {

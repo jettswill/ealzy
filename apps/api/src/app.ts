@@ -42,6 +42,7 @@ import {
 } from "./modules/assistant/tastes.js";
 import { cityForTimezone } from "./modules/assistant/discovery.js";
 import { getMeetingNote, saveMeetingNote } from "./modules/assistant/meeting-notes.js";
+import { roundCoordinate } from "./modules/assistant/whereabouts.js";
 import {
   applyWebClientContext,
   authMiddleware,
@@ -882,6 +883,44 @@ export function createApp(deps: AppDependencies): Express {
       const to = new Date(from.getTime() + 7 * 24 * 3600_000);
       res.json({
         data: await repository.listCalendarEvents(owner(req), from.toISOString(), to.toISOString()),
+      });
+    }),
+  );
+  // Где я сейчас: город и погоду присылает телефон (iOS), сервер ведёт историю поездок.
+  api.put(
+    "/me/whereabouts",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          city: z.string().trim().min(1).max(120),
+          country: z.string().trim().max(120).nullable().optional(),
+          lat: z.number().min(-90).max(90).nullable().optional(),
+          lon: z.number().min(-180).max(180).nullable().optional(),
+          timezone: z.string().trim().max(64).nullable().optional(),
+          weather: z
+            .object({
+              temp: z.number().min(-90).max(70),
+              code: z.number().int().min(0).max(99),
+              at: z.string().datetime({ offset: true }),
+            })
+            .strict()
+            .nullable()
+            .optional(),
+        })
+        .strict()
+        .parse(req.body);
+      const place = await repository.recordWhereabouts(owner(req), {
+        city: input.city,
+        country: input.country || null,
+        lat: roundCoordinate(input.lat),
+        lon: roundCoordinate(input.lon),
+        timezone: input.timezone || null,
+        weather_temp: input.weather?.temp ?? null,
+        weather_code: input.weather?.code ?? null,
+        weather_at: input.weather ? new Date(input.weather.at).toISOString() : null,
+      });
+      res.json({
+        data: { city: place.city, country: place.country, arrived_at: place.arrived_at },
       });
     }),
   );

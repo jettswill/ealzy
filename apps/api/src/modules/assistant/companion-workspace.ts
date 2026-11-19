@@ -1,3 +1,4 @@
+import { compactWhereabouts } from "./whereabouts.js";
 import type { Memory, Message, PersonalContext, Person, PersonProfile } from "../../types.js";
 import { withGoalStats } from "../../direction.js";
 import { compactLocations } from "./locations.js";
@@ -281,6 +282,9 @@ export function toCompanionWorkspace(context: PersonalContext) {
       locale: context.profile.locale,
       city: context.city,
       ...companionClock(timezone),
+      ...(context.whereabouts
+        ? { current_place: compactWhereabouts(context.whereabouts, timezone) }
+        : {}),
     },
     settings: workspaceSettings(context.profile, context.telegram_linked),
     people_index: context.people_index,

@@ -136,6 +136,7 @@ final class AuthStore {
         do {
             try await APIClient.shared.delete("/account", body: EmptyBody())
             WidgetSnapshot.clear()
+            WidgetPlace.clear()
             Keychain.deleteToken()
             UserDefaults.standard.removeObject(forKey: OnboardingView.doneKey)
             isSignedIn = false
@@ -152,6 +153,7 @@ final class AuthStore {
         isSignedIn = false
         phase = .idle
         WidgetSnapshot.clear()
+        WidgetPlace.clear()
         // Сначала отвязываем устройство от аккаунта (нужен ещё живой токен), потом забываем токен.
         Task {
             await AppDelegate.forget()
