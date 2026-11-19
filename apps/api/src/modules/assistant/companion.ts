@@ -9,7 +9,8 @@ import type { Message, PersonalContext, Reflection, SourceChannel, Task } from "
 import { withGoalStats, withPromiseStats } from "../../direction.js";
 import type { AiProvider } from "./index.js";
 import { attachWebSources, needsLiveWeb, type WebResearch } from "./web-research.js";
-import { buildActivityIdeas, isOutingRequest } from "./activities.js";
+import { buildActivityIdeas, isOutingRequest, loadActivityCatalog } from "./activities.js";
+import { listOutings } from "./outings.js";
 import {
   giftActionHits,
   isGiftAdviceQuestion,
@@ -1846,6 +1847,12 @@ export class PersonalContextBuilder {
           () => [],
         )
       : [];
+    // Куда человек собрался без времени: если он ответит «в субботу в 12» —
+    // Илзи ставит дело с адресом. Сбой не должен ломать ответ.
+    const outings = await loadActivityCatalog(this.repository)
+      .then((catalog) => listOutings(this.repository, ownerId, catalog))
+      .then((items) => items.filter((o) => !o.planned_for).slice(0, 3))
+      .catch(() => []);
     const focusedGoal = focusedGoalFromConversation(query, recentMessages, activeGoals, openTasks);
     // Обычно цель с планом ближе к разговору. Но на синке по целям смысл
     // ровно обратный: сверять надо те, у которых плана на неделю ещё нет —
@@ -1998,6 +2005,7 @@ export class PersonalContextBuilder {
       ...(meetingNotes.length ? { meeting_notes: meetingNotes } : {}),
       ...(here ? { whereabouts: here } : {}),
       ...(activityIdeas.length ? { activity_ideas: activityIdeas } : {}),
+      ...(outings.length ? { outings } : {}),
       city,
       overflow: {
         extra_tasks: Math.max(0, openTasks.length - selectedTasks.length),

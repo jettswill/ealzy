@@ -1,13 +1,14 @@
 import SwiftUI
 import UIKit
 
-/// «Удиви меня» — третья вкладка, рядом с Илзи. Человек говорит, чего хочет, —
+/// «Досуг» — третья вкладка, рядом с Илзи; свой бирюзовый свет. Человек говорит, чего хочет, —
 /// колесо (видна верхняя треть) крутится и само останавливается на выпавшем.
 /// Дальше главное — «Пойду»: куда именно и как добраться. «Поискать ещё» — что
 /// не так, настройки и новое вращение.
 struct SurpriseView: View {
     @State private var store = SurpriseStore()
     @State private var showSettings = false
+    @State private var showTastes = false
 
     init() {}
 
@@ -18,11 +19,24 @@ struct SurpriseView: View {
     ]
 
     var body: some View {
-        NavigationStack {
+        // Без NavigationStack: у него свой непрозрачный фон, и под чёлкой была
+        // «ступенька». Свет вкладки — на весь экран, как у «Сегодня».
+        Group {
+            if store.isLocked { paywall } else { wheelScreen }
+        }
+        .background { LampBackground(pool: Palette.surprisePool) }
+        .task { await store.loadStatus() }
+        .sheet(isPresented: $showTastes) {
+            NavigationStack { TastesView() }
+                .presentationBackground { LampBackground(pool: Palette.surprisePool) }
+        }
+    }
+
+    private var wheelScreen: some View {
             ScrollViewReader { scroll in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
-                        ScreenHeader(title: "Удиви меня")
+                        ScreenHeader(title: "Куда сходить?")
                         if let left = store.spinsLeftText {
                             Text(left).font(.footnote).foregroundStyle(Palette.ink3)
                         }
@@ -44,15 +58,15 @@ struct SurpriseView: View {
                             Text("Скажи, чего хочется, — колесо выберет, а я подскажу, куда именно.")
                                 .font(.body).foregroundStyle(Palette.ink2).padding(.top, 4)
                             settings
-                            primaryButton(store.canSpin ? "Крутить колесо" : "На сегодня всё") {
+                            primaryButton(store.canSpin ? "Крутить колесо" : "На сегодня всё", enabled: store.canSpin) {
                                 await store.spinWheel()
                             }
                             .padding(.top, 20)
                             errorText
-                            NavigationLink { TastesView() } label: {
+                            Button { showTastes = true } label: {
                                 Label("Твои вкусы", systemImage: "heart.text.square")
                                     .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(Palette.goldText)
+                                    .foregroundStyle(Palette.surpriseText)
                                     .frame(minHeight: 44)
                             }
                             .padding(.top, 8)
@@ -78,10 +92,39 @@ struct SurpriseView: View {
                     }
                 }
             }
-            .background { LampBackground() }
-            .toolbar(.hidden, for: .navigationBar)
-            .task { await store.loadStatus() }
             .task(id: store.track) { await play() }
+    }
+
+    // MARK: Без подписки
+
+    private var paywall: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ScreenHeader(title: "Куда сходить?")
+                WheelDisc(slots: store.slots, icons: store.icons, rotation: store.rotation, settled: nil,
+                          accessibilityText: "")
+                    .frame(maxWidth: 520).frame(maxWidth: .infinity).padding(.top, 12)
+                Text("Досуг — в подписке")
+                    .font(Typeface.display(26)).foregroundStyle(Palette.ink).padding(.top, 8)
+                Text("Колесо подберёт, чем заняться под настроение и компанию, найдёт хорошие места рядом, поставит выход в календарь и напомнит.")
+                    .font(.body).foregroundStyle(Palette.ink2).padding(.top, 8)
+                VStack(alignment: .leading, spacing: 8) {
+                    Label("Идеи под тебя — учитываю, что нравится", systemImage: "sparkles")
+                    Label("Места рядом с рейтингом, телефоном и маршрутом", systemImage: "mappin.and.ellipse")
+                    Label("«Когда пойдёшь?» — и выход в календаре", systemImage: "calendar")
+                }
+                .font(.subheadline).foregroundStyle(Palette.ink).padding(.top, 14)
+                if store.subscriptionAsked {
+                    Label("Записал! Напишем, как только подключим.", systemImage: "checkmark.circle.fill")
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.surpriseText).padding(.top, 20)
+                } else {
+                    primaryButton("Хочу подписку", enabled: true) { store.askSubscription() }
+                        .padding(.top, 20)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 8)
+            .padding(.bottom, 120)
         }
     }
 
@@ -171,17 +214,17 @@ struct SurpriseView: View {
         }
     }
 
-    private func primaryButton(_ title: String, action: @escaping () async -> Void) -> some View {
+    private func primaryButton(_ title: String, enabled: Bool = true, action: @escaping () async -> Void) -> some View {
         Button {
             Task { await action() }
         } label: {
             Text(title)
                 .font(.headline)
-                .foregroundStyle(Palette.goldInk)
+                .foregroundStyle(Palette.surpriseInk)
                 .frame(maxWidth: .infinity, minHeight: 52)
-                .background(Palette.gold.opacity(store.canSpin ? 1 : 0.45), in: RoundedRectangle(cornerRadius: 14))
+                .background(Palette.surprise.opacity(enabled ? 1 : 0.45), in: RoundedRectangle(cornerRadius: 14))
         }
-        .disabled(!store.canSpin)
+        .disabled(!enabled)
     }
 
     private func secondaryButton(_ title: String, action: @escaping () -> Void) -> some View {
@@ -197,7 +240,7 @@ struct SurpriseView: View {
 
     private func link(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title).font(.subheadline).foregroundStyle(Palette.goldText).frame(minHeight: 44)
+            Text(title).font(.subheadline).foregroundStyle(Palette.ink3).frame(minHeight: 44)
         }
         .buttonStyle(.plain)
     }
@@ -219,7 +262,7 @@ struct SurpriseView: View {
                 }
             }
             if let reason = winner.reason, !reason.isEmpty {
-                Label(reason, systemImage: "sparkles").font(.footnote).foregroundStyle(Palette.goldText)
+                Label(reason, systemImage: "sparkles").font(.footnote).foregroundStyle(Palette.surpriseText)
             }
             if store.phase != .going, let description = winner.type.description, !description.isEmpty {
                 Text(description).font(.body).foregroundStyle(Palette.ink2)
@@ -233,10 +276,10 @@ struct SurpriseView: View {
                 }
                 .padding(.top, 8)
             case .going:
-                Text("Отлично! Вот куда можно пойти и как добраться:")
-                    .font(.body.weight(.semibold)).foregroundStyle(Palette.ink).padding(.top, 4)
-                WheelPlacesView(store: store, winner: winner)
+                GoPlacesView(store: store, winner: winner).padding(.top, 4)
                 link("Нет, давай ещё посмотрим") { store.lookMore() }
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 8)
             case .more:
                 more
             default:
@@ -271,7 +314,7 @@ struct SurpriseView: View {
                 withAnimation(.snappy) { showSettings.toggle() }
             }
             if showSettings { settings }
-            primaryButton(store.canSpin ? (store.status?.spinsLeft).map { "Крутить ещё · осталось \($0)" } ?? "Крутить ещё" : "На сегодня всё") {
+            primaryButton(store.canSpin ? (store.status?.spinsLeft).map { "Крутить ещё · осталось \($0)" } ?? "Крутить ещё" : "На сегодня всё", enabled: store.canSpin) {
                 await store.spinWheel(again: true)
                 showSettings = false
             }

@@ -70,6 +70,8 @@ struct WheelStatus: Decodable {
     var city: String? = nil
     /// Догадка по часовому поясу, пока своего нет.
     var cityGuess: String? = nil
+    /// «Досуг» — по подписке; false — показываем, что внутри.
+    var subscribed: Bool? = nil
 }
 
 /// Город из справочника городов России.
@@ -242,7 +244,54 @@ struct SavedPlace: Decodable, Identifiable, Hashable {
     let rating: Double?
     let ratingCount: Int?
     let myStatus: PlaceVisitStatus?
+    var lat: Double? = nil
+    var lon: Double? = nil
+    var phone: String? = nil
+    var website: String? = nil
+    var hours: String? = nil
+    var twogisUrl: String? = nil
 }
+
+/// «Пойду сюда»: место в дневнике и (если сказали когда) дело в календаре.
+struct OutingPlan: Decodable {
+    struct Visit: Decodable {
+        let id: String
+        let plannedFor: Date?
+        let taskId: String?
+    }
+    let visit: Visit
+    let task: EalzyTask?
+}
+
+/// Куда идём: либо место из базы, либо найденное рядом.
+enum OutingTarget {
+    case saved(String)
+    case candidate(PlaceCandidate)
+}
+
+private struct PlanBody: Encodable {
+    let target: OutingTarget
+    let activityTypeId: String
+    let when: Date?
+
+    enum CodingKeys: String, CodingKey { case placeId, candidate, activityTypeId, when }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        switch target {
+        case .saved(let id): try c.encode(id, forKey: .placeId)
+        case .candidate(let candidate): try c.encode(candidate, forKey: .candidate)
+        }
+        try c.encode(activityTypeId, forKey: .activityTypeId)
+        if let when { try c.encode(when, forKey: .when) } else { try c.encodeNil(forKey: .when) }
+    }
+}
+
+private struct GoingBody: Encodable {
+    let spinId: String?
+    let activityTypeId: String
+}
+
+private struct SubscriptionBody: Encodable { let feature: String }
 
 struct NearbyPlaces: Decodable {
     let city: String
@@ -392,6 +441,20 @@ enum SurpriseAPI {
 
     static func saveVisit(placeId: String, _ fields: VisitFields) async throws {
         let _: IgnoredPayload = try await api.post("/places/visits", body: VisitBody(placeId: placeId, fields: fields))
+    }
+
+    /// «Пойду» по итогу вращения.
+    static func going(spinId: String?, type: String) async throws {
+        let _: IgnoredPayload = try await api.post("/activities/going", body: GoingBody(spinId: spinId, activityTypeId: type))
+    }
+
+    /// «Пойду сюда» (+ когда): место в дневник, дело в календарь.
+    static func plan(_ target: OutingTarget, type: String, when: Date?) async throws -> OutingPlan {
+        try await api.post("/places/plan", body: PlanBody(target: target, activityTypeId: type, when: when))
+    }
+
+    static func requestSubscription() async throws {
+        let _: IgnoredPayload = try await api.post("/subscription/request", body: SubscriptionBody(feature: "surprise"))
     }
 
     static func tastes() async throws -> Tastes {

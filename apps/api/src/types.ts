@@ -542,6 +542,8 @@ export interface PersonalContext {
   whereabouts?: Whereabouts | null;
   /** Идеи «чем заняться» из справочника — только когда человек спрашивает, куда сходить. */
   activity_ideas?: ActivityIdea[];
+  /** Куда человек собрался («Пойду», «Хочу»): без времени — спросить когда, прошло — как было. */
+  outings?: Outing[];
   upcoming_dates: {
     person: string | null;
     person_id?: string | null;
@@ -739,6 +741,10 @@ export interface PlaceVisit {
   emotion?: PlaceEmotion | null;
   note: string | null;
   visited_on: string | null;
+  /** «Пойду» со временем: когда человек собирается. */
+  planned_for?: string | null;
+  /** Дело в календаре под этот выход. */
+  task_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -753,7 +759,8 @@ export type PlaceVisitInput = Pick<
   | "emotion"
   | "note"
   | "visited_on"
->;
+> &
+  Partial<Pick<PlaceVisit, "planned_for" | "task_id">>;
 export type TasteTargetKind = "type" | "category";
 /** Вкус человека по типу или категории активностей. */
 export interface ActivityPreference {
@@ -804,9 +811,28 @@ export interface ActivitySpin {
   feedback: string | null;
   segment_ids: string[];
   result_type_id: string | null;
+  /** «Пойду» или «Поискать ещё» по итогу. */
+  decision?: "going" | "more" | null;
+  decided_at?: string | null;
   created_at: string;
 }
 export type ActivitySpinInput = Pick<
   ActivitySpin,
   "local_date" | "request" | "feedback" | "segment_ids" | "result_type_id"
 >;
+
+/** Собрался сходить: место из дневника со статусом «хочу». */
+export interface Outing {
+  visit_id: string;
+  place_id: string | null;
+  place: string;
+  address: string | null;
+  phone: string | null;
+  website: string | null;
+  activity: string | null;
+  activity_type_id: string | null;
+  emoji: string | null;
+  planned_for: string | null;
+  task_id: string | null;
+  updated_at: string;
+}

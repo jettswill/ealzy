@@ -1,7 +1,7 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
-import { InMemoryRepository } from "../src/repository.js";
+import { SubscribedRepository } from "./subscribed.js";
 import { createSession } from "../src/modules/auth/index.js";
 import {
   canonicalCityName,
@@ -70,7 +70,7 @@ describe("справочник городов", () => {
 
 describe("свой город", () => {
   async function setup() {
-    const repository = new InMemoryRepository();
+    const repository = new SubscribedRepository();
     const app = createApp({ repository, telegram, env });
     const user = await repository.upsertTelegramUser({ telegram_id: 501, name: "Андрей" });
     const auth = { Authorization: `Bearer ${await createSession(user.id, sessionSecret, 900)}` };

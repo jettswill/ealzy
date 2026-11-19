@@ -189,7 +189,7 @@ struct BottomBar: View {
             HStack(spacing: 2) {
                 item("Сегодня", "sun.max", selected: tab == .today) { withAnimation(.snappy) { tab = .today } }
                 item("Все дела", "checklist", selected: tab == .reserve) { withAnimation(.snappy) { tab = .reserve } }
-                item("Удиви меня", "sparkles", selected: tab == .surprise) { withAnimation(.snappy) { tab = .surprise } }
+                item("Досуг", "dice", selected: tab == .surprise, accent: Palette.surpriseText) { withAnimation(.snappy) { tab = .surprise } }
             }
             .padding(.horizontal, 6)
             .frame(height: 62)
@@ -213,7 +213,8 @@ struct BottomBar: View {
     }
 
     /// Одна сетка для всех кнопок: иконка в одинаковой рамке, подпись на одной линии.
-    private func item(_ title: String, _ icon: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func item(_ title: String, _ icon: String, selected: Bool, accent: Color = Palette.goldText,
+                      action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
                 Image(systemName: icon)
@@ -225,8 +226,8 @@ struct BottomBar: View {
                     .minimumScaleFactor(0.85)
                     .frame(height: 13)
             }
-            .frame(width: 76, height: 54)
-            .foregroundStyle(selected ? Palette.goldText : Palette.ink3)
+            .frame(width: 72, height: 54)
+            .foregroundStyle(selected ? accent : Palette.ink3)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

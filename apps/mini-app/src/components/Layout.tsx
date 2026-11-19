@@ -327,11 +327,15 @@ const iconPaths: Record<NavIcon, ReactNode> = {
       <circle cx="6.4" cy="18.6" r="1.35" {...stroke} />
     </>
   ),
-  // Искорки — как «Удиви меня» в iOS-приложении.
+  // Игральные кубики — «Досуг», как в iOS-приложении.
   surprise: (
     <>
-      <path d="M10 4.5l1.7 4.8 4.8 1.7-4.8 1.7L10 17.5l-1.7-4.8L3.5 11l4.8-1.7z" {...stroke} />
-      <path d="M18 3v3.4M16.3 4.7h3.4M17.5 15.5v3M16 17h3" {...stroke} />
+      <rect x="3.5" y="8.5" width="10" height="10" rx="2.2" {...stroke} />
+      <path d="M10.6 5.6l1.1-1.9a1.6 1.6 0 0 1 2.2-.6l5.4 3.1a1.6 1.6 0 0 1 .6 2.2l-3.2 5.5" {...stroke} />
+      <circle cx="6.5" cy="11.5" r="0.9" fill="currentColor" />
+      <circle cx="10.5" cy="15.5" r="0.9" fill="currentColor" />
+      <circle cx="8.5" cy="13.5" r="0.9" fill="currentColor" />
+      <circle cx="16" cy="8.2" r="0.9" fill="currentColor" />
     </>
   ),
   notes: (

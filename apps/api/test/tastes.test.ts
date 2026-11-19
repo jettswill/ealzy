@@ -1,7 +1,7 @@
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
-import { InMemoryRepository } from "../src/repository.js";
+import { SubscribedRepository } from "./subscribed.js";
 import { createSession } from "../src/modules/auth/index.js";
 import { resetActivityCatalogCache } from "../src/modules/assistant/activities.js";
 import {
@@ -225,7 +225,7 @@ describe("tastes API", () => {
     maps_url: "https://yandex.ru/maps/?text=Flow",
   };
   async function setup(ai?: AiProvider) {
-    const repository = new InMemoryRepository();
+    const repository = new SubscribedRepository();
     repository.activityCatalog = catalog;
     const placeSearch: PlaceSearch = { nearby: async () => [candidate] };
     const app = createApp({ repository, telegram, env, placeSearch, ai });

@@ -1,7 +1,7 @@
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
-import { InMemoryRepository } from "../src/repository.js";
+import { SubscribedRepository } from "./subscribed.js";
 import { createSession } from "../src/modules/auth/index.js";
 import {
   activityCategoryHint,
@@ -218,7 +218,7 @@ describe("activity ideas", () => {
 
 describe("activities API", () => {
   async function setup() {
-    const repository = new InMemoryRepository();
+    const repository = new SubscribedRepository();
     repository.activityCatalog = catalog;
     repository.places = [
       place("11111111-1111-4111-8111-111111111111", ["kofeynya"], 4.8),
@@ -288,7 +288,7 @@ describe("activities API", () => {
 
 describe("Ilzi sees the catalog", () => {
   it("adds ideas with real places only when asked where to go", async () => {
-    const repository = new InMemoryRepository();
+    const repository = new SubscribedRepository();
     repository.activityCatalog = catalog;
     repository.places = [place("p1", ["kofeynya"], 4.8, "Москва")];
     const user = await repository.upsertTelegramUser({ telegram_id: 78, name: "Андрей" });

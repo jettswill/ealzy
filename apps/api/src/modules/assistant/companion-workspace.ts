@@ -41,6 +41,7 @@ export const COMPANION_CAPABILITIES = [
   'people: any durable fact about ANOTHER person (relative, partner, friend, colleague) — a taste, a birthday, a job, a story — goes to person_facts, never to self_facts, also when the person did not say «запомни». One item per fact: {"person_name": nominative name or the role word when no name is given («Оля», «мама»), "relationship": «сестра» | «мама» | «друг» | null, "content": short fact in the user\'s language or null, "category": interest | dislike | favorite_food | gift | size | dream | important_date | personality | important_fact | other, "occurred_at": "YYYY-MM-DD" or "DD.MM" for a date else null, "date_kind": birthday | wedding | met | anniversary | other | null}. Example — «у сестры Оли день рождения 14 ноября, любит настолки»: [{"person_name":"Оля","relationship":"сестра","content":"День рождения 14 ноября","category":"important_date","occurred_at":"14.11","date_kind":"birthday"},{"person_name":"Оля","relationship":"сестра","content":"Любит настольные игры","category":"interest","occurred_at":null,"date_kind":null}]. Say «запомнила» about a person only when person_facts is non-empty in this reply. Use people_index and focused_people memories and dates (likes, birthdays, wedding, when you met, job, family)',
   "locations: optional cities/addresses on self and people; use them for products, services, places and logistics; prefer workspace.now.city and person locations; never invent addresses",
   "products/places/gifts: live listings; cite only workspace.discovery_results",
+  "planned outings: workspace.outings are places the person said they will go to (wheel «Пойду сюда») without a time yet. When they name a day or time for one, create a meeting task titled '<emoji> <activity>: <place>' with due_at and a description holding the address, phone and site; confirm in one line that it is on the calendar",
   "outings: workspace.activity_ideas appears when the person asks where to go or what to do — a shuffled pick from Ilzi's catalog of activity types that fits the season, the occasion and kids. Suggest 2-4 of them that suit workspace.self, experiences and the company named, mixing the familiar with one surprise; prefer tried=false (new to them). Real venues come only from activity_ideas[].places or discovery_results — never invent a place, address or rating; when an idea has no places, offer to look it up on the maps by its search_query and the city. price_level 1 is under 1000 ₽ per person, 2 is 1-3k, 3 is 3-7k, 4 is over 7k",
   "errands: when they capture a real-world errand, offer ONE specific chip Ilzi can execute — cash rates, nearby pharmacy/post/MFC/bank, marketplace search, afisha, train/flight tickets, a repair pro, live weather, florists, food delivery, Gosuslugi — never generic web search for that; cite only discovery_results, never invent rates, addresses, showtimes or fares",
   "web: internet search for facts, news, definitions — not for errands that have a specific live helper; cite only discovery_results",
@@ -438,6 +439,18 @@ export function toCompanionWorkspace(context: PersonalContext) {
               address: place.address,
               rating: place.rating,
             })),
+          })),
+        }
+      : {}),
+    ...(context.outings?.length
+      ? {
+          outings: context.outings.map((o) => ({
+            place: o.place,
+            activity: o.activity,
+            emoji: o.emoji,
+            address: o.address,
+            phone: o.phone,
+            website: o.website,
           })),
         }
       : {}),

@@ -682,6 +682,8 @@ export interface WheelStatus {
   city?: string | null;
   /** Догадка по часовому поясу, пока своего нет. */
   city_guess?: string | null;
+  /** «Досуг» — по подписке; false — показываем, что внутри. */
+  subscribed?: boolean;
 }
 
 export type PlaceEmotion = "wow" | "good" | "meh" | "bad";
@@ -715,6 +717,15 @@ export interface SavedPlace extends PlaceInfo {
   distance_m?: number | null;
   my_status?: PlaceVisitStatus | null;
   twogis_url?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  hours?: string | null;
+}
+/** «Пойду сюда»: место в дневнике и (если сказали когда) дело в календаре. */
+export interface OutingPlan {
+  place: SavedPlace;
+  visit: { id: string; planned_for: string | null; task_id: string | null };
+  task: { id: string; title: string; due_at: string | null; estimate_minutes: number | null; description: string | null } | null;
 }
 export interface NearbyPlaces {
   city: string;

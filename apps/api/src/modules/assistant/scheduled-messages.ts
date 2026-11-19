@@ -25,6 +25,9 @@ import { runReengagement } from "../engagement/reengagement.js";
 import { trackFunnelEvent } from "../engagement/events.js";
 import { runWithUsageOwner } from "../billing/usage.js";
 import { formatCompanionAnswer } from "./companion-format.js";
+import { loadActivityCatalog } from "./activities.js";
+import { listOutings, outingDigestLines } from "./outings.js";
+import type { Outing } from "../../types.js";
 
 export const NOTIFICATION_WINDOW_MINUTES = 90;
 export const GOAL_CHECKIN_GAP_DAYS = GOAL_SYNC_GAP_DAYS;
@@ -292,7 +295,9 @@ export function fallbackDigest(
     mail?: { from: string; subject: string; is_meeting: boolean }[];
     weekday?: string;
     calendar?: { title: string; start: string | null; all_day: boolean }[];
+    outings?: Outing[];
   },
+  at = new Date(),
 ): string {
   const ru = localeOf(profile) === "ru";
   const goalLines = (snapshot.goals ?? [])
@@ -400,6 +405,7 @@ export function fallbackDigest(
 
     const personal = personalMomentLine(snapshot.upcoming ?? [], ru);
     if (personal) lines.push(personal);
+    lines.push(...outingDigestLines(kind, snapshot.outings ?? [], profile.timezone, ru, at));
 
     if (duePromises.length)
       lines.push(
@@ -515,6 +521,7 @@ export function fallbackDigest(
         : `How are you doing with these promises: ${duePromises.map((item) => item.title).join(", ")}?`,
     );
   lines.push(...upcomingLines(snapshot.upcoming ?? [], ru));
+  lines.push(...outingDigestLines(kind, snapshot.outings ?? [], profile.timezone, ru, at));
   const mail = (snapshot.mail ?? []).slice(0, 5);
   if (mail.length)
     lines.push(
@@ -563,6 +570,18 @@ function reflectionCreatedOn(reflections: Reflection[], timeZone: string, date: 
   });
 }
 
+
+/** Время, названное в чате («в субботу в 12»), Илзи ставит делом с названием места — считаем выход назначенным. */
+function withChatDates(outings: Outing[], tasks: Task[]): Outing[] {
+  return outings.map((o) => {
+    if (o.planned_for) return o;
+    const name = o.place.toLocaleLowerCase();
+    const task = tasks.find(
+      (t) => t.due_at && t.status !== "cancelled" && t.title.toLocaleLowerCase().includes(name),
+    );
+    return task ? { ...o, planned_for: task.due_at, task_id: task.id } : o;
+  });
+}
 
 /**
  * Сборка данных дайджеста вынесена из отправки. Раньше снапшот существовал
@@ -627,7 +646,16 @@ export async function buildDigestSnapshot(
         .filter((event) => event.date === calendarDay)
         .slice(0, 8)
     : [];
+  // Куда человек собрался через «Удиви меня»: вечером спросим, когда пойдёт и как было.
+  const outings: Outing[] =
+    kind === "evening_sync" || kind === "morning_digest"
+      ? await loadActivityCatalog(repository)
+          .then((catalog) => listOutings(repository, profile.owner_id, catalog, at))
+          .then((items) => withChatDates(items, tasks))
+          .catch(() => [])
+      : [];
   const snapshot = {
+    outings,
     // Строка дня в утреннем брифе начинается с дня недели — берём его из того
     // же локального времени, по которому считается сам день.
     weekday: local.weekday,
@@ -663,7 +691,7 @@ export async function composeDigestText(
   at: Date,
 ) {
   const { snapshot } = await buildDigestSnapshot(repository, profile, kind, at);
-  return formatCompanionAnswer(fallbackDigest(kind, profile, snapshot));
+  return formatCompanionAnswer(fallbackDigest(kind, profile, snapshot, at));
 }
 
 export class ScheduledMessageService {
@@ -872,7 +900,7 @@ export class ScheduledMessageService {
       kind,
       at,
     );
-    let text = fallbackDigest(kind, profile, snapshot);
+    let text = fallbackDigest(kind, profile, snapshot, at);
     if (this.ai?.digest) {
       try {
         const generated = await this.ai.digest(kind, {
@@ -890,6 +918,12 @@ export class ScheduledMessageService {
         // Keep the structured fallback when the model is unavailable.
       }
     }
+    // Вопрос «когда пойдёшь?» важнее красоты текста: если модель его опустила — допишем.
+    const outingLines = outingDigestLines(kind, snapshot.outings, profile.timezone, localeOf(profile) === "ru", at);
+    const missing = outingLines.filter(
+      (line) => !snapshot.outings.some((o) => line.includes(o.place) && text.includes(o.place)),
+    );
+    if (missing.length) text = `${text}\n\n${missing.join("\n")}`.slice(0, 3800);
     if (kind === "evening_sync" && profile.weekly_reflection_enabled && local.weekday === "Mon") {
       const existing = await this.repository.listReflections(profile.owner_id);
       if (!reflectionCreatedOn(existing, profile.timezone, local.date)) {
