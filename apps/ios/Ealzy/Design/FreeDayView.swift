@@ -16,8 +16,8 @@ struct FreeDayView: View {
     private var isDone: Bool { snapshot.doneCount > 0 }
     private var title: String {
         if mode == .ahead { return "Впереди" }
-        if isDone { return "Всё сделано" }
-        return family == .systemSmall ? "Свободно" : "Свободный день"
+        if isDone { return family == .systemSmall ? "Всё сделано" : "На сегодня всё сделано" }
+        return family == .systemSmall ? "Дел нет" : "Сегодня дел нет"
     }
 
     struct Line: Identifiable {
@@ -77,10 +77,11 @@ struct FreeDayView: View {
         return "дел"
     }
 
-    /// Две кнопки: спланировать вперёд и навести порядок.
+    /// Две кнопки: спланировать вперёд и навести порядок. Без «плюсов» — каждая говорит, что сделает.
     private var actions: [(String, String, URL)] {
         let plan = ("План на завтра", "sunrise", Self.ask("Давай спланируем завтра: что в календаре и какие дела взять"))
-        let first = isDone ? plan : ("Собрать день", "plus", URL(string: "ealzy://reserve")!)
+        let collect = ("Собрать день", "sun.max", URL(string: "ealzy://reserve")!)
+        let first = isDone ? plan : collect
         let second: (String, String, URL)
         if snapshot.overdueCount > 0 {
             second = ("Разгрести \(snapshot.overdueCount)", "tray",
@@ -91,7 +92,7 @@ struct FreeDayView: View {
             second = ("Разобрать \(snapshot.somedayCount)", "tray",
                       Self.ask("Давай разберём дела без срока: что запланировать на неделю, что убрать"))
         } else {
-            second = ("Взять ещё", "plus", URL(string: "ealzy://reserve")!)
+            second = ("Разгрузить голову", "brain.head.profile", URL(string: "ealzy://session")!)
         }
         return [first, second]
     }
@@ -106,7 +107,7 @@ struct FreeDayView: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Image(systemName: mode == .ahead ? "calendar" : (isDone ? "checkmark.seal.fill" : "sun.max"))
+            Image(systemName: mode == .ahead ? "calendar" : (isDone ? "checkmark.seal.fill" : "moon.stars"))
                 .font(.footnote)
                 .foregroundStyle(Palette.goldText)
             Text(title)
@@ -124,7 +125,7 @@ struct FreeDayView: View {
         }
     }
 
-    private func sectionView(_ section: Section, limit: Int) -> some View {
+    private func sectionView(_ section: Section, limit: Int, showsMore: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(family == .systemSmall ? (section.title.components(separatedBy: " · ").first ?? section.title) : section.title)
                 .font(.caption2.weight(.semibold))
@@ -154,7 +155,7 @@ struct FreeDayView: View {
                         .lineLimit(1)
                 }
             }
-            if section.lines.count > limit {
+            if showsMore && section.lines.count > limit {
                 Text("ещё \(section.lines.count - limit)")
                     .font(.caption2)
                     .foregroundStyle(Palette.ink3)
@@ -185,10 +186,10 @@ struct FreeDayView: View {
         switch family {
         case .accessoryInline:
             Text(tomorrow.first.map { "Завтра: \([$0.time, $0.title].compactMap { $0 }.joined(separator: " "))" }
-                 ?? (isDone ? "Всё сделано" : "Свободный день"))
+                 ?? (isDone ? "Всё сделано" : "Сегодня дел нет"))
         case .accessoryRectangular:
             VStack(alignment: .leading, spacing: 1) {
-                Text(isDone ? "Всё сделано · завтра" : "Свободно · завтра").font(.caption2.weight(.semibold))
+                Text(isDone ? "Всё сделано · завтра" : "Дел нет · завтра").font(.caption2.weight(.semibold))
                 ForEach(tomorrow.prefix(2)) { line in
                     Text([line.time, line.title].compactMap { $0 }.joined(separator: " "))
                         .font(.caption)
@@ -200,7 +201,7 @@ struct FreeDayView: View {
             VStack(alignment: .leading, spacing: 8) {
                 header
                 if let section = mainSection {
-                    sectionView(section, limit: 3)
+                    sectionView(section, limit: 3, showsMore: false)
                 } else {
                     Text("Завтра пока пусто. Нажми — спланируем.")
                         .font(.caption)
@@ -240,7 +241,8 @@ struct FreeDayView: View {
             VStack(alignment: .leading, spacing: 8) {
                 header
                 if let section = mainSection {
-                    sectionView(section, limit: 2)
+                    // Сколько всего — уже в заголовке секции, «ещё N» не нужно.
+                    sectionView(section, limit: 3, showsMore: false)
                 } else {
                     Text("Завтра пока пусто — спланируем, пока есть время?")
                         .font(.caption)

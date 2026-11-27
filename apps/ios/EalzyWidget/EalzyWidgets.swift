@@ -85,7 +85,10 @@ struct FocusWidgetView: View {
         if withRail {
             HStack(alignment: .top, spacing: 10) {
                 Group {
-                    if let snapshot = entry.snapshot, snapshot.focusRun == nil {
+                    // Лента дня — пока на сегодня есть дела. Всё сделано или дел нет — она ни к чему,
+                    // место отдаём завтрашнему дню.
+                    if let snapshot = entry.snapshot, snapshot.focusRun == nil,
+                       !(snapshot.focus.isEmpty && snapshot.next.isEmpty) {
                         VStack(alignment: .leading, spacing: family == .systemLarge ? 12 : 8) {
                             WidgetRibbon(snapshot: snapshot, now: entry.date, large: family == .systemLarge)
                             day
