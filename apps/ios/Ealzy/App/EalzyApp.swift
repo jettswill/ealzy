@@ -135,6 +135,8 @@ struct RootView: View {
                 }
             }
             .sheet(isPresented: $router.showSettings) { SettingsView() }
+            .sheet(isPresented: $router.showGoals) { GoalsView() }
+            .fullScreenCover(item: $router.sessionMode) { SessionView(mode: $0) }
             .task {
                 await auth.refresh()
                 await chat.flushQueue()

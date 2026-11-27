@@ -22,6 +22,22 @@ final class AppRouter {
     var pendingMessage: String?
     /// Разговор голосом (виджет «Илзи — голосом»): шторка сразу слушает.
     var voicePending = false
+    /// Сессия с Илзи во весь экран: разгрузить голову, стратегия, поговорить.
+    var sessionMode: SessionMode?
+    /// «Направления» — долгосрочные цели и что к ним ведёт.
+    var showGoals = false
+
+    func openSession(_ mode: SessionMode = .unload) {
+        showSettings = false
+        showGoals = false
+        if isIlziOpen {
+            // Сначала убираем шторку — поверх неё экран во весь рост не откроется.
+            isIlziOpen = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { self.sessionMode = mode }
+        } else {
+            sessionMode = mode
+        }
+    }
 
     func openVoice() {
         voicePending = true
@@ -53,7 +69,8 @@ final class AppRouter {
         openIlzi()
     }
 
-    /// ealzy://capture, ealzy://chat[?text=…], ealzy://today, ealzy://reserve, ealzy://focus, ealzy://surprise.
+    /// ealzy://capture, ealzy://chat[?text=…], ealzy://today, ealzy://reserve, ealzy://focus, ealzy://surprise,
+    /// ealzy://session[?mode=unload|strategy|talk], ealzy://goals.
     /// true — если ссылка наша.
     func handle(_ url: URL) -> Bool {
         guard url.scheme == "ealzy" else { return false }
@@ -70,6 +87,13 @@ final class AppRouter {
         case "today": tab = .today
         case "reserve": tab = .reserve
         case "surprise": openSurprise()
+        case "session":
+            let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "mode" })?.value
+            openSession(raw.flatMap(SessionMode.init(rawValue:)) ?? .unload)
+        case "goals":
+            isIlziOpen = false
+            showGoals = true
         default: return false
         }
         return true

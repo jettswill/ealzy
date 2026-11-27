@@ -14,6 +14,8 @@ import type {
   CalendarEvent,
   CalendarEventInput,
   MeetingNoteLink,
+  LifeSession,
+  LifeSessionMode,
   Whereabouts,
   WhereaboutsInput,
   Memory,
@@ -581,6 +583,22 @@ export interface AppRepository {
     >,
   ): Promise<MeetingNoteLink>;
   listMeetingNoteLinks(ownerId: string, limit: number): Promise<MeetingNoteLink[]>;
+  createLifeSession(
+    ownerId: string,
+    input: {
+      mode: LifeSessionMode;
+      transcript: string;
+      proposal: Record<string, unknown>;
+      summary: string | null;
+    },
+  ): Promise<LifeSession>;
+  getLifeSession(ownerId: string, id: string): Promise<LifeSession | null>;
+  updateLifeSession(
+    ownerId: string,
+    id: string,
+    input: Partial<Pick<LifeSession, "proposal" | "summary" | "result" | "note_id" | "applied_at">>,
+  ): Promise<LifeSession | null>;
+  listLifeSessions(ownerId: string, limit: number): Promise<LifeSession[]>;
   getCurrentWhereabouts(ownerId: string): Promise<Whereabouts | null>;
   /** Тот же город — обновляет последнюю отметку и погоду; другой — новое пребывание. */
   recordWhereabouts(ownerId: string, input: WhereaboutsInput): Promise<Whereabouts>;
@@ -779,6 +797,7 @@ export class InMemoryRepository implements AppRepository {
   appLogins: AppLoginRow[] = [];
   calendarEvents: CalendarEvent[] = [];
   meetingNoteLinks: MeetingNoteLink[] = [];
+  lifeSessions: LifeSession[] = [];
   whereabouts: Whereabouts[] = [];
   devices: Device[] = [];
   activityCatalog: ActivityCatalog = { categories: [], types: [] };
@@ -2135,6 +2154,50 @@ export class InMemoryRepository implements AppRepository {
     };
     this.whereabouts.push(row);
     return { ...row };
+  }
+  async createLifeSession(
+    ownerId: string,
+    input: {
+      mode: LifeSessionMode;
+      transcript: string;
+      proposal: Record<string, unknown>;
+      summary: string | null;
+    },
+  ) {
+    const timestamp = now();
+    const row: LifeSession = {
+      ...input,
+      id: randomUUID(),
+      owner_id: ownerId,
+      result: null,
+      note_id: null,
+      applied_at: null,
+      created_at: timestamp,
+      updated_at: timestamp,
+    };
+    this.lifeSessions.push(row);
+    return structuredClone(row);
+  }
+  async getLifeSession(ownerId: string, id: string) {
+    const row = this.lifeSessions.find((x) => x.owner_id === ownerId && x.id === id);
+    return row ? structuredClone(row) : null;
+  }
+  async updateLifeSession(
+    ownerId: string,
+    id: string,
+    input: Partial<Pick<LifeSession, "proposal" | "summary" | "result" | "note_id" | "applied_at">>,
+  ) {
+    const row = this.lifeSessions.find((x) => x.owner_id === ownerId && x.id === id);
+    if (!row) return null;
+    Object.assign(row, structuredClone(input), { updated_at: now() });
+    return structuredClone(row);
+  }
+  async listLifeSessions(ownerId: string, limit: number) {
+    return this.lifeSessions
+      .filter((x) => x.owner_id === ownerId)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at))
+      .slice(0, limit)
+      .map((x) => structuredClone(x));
   }
   async listMeetingNoteLinks(ownerId: string, limit: number) {
     return this.meetingNoteLinks
@@ -4407,6 +4470,53 @@ export class SupabaseRepository implements AppRepository {
         .insert({ ...input, owner_id: ownerId, arrived_at: timestamp, last_seen_at: timestamp })
         .select("*")
         .single(),
+    );
+  }
+  async createLifeSession(
+    ownerId: string,
+    input: {
+      mode: LifeSessionMode;
+      transcript: string;
+      proposal: Record<string, unknown>;
+      summary: string | null;
+    },
+  ) {
+    return this.one<LifeSession>(
+      this.db
+        .from("life_sessions")
+        .insert({ ...input, owner_id: ownerId })
+        .select("*")
+        .single(),
+    );
+  }
+  async getLifeSession(ownerId: string, id: string) {
+    return this.one<LifeSession | null>(
+      this.db.from("life_sessions").select("*").eq("owner_id", ownerId).eq("id", id).maybeSingle(),
+    );
+  }
+  async updateLifeSession(
+    ownerId: string,
+    id: string,
+    input: Partial<Pick<LifeSession, "proposal" | "summary" | "result" | "note_id" | "applied_at">>,
+  ) {
+    return this.one<LifeSession | null>(
+      this.db
+        .from("life_sessions")
+        .update({ ...input, updated_at: new Date().toISOString() })
+        .eq("owner_id", ownerId)
+        .eq("id", id)
+        .select("*")
+        .maybeSingle(),
+    );
+  }
+  async listLifeSessions(ownerId: string, limit: number) {
+    return this.many<LifeSession>(
+      this.db
+        .from("life_sessions")
+        .select("*")
+        .eq("owner_id", ownerId)
+        .order("created_at", { ascending: false })
+        .limit(limit),
     );
   }
   async listMeetingNoteLinks(ownerId: string, limit: number) {

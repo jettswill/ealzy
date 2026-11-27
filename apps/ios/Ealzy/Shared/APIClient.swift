@@ -53,6 +53,64 @@ final class APIClient {
         try await call(path, method: "PUT", body: body)
     }
 
+    /// Отправить файл как есть (голосовая запись сессии). Долгий таймаут: распознавание
+    /// получасовой записи и разбор занимают минуты.
+    func upload<T: Decodable>(_ path: String, data: Data, contentType: String) async throws -> T {
+        var request = URLRequest(url: AppConfig.baseURL.appendingPathComponent("api" + path))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 300
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        if let token = Keychain.readToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let body: Data
+        let response: URLResponse
+        do {
+            (body, response) = try await longSession.upload(for: request, from: data)
+        } catch {
+            throw APIError.offline
+        }
+        return try decode(body, response)
+    }
+
+    /// POST с долгим ожиданием ответа — для разбора сессии моделью.
+    func postLong<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
+        var request = URLRequest(url: AppConfig.baseURL.appendingPathComponent("api" + path))
+        request.httpMethod = "POST"
+        request.timeoutInterval = 300
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = Keychain.readToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = try JSONCoding.encoder.encode(body)
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await longSession.data(for: request)
+        } catch {
+            throw APIError.offline
+        }
+        return try decode(data, response)
+    }
+
+    private let longSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 300
+        config.timeoutIntervalForResource = 600
+        return URLSession(configuration: config)
+    }()
+
+    private func decode<T: Decodable>(_ data: Data, _ response: URLResponse) throws -> T {
+        try check(data, response)
+        do {
+            return try JSONCoding.decoder.decode(Envelope<T>.self, from: data).data
+        } catch {
+            throw APIError.server("Не понял ответ сервера.")
+        }
+    }
+
     func delete<B: Encodable>(_ path: String, body: B) async throws {
         _ = try await raw(path, method: "DELETE", body: body)
     }
@@ -95,6 +153,12 @@ final class APIClient {
         } catch {
             throw APIError.offline
         }
+        try check(data, response)
+        return data
+    }
+
+    /// Общая проверка ответа: 401 — выйти, 429 — квота, 402 — подписка, прочее — текст ошибки.
+    private func check(_ data: Data, _ response: URLResponse) throws {
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         if status == 401 {
             onUnauthorized?()
@@ -114,7 +178,6 @@ final class APIClient {
                 .error.message
             throw APIError.server(message ?? "Сервер ответил ошибкой \(status).")
         }
-        return data
     }
 }
 
