@@ -27,13 +27,19 @@ struct TodayView: View {
             VStack(alignment: .leading, spacing: 0) {
                 ScreenHeader(title: Self.dayTitle(now))
 
-                DayRibbon(
-                    events: ribbonEvents(now: now),
-                    focus: main == nil ? nil : window,
-                    now: now,
-                    onEvent: { event in if let source = event.source { openedEvent = OpenedEvent(event: source) } },
-                    onFocus: { if let main { pickingFocusFor = main } }
-                )
+                // Черта «сейчас» ползёт по дню сама — лента перерисовывается раз в минуту.
+                TimelineView(.everyMinute) { context in
+                    let tick = context.date
+                    DayRibbon(
+                        events: ribbonEvents(now: tick),
+                        // Золотой отрезок — только когда фокус правда идёт. Предложенное окно
+                        // не висит в ленте само по себе: человек ничего не включал.
+                        focus: runningFocusSpan(now: tick),
+                        now: tick,
+                        onEvent: { event in if let source = event.source { openedEvent = OpenedEvent(event: source) } },
+                        onFocus: { if let main { pickingFocusFor = main } }
+                    )
+                }
                 .padding(.top, 14)
 
                 if let live = calendar.todayEvents.first(where: {
@@ -99,6 +105,13 @@ struct TodayView: View {
         .sheet(item: $openedTask) { TaskDetailView(task: $0) }
         .sheet(item: $pickingFocusFor) { FocusPickerView(current: $0) }
         .sheet(item: $startingFocus) { StartFocusSheet(task: $0) }
+    }
+
+    /// Идущий фокус: от начала до конца отведённого времени.
+    private func runningFocusSpan(now: Date) -> TimeSpan? {
+        guard focus.state != nil else { return nil }
+        let elapsed = focus.elapsed(at: now)
+        return TimeSpan(start: now.addingTimeInterval(-elapsed), end: now.addingTimeInterval(max(focus.remaining(at: now), 0)))
     }
 
     // MARK: Сессия с Илзи и «что сейчас»

@@ -433,7 +433,7 @@ private struct SideRail: View {
 }
 
 /// Лента дня 8:00–23:00 — схематично, как на «Сегодня» в приложении:
-/// цвет полосы — время суток, встречи — капсулы, золотая — окно под главное дело,
+/// цвет полосы — время суток, встречи — капсулы, золотая — идущий фокус,
 /// черта — «сейчас». В большом виджете крупнее и со временем на капсулах.
 private struct WidgetRibbon: View {
     let snapshot: WidgetSnapshot
@@ -459,13 +459,17 @@ private struct WidgetRibbon: View {
                         pill(span, width: width, fill: span.end <= now ? Palette.pillPast : Palette.pill,
                              ink: span.end <= now ? Palette.ink2 : Palette.ink)
                     }
-                    if let focus = snapshot.focusWindow {
-                        pill(focus, width: width, fill: Palette.gold, ink: Palette.goldInk)
+                    // Золотой отрезок — только идущий фокус, а не предложенное окно.
+                    if let run = snapshot.focusRun,
+                       let end = run.endsAt ?? run.pausedRemaining.map({ now.addingTimeInterval($0) }),
+                       end > now {
+                        pill(WidgetSnapshot.Span(start: now, end: end, title: run.title),
+                             width: width, fill: Palette.gold, ink: Palette.goldInk)
                     }
                     if let x = position(now, width: width) {
                         Capsule()
-                            .fill(Palette.ink)
-                            .frame(width: 2, height: laneHeight + 4)
+                            .fill(Palette.dayMark)
+                            .frame(width: 1.5, height: laneHeight + 4)
                             .offset(x: x - 1, y: -2)
                     }
                 }
