@@ -23,6 +23,65 @@ struct NewTask: Encodable {
     var title: String
     var description: String?
     var dueAt: Date?
+    /// Полная форма нового дела: всё ниже — по желанию.
+    var estimateMinutes: Int?
+    var importance: Int?
+    var urgency: Int?
+    var goalId: String?
+    var assignee: String?
+    var recurrenceFrequency: String?
+}
+
+/// Быстрые сроки для строки «Новое дело»: тап — сегодня/без срока, долгое нажатие — другой день.
+enum QuickDue: CaseIterable {
+    case today, tomorrow, afterTomorrow, saturday, nextMonday
+
+    var title: String {
+        switch self {
+        case .today: return "Сегодня"
+        case .tomorrow: return "Завтра"
+        case .afterTomorrow: return "Послезавтра"
+        case .saturday: return "В субботу"
+        case .nextMonday: return "В понедельник"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .today: return "sun.max"
+        case .tomorrow: return "sunrise"
+        case .afterTomorrow: return "calendar"
+        case .saturday: return "beach.umbrella"
+        case .nextMonday: return "calendar.badge.clock"
+        }
+    }
+
+    /// День без времени (полдень — как на сервере).
+    func date(from now: Date = Date(), calendar: Calendar = .current) -> Date {
+        let today = calendar.startOfDay(for: now)
+        let day: Date
+        switch self {
+        case .today: day = today
+        case .tomorrow: day = calendar.date(byAdding: .day, value: 1, to: today) ?? today
+        case .afterTomorrow: day = calendar.date(byAdding: .day, value: 2, to: today) ?? today
+        case .saturday, .nextMonday:
+            let weekday = self == .saturday ? 7 : 2 // григорианский: 1 — воскресенье
+            day = calendar.nextDate(after: today, matching: DateComponents(weekday: weekday),
+                                    matchingPolicy: .nextTime) ?? today
+        }
+        return DueClock.dateOnly(day, calendar: calendar)
+    }
+
+    /// «Сегодня», «Завтра», «Пт, 5 дек.», «Пт, 5 дек., 18:00».
+    static func label(for date: Date, calendar: Calendar = .current) -> String {
+        let timed = !DueClock.isDateOnly(date, calendar: calendar)
+        let time = timed ? ", " + date.formatted(date: .omitted, time: .shortened) : ""
+        if calendar.isDateInToday(date) { return "Сегодня" + time }
+        if calendar.isDateInTomorrow(date) { return "Завтра" + time }
+        let day = date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated)
+            .locale(Locale(identifier: "ru_RU")))
+        return day + time
+    }
 }
 
 /// Заметка Ealzy: документ ProseMirror, как в редакторе на сайте.

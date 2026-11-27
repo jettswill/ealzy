@@ -133,11 +133,15 @@ struct ReserveView: View {
     }
 }
 
-/// Новое дело руками: поле сверху списка. «Сегодня» — сразу в день.
+/// Новое дело руками: поле сверху списка. Капсула срока: тап — «сегодня» / без срока,
+/// долгое нажатие — другой день или дата. Кнопка справа — полная форма со всеми атрибутами.
 struct NewTaskField: View {
     @Environment(TasksStore.self) private var tasks
     @State private var title = ""
-    @State private var today = false
+    @State private var due: Date?
+    @State private var pickingDate = false
+    @State private var pickedDate = Date()
+    @State private var showForm = false
     @FocusState private var focused: Bool
 
     private var hasText: Bool { !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -155,21 +159,16 @@ struct NewTaskField: View {
                 .submitLabel(.done)
                 .onSubmit(save)
             if focused || hasText {
-                Button {
-                    today.toggle()
-                    UISelectionFeedbackGenerator().selectionChanged()
-                } label: {
-                    Label("Сегодня", systemImage: today ? "checkmark" : "plus")
-                        .font(.caption.weight(.semibold))
-                        .padding(.horizontal, 10)
-                        .frame(height: 30)
-                        .foregroundStyle(today ? Palette.goldInk : Palette.ink2)
-                        .background(today ? Palette.gold : .clear, in: Capsule())
-                        .overlay(Capsule().strokeBorder(today ? .clear : Palette.rule))
-                        .fixedSize()
+                dueChip
+                Button { showForm = true } label: {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.footnote.weight(.semibold))
+                        .frame(width: 30, height: 30)
+                        .foregroundStyle(Palette.ink2)
+                        .overlay(Circle().strokeBorder(Palette.rule))
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(today ? "Не на сегодня" : "Сразу на сегодня")
+                .accessibilityLabel("Полная форма дела")
             }
             if hasText {
                 Button(action: save) {
@@ -189,14 +188,80 @@ struct NewTaskField: View {
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.rule))
         .animation(.snappy, value: focused)
         .animation(.snappy, value: hasText)
+        .sheet(isPresented: $pickingDate) { datePicker }
+        .sheet(isPresented: $showForm) {
+            NewTaskSheet(title: title, due: due) {
+                title = ""
+                due = nil
+            }
+        }
+    }
+
+    /// Тап — «сегодня» или снять срок; долгое нажатие — меню дней.
+    private var dueChip: some View {
+        Menu {
+            ForEach(QuickDue.allCases, id: \.self) { option in
+                Button { set(option.date()) } label: { Label(option.title, systemImage: option.icon) }
+            }
+            Button {
+                pickedDate = due ?? QuickDue.tomorrow.date()
+                pickingDate = true
+            } label: { Label("Выбрать дату…", systemImage: "calendar") }
+            if due != nil {
+                Button(role: .destructive) { set(nil) } label: { Label("Без срока", systemImage: "xmark") }
+            }
+        } label: {
+            let on = due != nil
+            Label(due.map { QuickDue.label(for: $0) } ?? "Сегодня", systemImage: on ? "checkmark" : "plus")
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .foregroundStyle(on ? Palette.goldInk : Palette.ink2)
+                .background(on ? Palette.gold : .clear, in: Capsule())
+                .overlay(Capsule().strokeBorder(on ? .clear : Palette.rule))
+                .fixedSize()
+        } primaryAction: {
+            set(due == nil ? QuickDue.today.date() : nil)
+        }
+        .accessibilityLabel(due == nil ? "Без срока. Нажми — на сегодня, удерживай — выбрать день" : "Срок: \(QuickDue.label(for: due!))")
+    }
+
+    private var datePicker: some View {
+        NavigationStack {
+            DatePicker("День", selection: $pickedDate, in: Calendar.current.startOfDay(for: Date())..., displayedComponents: .date)
+                .datePickerStyle(.graphical)
+                .tint(Palette.goldText)
+                .padding(.horizontal, 16)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Отмена") { pickingDate = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Готово") {
+                            set(DueClock.dateOnly(pickedDate))
+                            pickingDate = false
+                        }
+                        .foregroundStyle(Palette.goldText)
+                    }
+                }
+            Spacer(minLength: 0)
+        }
+        .presentationDetents([.medium])
+        .presentationBackground(Palette.raised)
+    }
+
+    private func set(_ date: Date?) {
+        UISelectionFeedbackGenerator().selectionChanged()
+        withAnimation(.snappy) { due = date }
     }
 
     private func save() {
         guard hasText else { focused = false; return }
-        let text = title, toToday = today
+        let draft = NewTask(title: title, dueAt: due)
         title = ""
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        Task { await tasks.create(text, today: toToday) }
-        focused = true // можно сразу писать следующее
+        Task { await tasks.create(draft) }
+        focused = true // можно сразу писать следующее; срок остаётся для следующего дела
     }
 }
