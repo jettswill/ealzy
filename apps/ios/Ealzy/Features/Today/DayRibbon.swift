@@ -2,7 +2,7 @@ import EventKit
 import SwiftUI
 
 /// Лента дня 8:00–23:00: цвет полосы — время суток, встречи — капсулы со временем,
-/// золотая капсула — окно для главного дела, черта — «сейчас».
+/// золотая капсула — идущий фокус, тонкая черта — «сейчас».
 struct DayRibbon: View {
     struct Event: Identifiable {
         let id = UUID()
@@ -50,13 +50,13 @@ struct DayRibbon: View {
                 }
 
                 if let x = position(now, width: width) {
-                    Capsule().fill(Palette.ink)
-                        .frame(width: 2, height: 48)
+                    Capsule().fill(Palette.dayMark)
+                        .frame(width: 1.5, height: 48)
                         .offset(x: x - 1, y: laneTop - 4)
                     Text(time(now))
                         .font(.caption2.weight(.bold))
                         .monospacedDigit()
-                        .foregroundStyle(Palette.ink)
+                        .foregroundStyle(Palette.dayMark)
                         .fixedSize()
                         .alignmentGuide(.leading) { $0[HorizontalAlignment.center] - x }
                 }
