@@ -12,6 +12,8 @@ struct TodayView: View {
     @State private var openedTask: EalzyTask?
     @State private var pickingFocusFor: EalzyTask?
     @State private var startingFocus: EalzyTask?
+    @State private var focusNow: FocusSuggestion?
+    @State private var askingNow = false
 
     var body: some View {
         let plan = tasks.plan
@@ -47,6 +49,16 @@ struct TodayView: View {
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink2)
                     .padding(.top, 18)
+
+                sessionActions
+                    .padding(.top, 12)
+                if let focusNow {
+                    FocusNowCard(suggestion: focusNow, start: { startingFocus = $0 }) {
+                        withAnimation(.snappy) { self.focusNow = nil }
+                    }
+                    .padding(.top, 12)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
 
                 if let main {
                     FocusHeader(task: main, window: window, minutes: minutes) {
@@ -87,6 +99,54 @@ struct TodayView: View {
         .sheet(item: $openedTask) { TaskDetailView(task: $0) }
         .sheet(item: $pickingFocusFor) { FocusPickerView(current: $0) }
         .sheet(item: $startingFocus) { StartFocusSheet(task: $0) }
+    }
+
+    // MARK: Сессия с Илзи и «что сейчас»
+
+    /// Три быстрых входа: спросить, что делать сейчас; выгрузить всё из головы; направления.
+    private var sessionActions: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                actionChip(askingNow ? "Думаю…" : "Что сейчас?", "bolt") {
+                    Task { await askNow() }
+                }
+                .disabled(askingNow)
+                actionChip("Разгрузить голову", "brain.head.profile") { router.openSession(.unload) }
+                actionChip("Направления", "scope") { router.showGoals = true }
+            }
+        }
+        .scrollClipDisabled()
+    }
+
+    private func actionChip(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.footnote.weight(.semibold))
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .overlay(Capsule().strokeBorder(Palette.rule))
+                .foregroundStyle(Palette.ink)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func askNow() async {
+        askingNow = true
+        defer { askingNow = false }
+        struct Body: Encodable { let hint: String? }
+        do {
+            let suggestion: FocusSuggestion = try await APIClient.shared.postLong("/focus/now", body: Body(hint: nil))
+            withAnimation(.snappy) { focusNow = suggestion }
+        } catch {
+            // Без сети — по правилам дня: главное, если оно есть.
+            if let main = tasks.plan.focus.first {
+                withAnimation(.snappy) {
+                    focusNow = FocusSuggestion(taskId: main.id, title: main.title,
+                                               reason: "Нет связи с Илзи — это главное дело дня.",
+                                               firstStep: nil, minutes: main.estimateMinutes)
+                }
+            }
+        }
     }
 
     // MARK: Остальное на сегодня и сделанное

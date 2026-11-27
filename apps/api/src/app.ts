@@ -44,6 +44,15 @@ import { canonicalCityName, resolveCity, searchCities } from "./modules/assistan
 import { cityForTimezone } from "./modules/assistant/discovery.js";
 import { ownCity, saveOwnCity } from "./modules/assistant/locations.js";
 import { getMeetingNote, saveMeetingNote } from "./modules/assistant/meeting-notes.js";
+import {
+  ApplySessionSchema,
+  LIFE_SESSION_MODES,
+  MAX_SESSION_TRANSCRIPT,
+  applyLifeSession,
+  createLifeSession,
+  sessionView,
+  suggestFocusNow,
+} from "./modules/assistant/life-session.js";
 import { roundCoordinate } from "./modules/assistant/whereabouts.js";
 import {
   applyWebClientContext,
@@ -931,6 +940,86 @@ export function createApp(deps: AppDependencies): Express {
       res.json({
         data: { city: place.city, country: place.country, arrived_at: place.arrived_at },
       });
+    }),
+  );
+  // Сессия с Илзи: выгрузить всё из головы голосом или текстом → разбор → принять.
+  api.post(
+    "/sessions/transcribe",
+    express.raw({ type: ["audio/*", "application/octet-stream"], limit: "25mb" }),
+    asyncHandler(async (req, res) => {
+      const bytes = Buffer.isBuffer(req.body) ? req.body : null;
+      if (!bytes?.byteLength) throw new HttpError(400, "EMPTY_AUDIO", "No audio received");
+      if (!deps.ai?.transcribe)
+        throw new HttpError(503, "TRANSCRIPTION_UNAVAILABLE", "Speech recognition is unavailable");
+      await assertCloudQuota(repository, owner(req));
+      const mime = String(req.headers["content-type"] || "audio/mp4")
+        .split(";")[0]!
+        .trim();
+      const extension = mime.includes("wav") ? "wav" : mime.includes("mpeg") ? "mp3" : "m4a";
+      const text = await deps.ai.transcribe(
+        { bytes: new Uint8Array(bytes), filename: `session.${extension}`, mime },
+        { timeoutMs: 240_000 },
+      );
+      if (!text) throw new HttpError(422, "NOTHING_HEARD", "Could not recognise speech");
+      res.json({ data: { text } });
+    }),
+  );
+  api.get(
+    "/sessions",
+    asyncHandler(async (req, res) => {
+      const sessions = await repository.listLifeSessions(owner(req), 10);
+      res.json({ data: sessions.map(sessionView) });
+    }),
+  );
+  api.post(
+    "/sessions",
+    asyncHandler(async (req, res) => {
+      const input = z
+        .object({
+          mode: z.enum(LIFE_SESSION_MODES).default("unload"),
+          text: z.string().trim().min(1).max(MAX_SESSION_TRANSCRIPT),
+        })
+        .strict()
+        .parse(req.body);
+      const session = await createLifeSession(
+        repository,
+        deps.ai,
+        owner(req),
+        input.mode,
+        input.text,
+      );
+      res.status(201).json({ data: sessionView(session) });
+    }),
+  );
+  api.get(
+    "/sessions/:id",
+    asyncHandler(async (req, res) => {
+      const id = z.string().uuid().parse(req.params.id);
+      res.json({ data: sessionView(found(await repository.getLifeSession(owner(req), id))) });
+    }),
+  );
+  api.post(
+    "/sessions/:id/apply",
+    asyncHandler(async (req, res) => {
+      const id = z.string().uuid().parse(req.params.id);
+      const result = await applyLifeSession(
+        repository,
+        owner(req),
+        id,
+        ApplySessionSchema.parse(req.body),
+      );
+      res.json({ data: found(result) });
+    }),
+  );
+  // «Что сейчас?» — одно дело с учётом времени, календаря и целей.
+  api.post(
+    "/focus/now",
+    asyncHandler(async (req, res) => {
+      const { hint } = z
+        .object({ hint: z.string().trim().max(500).nullable().optional() })
+        .strict()
+        .parse(req.body ?? {});
+      res.json({ data: await suggestFocusNow(repository, deps.ai, owner(req), hint ?? null) });
     }),
   );
   // Заметки со встречи: открыл встречу в приложении — пишешь, что обсудили.

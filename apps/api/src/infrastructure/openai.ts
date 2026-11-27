@@ -16,6 +16,12 @@ import {
 } from "../modules/billing/usage.js";
 import type { TasteEvidence, TasteInference } from "../modules/assistant/tastes.js";
 import {
+  SESSION_BUCKETS,
+  SESSION_SPHERES,
+  type LifeContext,
+} from "../modules/assistant/life-session.js";
+import type { LifeSessionMode } from "../types.js";
+import {
   parseWebPlaces,
   type WebPlaceHit,
   type WebPlaceQuery,
@@ -401,6 +407,132 @@ function researchWhereWhen(context: WebResearchContext) {
   if (en) return `${context.city ? `I am in ${context.city}. ` : ""}Today is ${today}.`;
   return `${context.city ? `Я сейчас в городе: ${context.city}. ` : ""}Сегодня ${today}.`;
 }
+
+const nullableString = { type: ["string", "null"] } as const;
+const lifeSessionSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "summary",
+    "reflection",
+    "goals",
+    "tasks",
+    "thoughts",
+    "now",
+    "alignment",
+    "questions",
+  ],
+  properties: {
+    summary: { type: "string" },
+    reflection: nullableString,
+    goals: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["key", "op", "goal_id", "title", "horizon", "why"],
+        properties: {
+          key: { type: "string" },
+          op: { type: "string", enum: ["create", "touch"] },
+          goal_id: nullableString,
+          title: { type: "string" },
+          horizon: { type: ["string", "null"], enum: ["short", "medium", "long", null] },
+          why: nullableString,
+        },
+      },
+    },
+    tasks: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: [
+          "key",
+          "title",
+          "description",
+          "bucket",
+          "due_phrase",
+          "due_date",
+          "estimate_minutes",
+          "sphere",
+          "goal_key",
+          "importance",
+          "urgency",
+          "assignee",
+          "existing_task_id",
+        ],
+        properties: {
+          key: { type: "string" },
+          title: { type: "string" },
+          description: nullableString,
+          bucket: { type: "string", enum: [...SESSION_BUCKETS] },
+          due_phrase: nullableString,
+          due_date: nullableString,
+          estimate_minutes: { type: ["integer", "null"] },
+          sphere: { type: "string", enum: [...SESSION_SPHERES] },
+          goal_key: nullableString,
+          importance: { type: "integer" },
+          urgency: { type: "integer" },
+          assignee: { type: "string", enum: ["user", "ealzy"] },
+          existing_task_id: nullableString,
+        },
+      },
+    },
+    thoughts: { type: "array", items: { type: "string" } },
+    now: {
+      type: ["object", "null"],
+      additionalProperties: false,
+      required: ["task_key", "reason", "first_step"],
+      properties: { task_key: nullableString, reason: nullableString, first_step: nullableString },
+    },
+    alignment: nullableString,
+    questions: { type: "array", items: { type: "string" } },
+  },
+} as const;
+
+const focusNowSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["task_id", "reason", "first_step", "minutes"],
+  properties: {
+    task_id: nullableString,
+    reason: { type: "string" },
+    first_step: nullableString,
+    minutes: { type: ["integer", "null"] },
+  },
+} as const;
+
+const LIFE_SESSION_COMMON = `You are Ilzi (Илзи), the user's personal assistant inside Ealzy. The user just unloaded their head to you — usually spoken aloud and transcribed, so expect run-on speech, repetitions, filler words, self-corrections ("нет, не так") and recognition errors. Your job is to take the weight off: understand everything, lose nothing, and help them focus.
+Context JSON gives: current local time and weekday, their active long-term goals (id, title, horizon, plan), open tasks (id, title, due, goal_id), phone calendar for today/tomorrow, and summaries of previous sessions.
+Rules for tasks:
+- A task is one concrete action that starts with a verb in the imperative/infinitive the user would write for themselves ("Позвонить Пете про смету", "Купить корм коту"), short and specific. Never titles like "Добавить задачу", "Задача", "Подумать о жизни". Merge duplicates and self-corrections; keep the user's names and specifics.
+- Vague or big things ("разобраться с налогами", "запустить проект") become ONE next physical action as the task; put the bigger picture in description (a short 2–4 step breakdown) or into goals.
+- Something Ilzi can do herself (find, compare, research, pick options) → assignee "ealzy".
+- If it matches an open task from context, set existing_task_id to that id instead of duplicating.
+- bucket: "now" — the single thing to do right now (at most one); "today" — must or clearly should happen today, respecting calendar and the hour (if it's evening, keep today light); "week" — this week; "later" — no time pressure; "someday" — ideas and wishes.
+- due_phrase: copy the exact words the user used for a deadline for THIS item ("до пятницы", "завтра в 10", "к концу декабря"), else null. due_date: ISO date/datetime you derive from that phrase in the user's timezone, else null. Never invent deadlines.
+- estimate_minutes only when the user said it or it is obvious (a call ≈ 10–15), else null. importance/urgency 1–5.
+- sphere: work, home, health, people, rest, growth, money, other.
+- goal_key: the key of a goal in your goals array this task moves forward, else null.
+Rules for goals (long-term directions — what the user wants their life/work to move toward):
+- For every existing goal the user touches, include {op:"touch", goal_id:<id from context>, key}. Propose op "create" only for a direction the user actually voiced as something they want over weeks–years ("хочу выучить английский", "хочу свой бизнес"); never invent goals. horizon: short (≤3 months), medium (≤1 year), long. why: one line in the user's words why it matters to them.
+Other fields:
+- thoughts: things that are not actions — worries, feelings, ideas, observations, facts to remember — so nothing they said is lost. Short lines in their voice.
+- now: task_key of the one thing to do right now (it must also be in tasks, bucket "now"), reason — why this one now (deadline, unblocks others, energy, fits the free window before the next calendar event), first_step — a tiny 2–5 minute first move. null if nothing fits right now (late night, they said they're exhausted).
+- alignment: 1–3 sentences: what of this moves them toward their goals, what is noise or can be dropped/delegated, and if most of the load serves no goal — say it gently.
+- questions: at most 2 short questions that would really help clarify (only if needed).
+- summary: 2–4 sentences, addressed to the user ("ты"), what you heard and how you laid it out. Warm, calm, concrete — no clichés, no lecturing.
+Write everything in Russian unless the user spoke another language. Keys: "g1","g2"… for goals, "t1","t2"… for tasks.`;
+
+const LIFE_SESSION_MODE_HINT: Record<LifeSessionMode, string> = {
+  unload:
+    "Mode: unload («Разгрузить голову»). Priority: capture EVERYTHING as tasks or thoughts, decompose, then focus: one thing now, a light realistic today (what fits between calendar events), the rest parked. reflection: null unless the user sounds overwhelmed — then one supportive sentence.",
+  strategy:
+    "Mode: strategy («Стратегическая сессия»). Priority: long-term perspective. Map what they said to their goals; propose new goals only if they voiced them; for each touched goal give 1–3 concrete next-step tasks; point out in alignment what moves the goals and what doesn't; choose a focus for this week and one thing for now. reflection: 2–4 sentences on where they are heading and what matters most this week.",
+  talk: "Mode: talk («Поговорить»). The user wants to talk something through, maybe emotional. Act as a calm, supportive coach with a psychologist's manner: reflect what they feel in your own words, normalize, notice patterns, no diagnoses and no lecturing. reflection: the main part — 3–6 sentences. Create tasks only for actions they clearly mean to do; offer at most one small, kind next step as now (or null). Put feelings and insights into thoughts. If they mention self-harm or crisis, gently encourage reaching a trusted person or a professional.",
+};
+
+const FOCUS_NOW_PROMPT = `You are Ilzi, the user's personal assistant. Pick ONE open task from context.open_tasks the user should do right now. Consider: current local time and weekday; calendar (do not pick something that won't fit before the next event — prefer a short task then); overdue and due-today first; importance/urgency; tasks that move active goals; time of day (deep work in the morning, small things in breaks and evening). Never pick a meeting. Return its exact id as task_id, reason — 1–2 short sentences to the user ("ты") why this one now, first_step — a tiny concrete first move, minutes — realistic estimate. If hint is given, it is the user's current state or wish — respect it. Russian.`;
 
 export class OpenAiProvider implements AiProvider {
   private readonly client: OpenAI;
@@ -861,12 +993,68 @@ Do not invent facts. If the text is vague, return empty arrays. Respond in ${loc
       };
     return { kind: "tasks", tasks: raw.tasks };
   }
-  async transcribe(file: { bytes: Uint8Array; filename: string; mime: string }) {
+  /** Разбор сессии — на модели разговора: здесь качество человек видит напрямую. */
+  private async structuredStrong(
+    name: string,
+    schema: Record<string, unknown>,
+    messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[],
+    timeout: number,
+  ) {
+    const run = async (model: string) => {
+      const result = await this.client.chat.completions.create(
+        {
+          model,
+          ...chatCompletionControls(model, { reasoningEffort: "low" }),
+          messages,
+          response_format: { type: "json_schema", json_schema: { name, strict: true, schema } },
+        },
+        { timeout, maxRetries: 0 },
+      );
+      this.report(metricForSchema(name), tokensFromCompletionUsage(result.usage));
+      const content = result.choices[0]?.message.content;
+      if (!content) throw new Error("OpenAI returned no structured content");
+      return JSON.parse(content) as unknown;
+    };
+    try {
+      return await run(this.companionModel);
+    } catch (error) {
+      if (this.companionModel === this.model) throw error;
+      return run(this.model);
+    }
+  }
+  async lifeSession(input: { mode: LifeSessionMode; transcript: string; context: LifeContext }) {
+    return this.structuredStrong(
+      "life_session",
+      lifeSessionSchema as unknown as Record<string, unknown>,
+      [
+        { role: "system", content: LIFE_SESSION_COMMON },
+        { role: "system", content: LIFE_SESSION_MODE_HINT[input.mode] },
+        { role: "system", content: `Context JSON:\n${JSON.stringify(input.context)}` },
+        { role: "user", content: input.transcript },
+      ],
+      150_000,
+    );
+  }
+  async focusNow(input: { context: LifeContext; hint: string | null }) {
+    return this.structuredStrong(
+      "focus_now",
+      focusNowSchema as unknown as Record<string, unknown>,
+      [
+        { role: "system", content: FOCUS_NOW_PROMPT },
+        { role: "user", content: JSON.stringify({ hint: input.hint, context: input.context }) },
+      ],
+      45_000,
+    );
+  }
+  async transcribe(
+    file: { bytes: Uint8Array; filename: string; mime: string },
+    options: { timeoutMs?: number } = {},
+  ) {
     try {
       const audio = await toFile(file.bytes, file.filename, { type: file.mime });
       const result = await this.client.audio.transcriptions.create(
         { file: audio, model: this.transcriptionModel },
-        { timeout: 60_000 },
+        { timeout: options.timeoutMs ?? 60_000 },
       );
       const usage =
         result && typeof result === "object" && "usage" in result

@@ -476,6 +476,21 @@ export interface MeetingNoteLink {
   created_at: string;
   updated_at: string;
 }
+/** Сессия с Илзи: выгрузка из головы, стратегия или разговор. */
+export type LifeSessionMode = "unload" | "strategy" | "talk";
+export interface LifeSession {
+  id: string;
+  owner_id: string;
+  mode: LifeSessionMode;
+  transcript: string;
+  proposal: Record<string, unknown>;
+  summary: string | null;
+  result: Record<string, unknown> | null;
+  note_id: string | null;
+  applied_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
 /** Заметка со встречи — то, что видит Илзи. */
 export interface MeetingNoteContext {
   title: string;

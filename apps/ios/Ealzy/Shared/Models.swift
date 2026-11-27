@@ -24,6 +24,8 @@ struct EalzyTask: Codable, Identifiable, Hashable {
     var urgency: Int?
     var kind: String?
     var assignee: String?
+    /// К какому долгосрочному направлению ведёт дело.
+    var goalId: String?
     var completedAt: Date?
     var createdAt: Date?
 

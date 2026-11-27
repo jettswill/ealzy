@@ -157,7 +157,8 @@ struct IlziSheet: View {
         [
             ("Что у меня сегодня?", "Что у меня сегодня?"),
             focus.map { ("Главное — на вечер", "Перенеси «\($0.title)» на сегодня вечер") },
-            ("Выгрузить мысли", nil),
+            ("Разгрузить голову", "session:unload"),
+            ("Стратегия", "session:strategy"),
         ].compactMap { $0 }
     }
 
@@ -166,7 +167,9 @@ struct IlziSheet: View {
             HStack(spacing: 8) {
                 ForEach(chips, id: \.label) { chip in
                     Button(chip.label) {
-                        if let text = chip.text { send(text) } else { inputFocused = true }
+                        if let text = chip.text, text.hasPrefix("session:") {
+                            router.openSession(SessionMode(rawValue: String(text.dropFirst(8))) ?? .unload)
+                        } else if let text = chip.text { send(text) } else { inputFocused = true }
                     }
                     .font(.subheadline)
                     .foregroundStyle(Palette.ink)
@@ -185,6 +188,15 @@ struct IlziSheet: View {
                 Text(error).font(.footnote).foregroundStyle(.red)
             }
             HStack(spacing: 10) {
+                // Длинный рассказ, разговор по душам, стратегия — отдельным экраном сессии.
+                Button { router.openSession(.unload) } label: {
+                    Image(systemName: "brain.head.profile")
+                        .font(.body)
+                        .foregroundStyle(Palette.ink2)
+                        .frame(width: 30, height: 44)
+                }
+                .accessibilityLabel("Сессия с Илзи")
+                .padding(.leading, -8)
                 TextField("Скажи Илзи…", text: $draft, axis: .vertical)
                     .lineLimit(1...5)
                     .focused($inputFocused)

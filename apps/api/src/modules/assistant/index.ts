@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { LifeSessionMode } from "../../types.js";
+import type { LifeContext } from "./life-session.js";
 import type { WebPlaceHit, WebPlaceQuery } from "./web-places.js";
 import type { AppRepository } from "../../repository.js";
 import type {
@@ -42,11 +44,7 @@ export {
   toCompanionWorkspace,
 } from "./companion.js";
 export { extractStreamingAnswer } from "./companion-stream.js";
-export {
-  applyCompanionSettings,
-  inferCompanionSettings,
-  workspaceSettings,
-} from "./settings.js";
+export { applyCompanionSettings, inferCompanionSettings, workspaceSettings } from "./settings.js";
 export {
   composePortrait,
   inferBehaviorPatterns,
@@ -241,7 +239,18 @@ export interface AiProvider {
   reflect?(snapshot: Record<string, unknown>): Promise<unknown>;
   extractExperience?(text: string, currentTime: string): Promise<unknown>;
   digest?(kind: ScheduledNotificationKind, snapshot: Record<string, unknown>): Promise<unknown>;
-  transcribe?(file: { bytes: Uint8Array; filename: string; mime: string }): Promise<string | null>;
+  transcribe?(
+    file: { bytes: Uint8Array; filename: string; mime: string },
+    options?: { timeoutMs?: number },
+  ): Promise<string | null>;
+  /** Разбор сессии «выгрузить из головы» (life-session.ts). */
+  lifeSession?(input: {
+    mode: LifeSessionMode;
+    transcript: string;
+    context: LifeContext;
+  }): Promise<unknown>;
+  /** Одно дело «прямо сейчас». */
+  focusNow?(input: { context: LifeContext; hint: string | null }): Promise<unknown>;
   previewNoteAction?(
     note: { title: string; content: Record<string, unknown>; plain_text: string; revision: number },
     instruction: string,
@@ -249,7 +258,11 @@ export interface AiProvider {
   extractOnboardingFacts?(
     text: string,
     locale: string,
-  ): Promise<{ memories: { content: string; category?: string }[]; goals: string[]; people: string[] }>;
+  ): Promise<{
+    memories: { content: string; category?: string }[];
+    goals: string[];
+    people: string[];
+  }>;
 }
 
 const textFromDecision = (decision: AssistantDecision) =>
