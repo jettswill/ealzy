@@ -114,16 +114,24 @@ final class TasksStore {
 
     /// Новое дело руками — во «Всех делах» или сразу на сегодня.
     func create(_ title: String, today: Bool) async {
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        await create(NewTask(title: title, dueAt: today ? DueClock.dateOnly(Date()) : nil))
+    }
+
+    /// Новое дело из строки или полной формы: появляется сразу, сервер догоняет.
+    func create(_ draft: NewTask) async {
+        let trimmed = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        let due = today ? DueClock.dateOnly(Date()) : nil
-        let local = EalzyTask(id: "local-\(UUID().uuidString)", title: trimmed, description: nil, status: "todo",
-                              dueAt: due, estimateMinutes: nil, importance: nil, urgency: nil, kind: "task",
-                              assignee: "user", completedAt: nil, createdAt: Date())
+        var body = draft
+        body.title = trimmed
+        let local = EalzyTask(id: "local-\(UUID().uuidString)", title: trimmed, description: draft.description,
+                              status: "todo", dueAt: draft.dueAt, estimateMinutes: draft.estimateMinutes,
+                              importance: draft.importance, urgency: draft.urgency, kind: "task",
+                              assignee: draft.assignee ?? "user", goalId: draft.goalId,
+                              completedAt: nil, createdAt: Date())
         tasks.append(local)
         if DemoData.isOn { return }
         do {
-            let created: EalzyTask = try await APIClient.shared.post("/tasks", body: NewTask(title: trimmed, dueAt: due))
+            let created: EalzyTask = try await APIClient.shared.post("/tasks", body: body)
             replace(local.id) { $0 = created }
             errorMessage = nil
         } catch {
